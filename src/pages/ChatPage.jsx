@@ -1,55 +1,133 @@
 import { useEffect, useState, useRef } from "react";
-import { useAuth } from "../context/AuthContext"; // 유저 정보 가져오기
+import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import CharacterDisplay from "../components/CharacterDisplay";
 import DialogueBox from "../components/DialogueBox";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, MessageSquare, Trash2 } from "lucide-react";
+import { 
+  X, MessageSquare, Trash2, Settings, Music, VolumeX, 
+  LogOut, User as UserIcon, Gamepad2, Save
+} from "lucide-react";
 
 const ChatPage = () => {
-  const { user } = useAuth(); // 로그인한 유저 정보
+  const { user, logout } = useAuth();
   const roomId = localStorage.getItem("roomId");
   
   const [roomInfo, setRoomInfo] = useState(null);
-  const [messages, setMessages] = useState([]); // 전체 로그 (히스토리용)
+  const [messages, setMessages] = useState([]);
   
   // [컷신 상태]
-  const [sceneQueue, setSceneQueue] = useState([]); // 재생 대기 중인 씬들
-  const [currentScene, setCurrentScene] = useState(null); // 현재 보여지는 씬
-
-  // [NEW] 화면에 표시될 표정 (데이터 로딩 중 표정 풀림 방지)
+  const [sceneQueue, setSceneQueue] = useState([]);
+  const [currentScene, setCurrentScene] = useState(null);
   const [displayedEmotion, setDisplayedEmotion] = useState("NEUTRAL");
   
   // [상태 정보]
   const [affection, setAffection] = useState(0);
-  const [energy, setEnergy] = useState(user?.energy || 100); // 초기값은 유저 정보 or 100
+  const [energy, setEnergy] = useState(user?.energy || 100);
   const [isTyping, setIsTyping] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
   
-  const logsEndRef = useRef(null);
+  // [UI 상태]
+  const [showHistory, setShowHistory] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [isBgmPlaying, setIsBgmPlaying] = useState(false); // 초기값 false (브라우저 정책상 자동재생 제한될 수 있음)
 
-  // [NEW] 유저 정보가 로드되면 에너지 수치 동기화 (새로고침 버그 수정)
+  // [유저 설정 상태]
+  const [userInfo, setUserInfo] = useState({ nickname: "", profileDescription: "" });
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  const logsEndRef = useRef(null);
+  const audioRef = useRef(null);
+
+  // ================= BGM Logic =================
+  useEffect(() => {
+    // BGM 초기화 (public/sounds/bgm.mp3 파일 필요)
+    audioRef.current = new Audio("/sounds/bgm.mp3");
+    audioRef.current.loop = true;
+    audioRef.current.volume = 0.5;
+
+    // 컴포넌트 마운트 시 자동 재생 시도
+    const playPromise = audioRef.current.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => setIsBgmPlaying(true))
+        .catch((error) => {
+          console.log("Auto-play prevented:", error);
+          setIsBgmPlaying(false);
+        });
+    }
+
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  const toggleBgm = () => {
+    if (isBgmPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play().catch(e => console.error(e));
+    }
+    setIsBgmPlaying(!isBgmPlaying);
+  };
+
+  // ================= User Info Logic =================
+  // 유저 정보 불러오기
+  useEffect(() => {
+    const fetchUserInfo = async () => {
+      try {
+        const res = await api.get("/users/me");
+        setUserInfo({
+          nickname: res.data.nickname || "",
+          profileDescription: res.data.profileDescription || ""
+        });
+      } catch (err) {
+        console.error("Failed to fetch user info", err);
+      }
+    };
+    if (showSettings) { // 설정창 열 때 갱신
+        fetchUserInfo();
+    }
+  }, [showSettings]);
+
+  // 유저 정보 저장
+  const handleUpdateProfile = async () => {
+    setIsSavingProfile(true);
+    try {
+      await api.patch("/users/update", {
+        nickname: userInfo.nickname,
+        profileDescription: userInfo.profileDescription
+      });
+      alert("프로필이 저장되었습니다.");
+    } catch (err) {
+      console.error(err);
+      alert("저장에 실패했습니다.");
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  // ================= Existing Logic =================
   useEffect(() => {
     if (user?.energy !== undefined) {
       setEnergy(user.energy);
     }
   }, [user]);
 
-  // [NEW] 씬이 변경될 때 감정 상태 업데이트
   useEffect(() => {
     if (currentScene?.emotion) {
       setDisplayedEmotion(currentScene.emotion);
     }
   }, [currentScene]);
 
-  // 로그창 스크롤
   useEffect(() => {
     if (showHistory && logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [showHistory, messages]);
 
-  // 1. 초기 데이터 로드
   useEffect(() => {
     const init = async () => {
       if(!roomId) return;
@@ -58,24 +136,21 @@ const ChatPage = () => {
         setRoomInfo(roomRes.data);
         setAffection(roomRes.data.affectionScore);
         
-        // 로그 로드
         const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=50`);
         if (logsRes.data && logsRes.data.content) {
             const sortedLogs = logsRes.data.content.reverse();
             setMessages(sortedLogs);
             
-            // 마지막 상태 복원 (단순 텍스트로)
             if (sortedLogs.length > 0) {
                const lastLog = sortedLogs[sortedLogs.length - 1];
                if (lastLog.role === 'ASSISTANT') {
-                 // 로그 복원 시에는 나레이션 없이 대사만 보여주거나, 마지막 감정만 유지
                  const restoredScene = {
-                    dialogue: lastLog.cleanContent,
-                    narration: "",
-                    emotion: lastLog.emotionTag || "NEUTRAL"
+                   dialogue: lastLog.cleanContent,
+                   narration: "",
+                   emotion: lastLog.emotionTag || "NEUTRAL"
                  };
                  setCurrentScene(restoredScene);
-                 setDisplayedEmotion(restoredScene.emotion); // 초기 감정 복구
+                 setDisplayedEmotion(restoredScene.emotion);
                }
             }
         }
@@ -86,22 +161,17 @@ const ChatPage = () => {
     init();
   }, [roomId]);
 
-  // 2. 메시지 전송 핸들러
   const handleSendMessage = async (text) => {
-    // 에너지 체크 (Optimistic)
     if (energy <= 0) {
       alert("에너지가 부족합니다. 내일 다시 대화해주세요!");
       return;
     }
-    setEnergy(prev => Math.max(0, prev - 1)); // 즉시 차감
+    setEnergy(prev => Math.max(0, prev - 1));
 
-    // 내 메시지 표시
     const tempMsg = { role: 'USER', cleanContent: text };
     setMessages(prev => [...prev, tempMsg]);
     setIsTyping(true);
-    
-    // [FIX] 입력 중일 때 씬 데이터는 비우지만, displayedEmotion은 유지됨
-    setCurrentScene(null);
+    setCurrentScene(null); 
 
     try {
       const res = await api.post(`/chat/rooms/${roomId}/messages`, {
@@ -110,11 +180,8 @@ const ChatPage = () => {
       });
 
       const { scenes, currentAffection } = res.data;
-
-      // 호감도 업데이트
       setAffection(currentAffection);
       
-      // [핵심] 받아온 씬들을 큐에 넣고 재생 시작
       if (scenes && scenes.length > 0) {
         setSceneQueue(scenes); 
       }
@@ -124,47 +191,48 @@ const ChatPage = () => {
 
     } catch (err) {
       console.error(err);
-      setCurrentScene({ dialogue: `잠시만요.. ${roomInfo.characterName}가 잠깐 바쁜 일이 있어서...`, emotion: "SAD", narration: "잠시 후 다시 시도해주세요." });
-      setDisplayedEmotion("SAD"); // 에러 시 슬픈 표정
+      setCurrentScene({ dialogue: `잠시만요.. ${roomInfo?.characterName || '그녀'}가 잠깐 바쁜 일이 있어서...`, emotion: "SAD", narration: "잠시 후 다시 시도해주세요." });
+      setDisplayedEmotion("SAD");
     } finally {
       setIsTyping(false);
     }
   };
 
-  // 3. 컷신 재생기 (Queue Consumer)
   useEffect(() => {
-    // 현재 보여주는 씬이 없고, 큐에 남은 씬이 있다면 -> 다음 씬 재생
     if (!currentScene && sceneQueue.length > 0) {
       const nextScene = sceneQueue[0];
       setCurrentScene(nextScene);
-      setSceneQueue(prev => prev.slice(1)); // 큐에서 제거
+      setSceneQueue(prev => prev.slice(1));
     }
   }, [sceneQueue, currentScene]);
 
-  // 다음 씬으로 넘기기 (사용자 클릭 시)
   const handleNextScene = () => {
     if (sceneQueue.length > 0) {
       const nextScene = sceneQueue[0];
       setCurrentScene(nextScene);
       setSceneQueue(prev => prev.slice(1));
-    } else {
-      // 큐가 비었으면 끝 (대기 상태)
     }
   };
 
-  // 대화 초기화
   const handleClearHistory = async () => {
     if (!window.confirm("모든 기억을 지우시겠습니까?")) return;
     try {
       await api.delete(`/chat/rooms/${roomId}`);
       setMessages([]);
       setCurrentScene({ dialogue: "...", emotion: "SAD", narration: "...모든 기억이 희미해집니다..." });
-      setAffection(0); // 호감도 초기화
+      setAffection(0);
       alert("초기화되었습니다.");
     } catch (err) {
       alert("오류가 발생했습니다.");
     }
   };
+
+  const handleLogout = async () => {
+      if(window.confirm("로그아웃 하시겠습니까?")) {
+          await logout();
+          window.location.href = "/login";
+      }
+  }
 
   if (!roomInfo) return <div className="h-full flex items-center justify-center text-white/50">Loading...</div>;
 
@@ -177,24 +245,164 @@ const ChatPage = () => {
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-black/40 z-0" />
 
-      {/* [FIX] ChatPage에서 관리하는 emotion state 사용 */}
+      {/* 캐릭터 디스플레이 */}
       <CharacterDisplay emotion={displayedEmotion} />
 
-      {/* 대화창 */}
+      {/* [NEW] 우측 상단 컨트롤 버튼 그룹 (BGM, 설정, 기록) */}
+      <div className="absolute top-6 right-6 z-50 flex items-center gap-3">
+        {/* BGM Toggle */}
+        <button 
+            onClick={toggleBgm}
+            className={`p-3 rounded-full backdrop-blur-md transition shadow-lg border ${
+                isBgmPlaying 
+                ? 'bg-pink-500/20 border-pink-500/50 text-pink-300 hover:bg-pink-500/30' 
+                : 'bg-black/40 border-white/10 text-gray-400 hover:bg-white/10'
+            }`}
+            title={isBgmPlaying ? "BGM 끄기" : "BGM 켜기"}
+        >
+            {isBgmPlaying ? <Music size={20} className="animate-pulse"/> : <VolumeX size={20} />}
+        </button>
+
+        {/* Settings Button */}
+        <button 
+            onClick={() => setShowSettings(true)}
+            className="p-3 rounded-full bg-black/40 backdrop-blur-md text-white/80 hover:bg-white/20 transition border border-white/10 shadow-lg"
+            title="설정"
+        >
+            <Settings size={20} />
+        </button>
+
+        {/* History Button (기존 위치에서 이동) */}
+        <button 
+            onClick={() => setShowHistory(true)}
+            className="p-3 rounded-full bg-black/40 backdrop-blur-md text-white/80 hover:bg-white/20 transition border border-white/10 shadow-lg"
+            title="지난 대화"
+        >
+            <MessageSquare size={20} />
+        </button>
+      </div>
+
+      {/* 대화창 (History 버튼 제거됨) */}
       <DialogueBox 
         characterName={roomInfo.characterName}
         scene={currentScene} 
         onSend={handleSendMessage}
         isTyping={isTyping}
-        onOpenHistory={() => setShowHistory(true)}
         affection={affection}
         energy={energy}
         onNextScene={handleNextScene} 
         hasNextScene={sceneQueue.length > 0} 
-        nickname={user?.nickname || "사용자"} // 툴팁용 닉네임
+        nickname={user?.nickname || "사용자"} 
       />
 
-      {/* 히스토리 & 설정 모달 (기존 유지) */}
+      {/* [NEW] 설정 모달 */}
+      <AnimatePresence>
+        {showSettings && (
+            <motion.div 
+                initial={{ x: "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "100%" }}
+                transition={{ type: "tween", duration: 0.3, ease: "easeOut" }}
+                className="fixed inset-y-0 right-0 w-full md:w-[420px] bg-black/95 backdrop-blur-2xl z-50 shadow-2xl border-l border-white/10 flex flex-col"
+            >
+                {/* Header */}
+                <div className="flex justify-between items-center p-6 border-b border-white/10 bg-white/5">
+                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                        <Settings size={20} className="text-indigo-400"/>
+                        Settings
+                    </h2>
+                    <button onClick={() => setShowSettings(false)} className="p-2 rounded-full hover:bg-white/10 transition">
+                        <X size={24} className="text-white/70" />
+                    </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+                    {/* 1. User Settings */}
+                    <section>
+                        <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                            <UserIcon size={16}/> User Profile
+                        </h3>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs text-gray-500 mb-1">Nickname</label>
+                                <input 
+                                    type="text" 
+                                    value={userInfo.nickname}
+                                    onChange={(e) => setUserInfo({...userInfo, nickname: e.target.value})}
+                                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-indigo-500/50 outline-none transition"
+                                    placeholder="닉네임을 입력하세요"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs text-gray-500 mb-1">My Persona (Secret Mode)</label>
+                                <textarea 
+                                    value={userInfo.profileDescription}
+                                    onChange={(e) => setUserInfo({...userInfo, profileDescription: e.target.value})}
+                                    className="w-full h-32 bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-indigo-500/50 outline-none resize-none transition custom-scrollbar leading-relaxed"
+                                    placeholder="캐릭터에게 보여질 나의 설정, 외모, 성격 등을 자유롭게 적어주세요."
+                                />
+                            </div>
+                            <button 
+                                onClick={handleUpdateProfile}
+                                disabled={isSavingProfile}
+                                className="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                <Save size={18} />
+                                {isSavingProfile ? "Saving..." : "Save Profile"}
+                            </button>
+                        </div>
+                    </section>
+
+                    <div className="h-px bg-white/10" />
+
+                    {/* 2. Game Settings (Dummy) */}
+                    <section className="opacity-70">
+                        <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                            <Gamepad2 size={16}/> Game Settings <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-gray-500">COMING SOON</span>
+                        </h3>
+                        <div className="space-y-4 pointer-events-none grayscale">
+                            <div>
+                                <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                    <span>BGM Volume</span>
+                                    <span>50%</span>
+                                </div>
+                                <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                                    <div className="h-full w-1/2 bg-indigo-500" />
+                                </div>
+                            </div>
+                            <div>
+                                <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                    <span>Text Speed</span>
+                                    <span>Fast</span>
+                                </div>
+                                <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                                    <div className="h-full w-3/4 bg-indigo-500" />
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-between py-2">
+                                <span className="text-sm text-gray-300">Secret Mode (NSFW)</span>
+                                <div className="w-10 h-6 bg-white/10 rounded-full relative">
+                                    <div className="absolute left-1 top-1 w-4 h-4 bg-gray-500 rounded-full" />
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <div className="p-6 border-t border-white/10 bg-white/5">
+                    <button 
+                        onClick={handleLogout}
+                        className="w-full py-3 rounded-lg border border-white/10 hover:bg-white/10 text-gray-300 transition flex items-center justify-center gap-2"
+                    >
+                        <LogOut size={18} />
+                        Logout
+                    </button>
+                </div>
+            </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 히스토리 모달 (기존 코드 유지) */}
       <AnimatePresence>
         {showHistory && (
           <motion.div 
@@ -204,16 +412,18 @@ const ChatPage = () => {
             transition={{ type: "tween", duration: 0.3, ease: "easeOut" }}
             className="fixed inset-y-0 right-0 w-full md:w-[480px] bg-black/90 backdrop-blur-2xl z-50 shadow-2xl border-l border-white/10 flex flex-col"
           >
+            {/* Header */}
             <div className="flex justify-between items-center p-6 border-b border-white/10 bg-black/40">
               <h2 className="text-xl font-bold text-white flex items-center gap-2">
                 <MessageSquare size={20} className="text-pink-500"/>
-                지난 대화 기록
+                Dialogue Log
               </h2>
               <button onClick={() => setShowHistory(false)} className="p-2 rounded-full hover:bg-white/10 transition">
                 <X size={24} className="text-white/70" />
               </button>
             </div>
             
+            {/* Logs List */}
             <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
               {messages.length === 0 ? (
                  <div className="text-center text-white/30 py-10">기록이 없습니다.</div>
@@ -235,6 +445,7 @@ const ChatPage = () => {
               <div ref={logsEndRef} />
             </div>
 
+            {/* Footer */}
             <div className="p-6 border-t border-white/10 bg-black/40">
               <button 
                 onClick={handleClearHistory}
