@@ -128,7 +128,7 @@ const DialogueBox = ({
             </AnimatePresence>
             {/* 툴팁 */}
             <div className="absolute bottom-full right-0 mb-2 w-64 bg-black/90 border border-pink-500/20 p-4 rounded-xl text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-xl backdrop-blur-sm">
-               <p className="font-bold text-pink-300 mb-2">{characterName}의 호감도</p>
+               <p className="font-bold text-pink-300 mb-2">{characterName}의 {nickname}님을 향한 호감도</p>
                <ul className="space-y-1 text-gray-400">
                  <li>-100 ~ -1 : 싫어함</li>
                  <li>0 ~ 20 : 낯선 사람</li>
@@ -148,7 +148,7 @@ const DialogueBox = ({
             <div className="absolute bottom-full right-0 mb-2 w-64 bg-black/90 border border-yellow-500/20 p-4 rounded-xl text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-xl backdrop-blur-sm">
                <p className="font-bold text-yellow-300 mb-2">피로도</p>
                <p className="leading-relaxed text-gray-400">
-                 대화 시 1, 이벤트 시 2 감소. 10분마다 1 회복.
+                 대화 시 1, 이벤트 트리거 시 2 감소. 10분마다 1 회복.
                </p>
             </div>
           </div>
