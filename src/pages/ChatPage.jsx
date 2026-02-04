@@ -162,22 +162,28 @@ const ChatPage = () => {
   }, [roomId]);
 
   const handleSendMessage = async (text) => {
-    if (energy <= 0) {
+    // 텍스트가 없으면(자동반응) 에너지 체크 패스 혹은 별도 로직
+    if (text && energy <= 0) {
       alert("에너지가 부족합니다. 내일 다시 대화해주세요!");
       return;
     }
-    setEnergy(prev => Math.max(0, prev - 1));
+    // 자동 반응일 경우(text가 없음) 에너지 차감 안함 (이미 이벤트에서 차감됨)
+    if (text) {
+        setEnergy(prev => Math.max(0, prev - 1));
+        setMessages(prev => [...prev, { role: 'USER', cleanContent: text }]);
+    }
 
-    const tempMsg = { role: 'USER', cleanContent: text };
-    setMessages(prev => [...prev, tempMsg]);
+    // const tempMsg = { role: 'USER', cleanContent: text };
+    // setMessages(prev => [...prev, tempMsg]);
     setIsTyping(true);
     setCurrentScene(null); 
 
     try {
-      const res = await api.post(`/chat/rooms/${roomId}/messages`, {
-        roomId: roomId,
-        message: text
-      });
+      // 텍스트가 없으면 "..." 등으로 보내거나 백엔드 약속 필요. 
+      // 여기선 편의상 "..." (침묵)을 보냄. 백엔드에서 (...)은 무시하고 상황에 반응하도록 프롬프트가 되어 있으면 좋음.
+      const messagePayload = text || "..."; 
+      
+      const res = await api.post(`/chat/rooms/${roomId}/messages`, { roomId, message: messagePayload });
 
       const { scenes, currentAffection } = res.data;
       setAffection(currentAffection);
@@ -208,6 +214,7 @@ const ChatPage = () => {
     setIsTyping(true); // 캐릭터가 생각하는 것처럼 연출 (나레이터 생성 중)
 
     try {
+        // 1. 이벤트 생성 (나레이션)
         const res = await api.post(`/story/rooms/${roomId}/events`);
         const { eventMessage, userEnergy } = res.data; // 백엔드 NarratorResponse
 
@@ -217,17 +224,26 @@ const ChatPage = () => {
         const systemMsg = { role: 'SYSTEM', cleanContent: eventMessage };
         setMessages(prev => [...prev, systemMsg]);
 
-        // 화면에도 나레이션 씬으로 보여주기 (선택 사항: 컷신 큐에 넣어서 보여줄 수도 있음)
-        // 여기서는 채팅창 하단 DialogueBox에 즉시 띄웁니다.
+        // 2. 이벤트 씬 설정 (UI 연출)
+        // isEvent: true를 줘서 DialogueBox가 특별하게 렌더링하게 함
         setCurrentScene({ 
             dialogue: "", 
             narration: eventMessage, 
-            emotion: displayedEmotion // 감정은 유지
+            emotion: displayedEmotion, // 감정은 유지
+            isEvent: true
         });
 
+        // [핵심] 캐릭터 자동 반응을 위해 큐에 '자동 반응 트리거' 예약?
+        // 여기서는 유저가 이벤트를 '읽고' 클릭했을 때 반응하게 하기 위해
+        // handleNextScene 로직을 활용하거나, 
+        // 그냥 바로 API를 호출해서 큐에 넣어버릴 수도 있음.
+
+        // [중요] 여기서 handleSendMessage를 호출하지 않음!
+        // 유저가 이벤트를 읽고 화면을 클릭했을 때(handleNextScene) 호출하도록 함.
     } catch (err) {
         console.error("Event trigger failed", err);
         alert("이벤트 생성에 실패했습니다.");
+        setIsTyping(false);
     } finally {
         setIsTyping(false);
     }
@@ -241,7 +257,17 @@ const ChatPage = () => {
     }
   }, [sceneQueue, currentScene]);
 
+  // [수정] 다음 씬 처리 핸들러 (이벤트 씬 처리 추가)
   const handleNextScene = () => {
+    // 1. 현재 이벤트 씬이었다면 -> 캐릭터 반응(선톡) 요청
+    if (currentScene?.isEvent) {
+        // 이벤트 씬을 큐에서 넘기듯이 처리하고 싶지만, 
+        // 여기서는 "유저 확인" -> "캐릭터 반응 로딩" 순서이므로 API 호출
+        handleSendMessage(null); 
+        return;
+    }
+
+    // 2. 일반 컷신 큐 처리
     if (sceneQueue.length > 0) {
       const nextScene = sceneQueue[0];
       setCurrentScene(nextScene);

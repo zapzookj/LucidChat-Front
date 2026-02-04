@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Heart, Zap, ChevronRight, Dices, History } from "lucide-react"; // Dices 아이콘 추가
+import { Send, Heart, Zap, ChevronRight, Dices, History, Sparkles } from "lucide-react"; // Dices 아이콘 추가
 import { useState, useEffect, useRef } from "react";
 
 const DialogueBox = ({ 
@@ -22,6 +22,9 @@ const DialogueBox = ({
   const prevAffection = useRef(affection);
   const [affectionDiff, setAffectionDiff] = useState(null);
 
+  // 이벤트 씬 판별
+  const isEventScene = scene?.isEvent;
+
   // 1. 호감도 변화 감지
   useEffect(() => {
     if (prevAffection.current !== affection) {
@@ -36,7 +39,10 @@ const DialogueBox = ({
 
   // 2. Typewriter Effect
   useEffect(() => {
-    if (!scene?.dialogue && !scene?.narration) { // 나레이션만 있는 경우도 고려
+    // 이벤트 씬이면 나레이션이 메인 텍스트
+    const fullText = isEventScene ? (scene?.narration || "") : (scene?.dialogue || "");
+    
+    if (!fullText && !scene?.narration && !isEventScene) {
       setDisplayedText("");
       setIsTextFullyDisplayed(true);
       return;
@@ -45,21 +51,9 @@ const DialogueBox = ({
     setDisplayedText("");
     setIsTextFullyDisplayed(false);
     
-    // dialogue가 있으면 dialogue를, 없으면 narration을 타이핑 (우선순위: 대사 > 지문)
-    // 단, 지문은 상단에 별도로 표시되므로, 여기서는 dialogue가 주 목적
-    // 하지만 이벤트 트리거 시에는 dialogue 없이 narration만 올 수 있음 -> 이 경우 메인 텍스트박스에 표시할지 고민
-    // *기획 의도*: 나레이션은 상단 작은 글씨, 대사는 큰 글씨.
-    // *수정*: 이벤트 발생 시 scene.dialogue는 비어있고 scene.narration만 옴.
-    // ChatPage에서 setCurrentScene({ dialogue: "", narration: eventMessage })로 넘겼음.
-    // 따라서 dialogue가 비어있으면 텍스트 박스에는 "(상황이 전환됩니다...)" 같은 걸 띄우거나 비워둠.
-    
-    const fullText = scene.dialogue || ""; 
     let charIndex = 0;
-
-    if (!fullText) {
-        setIsTextFullyDisplayed(true);
-        return;
-    }
+    // 이벤트는 조금 더 천천히 (50ms), 일반 대화는 빠르게 (30ms)
+    const speed = 30;
 
     const typingInterval = setInterval(() => {
       charIndex++;
@@ -69,10 +63,10 @@ const DialogueBox = ({
         clearInterval(typingInterval);
         setIsTextFullyDisplayed(true);
       }
-    }, 30); 
+    }, speed); 
 
     return () => clearInterval(typingInterval);
-  }, [scene]);
+  }, [scene, isEventScene]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -85,7 +79,7 @@ const DialogueBox = ({
     if (scene?.dialogue && !isTextFullyDisplayed) {
       setDisplayedText(scene.dialogue);
       setIsTextFullyDisplayed(true);
-    } else if (hasNextScene) {
+    } else if (hasNextScene || isEventScene) {
       onNextScene();
     }
   };
@@ -159,15 +153,25 @@ const DialogueBox = ({
           onClick={handleBoxClick}
           initial={{ y: 50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          className={`relative bg-black/50 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 pt-10 shadow-2xl transition-all ${hasNextScene || (!isTextFullyDisplayed && scene?.dialogue) ? 'cursor-pointer hover:bg-black/60' : ''}`}
+          // [스타일 분기] 이벤트 씬이면 보라빛 테마, 아니면 기본 테마
+          className={`relative border rounded-[2rem] p-6 pt-10 shadow-2xl transition-all ${
+            hasNextScene || (!isTextFullyDisplayed && (scene?.dialogue || isEventScene)) ? 'cursor-pointer' : ''
+          } ${
+            isEventScene 
+              ? 'bg-gradient-to-br from-indigo-900/90 to-purple-900/90 border-indigo-400/50 backdrop-blur-xl ring-1 ring-purple-500/30' 
+              : 'bg-black/50 border-white/10 backdrop-blur-xl hover:bg-black/60'
+          }`}
         >
-          <div className="absolute -top-5 left-8 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold px-8 py-2 rounded-2xl shadow-lg border border-white/20 transform -rotate-1 z-20">
-            {characterName}
-          </div>
+          {/* 캐릭터 이름표 (이벤트 상황에선 숨김) */}
+          {!isEventScene && (
+            <div className="absolute -top-5 left-8 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold px-8 py-2 rounded-2xl shadow-lg border border-white/20 transform -rotate-1 z-20">
+              {characterName}
+            </div>
+          )}
 
-          {/* 나레이션 (지문) 영역 - 이벤트 트리거 시 여기가 메인 */}
+          {/* 나레이션 (일반 대화일 때만 상단 표시) */}
           <AnimatePresence mode="wait">
-            {scene?.narration && (
+            {!isEventScene && scene?.narration && (
               <motion.div
                 key={scene.narration}
                 initial={{ opacity: 0, y: 5 }}
@@ -175,27 +179,42 @@ const DialogueBox = ({
                 exit={{ opacity: 0 }}
                 className="mb-3 text-sm text-pink-200/90 font-medium italic flex items-center gap-2"
               >
-                {/* 나레이션이 있을 때 강조 */}
                 <span>* {scene.narration}</span>
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* 대사 출력 영역 */}
-          <div className="min-h-[3.5rem] text-lg text-white/95 leading-relaxed font-medium drop-shadow-md tracking-wide">
+          {/* 텍스트 출력 영역 */}
+          <div className={`min-h-[3.5rem] leading-relaxed font-medium drop-shadow-md tracking-wide flex flex-col justify-center ${
+              isEventScene ? 'items-center text-center py-4' : 'text-lg text-white/95'
+          }`}>
+            
+            {/* 이벤트 아이콘 */}
+            {isEventScene && (
+                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="mb-3 text-yellow-300">
+                    <Sparkles size={24} />
+                </motion.div>
+            )}
+
             {isTyping ? (
-               <div className="flex gap-1.5 items-center h-full opacity-70 mt-2">
+               <div className="flex gap-1.5 items-center justify-center h-full opacity-70 mt-2">
                  <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
                  <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
                  <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce"></div>
-                 <span className="ml-2 text-sm text-indigo-200/50 font-light">상황 진행 중...</span>
+                 <span className="ml-2 text-sm text-indigo-200/50 font-light">
+                    {isEventScene ? "운명의 주사위를 굴리는 중..." : "생각 중..."}
+                 </span>
                </div>
             ) : (
               <>
-                {displayedText}
-                {!isTextFullyDisplayed && scene?.dialogue && (
+                <span className={isEventScene ? "text-xl text-indigo-100 font-serif italic" : ""}>
+                    {displayedText}
+                </span>
+                
+                {!isTextFullyDisplayed && (scene?.dialogue || isEventScene) && (
                   <span className="inline-block w-2 h-5 bg-white/70 ml-1 align-middle animate-pulse"/>
                 )}
+                
                 {!scene?.dialogue && !scene?.narration && !isTyping && (
                   <span className="text-white/20 text-sm">(대화를 시작하거나 주사위를 굴려보세요)</span>
                 )}
@@ -215,7 +234,7 @@ const DialogueBox = ({
           )}
 
           {/* 입력 폼 & 이벤트 트리거 버튼 */}
-          {!hasNextScene && (
+          {!hasNextScene && !isEventScene && (
             <motion.form 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
