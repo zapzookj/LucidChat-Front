@@ -71,6 +71,26 @@ const ChatPage = () => {
       setConfirmModal(null);
   };
 
+  // [NEW] 이미지 프리로딩 (Preloading) 로직
+  useEffect(() => {
+    const characterImages = [
+      "/characters/neutral.png",
+      "/characters/joy.png",
+      "/characters/sad.png",
+      "/characters/angry.png",
+      "/characters/shy.png",
+      "/characters/surprise.png",
+      "/characters/panic.png",
+      "/characters/disgust.png",
+      "/characters/relax.png"
+    ];
+
+    characterImages.forEach((src) => {
+      const img = new Image();
+      img.src = src;
+    });
+  }, []);
+
   // ================= BGM Logic =================
   useEffect(() => {
     audioRef.current = new Audio("/sounds/main bgm.mp3");
