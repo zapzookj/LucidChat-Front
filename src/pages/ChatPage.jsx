@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
   LogOut, User as UserIcon, Gamepad2, Save, Sparkles, Lock, Unlock,
-  CheckCircle, AlertTriangle, Info // [NEW] 알림용 아이콘 추가
+  CheckCircle, AlertTriangle, Info, Zap, Play, SkipForward
 } from "lucide-react";
 
 const ChatPage = () => {
@@ -47,31 +47,35 @@ const ChatPage = () => {
     return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.5;
   });
 
-  // [NEW] 커스텀 알림(Toast) & 확인 모달(Confirm) 상태
-  const [toast, setToast] = useState(null); // { message, type: 'success' | 'error' | 'info' }
-  const [confirmModal, setConfirmModal] = useState(null); // { message, onConfirm, type: 'danger' | 'info' }
+  // [알림/모달 상태]
+  const [toast, setToast] = useState(null);
+  const [confirmModal, setConfirmModal] = useState(null);
+
+  // [NEW] 인트로 시퀀스 상태 ('none' | 'door' | 'greeting')
+  const [introStep, setIntroStep] = useState('none');
+  const [isLoading, setIsLoading] = useState(true); // 깜빡임 방지용
+  
+  // [NEW] 이벤트 선택지 모달 상태
+  const [eventOptions, setEventOptions] = useState(null); // Array or null
 
   const logsEndRef = useRef(null);
   const audioRef = useRef(null);
 
   // ================= Helper Functions =================
-  // 토스트 메시지 출력
   const showToast = (message, type = 'success') => {
       setToast({ message, type });
-      setTimeout(() => setToast(null), 3000); // 3초 후 자동 사라짐
+      setTimeout(() => setToast(null), 3000);
   };
 
-  // 확인 모달 열기
   const openConfirm = (message, onConfirm, type = 'danger') => {
       setConfirmModal({ message, onConfirm, type });
   };
 
-  // 확인 모달 닫기
   const closeConfirm = () => {
       setConfirmModal(null);
   };
 
-  // [NEW] 이미지 프리로딩 (Preloading) 로직
+  // ================= Image Preloading (Optimization) =================
   useEffect(() => {
     const characterImages = [
       "/characters/neutral.png",
@@ -84,7 +88,6 @@ const ChatPage = () => {
       "/characters/disgust.png",
       "/characters/relax.png"
     ];
-
     characterImages.forEach((src) => {
       const img = new Image();
       img.src = src;
@@ -96,24 +99,19 @@ const ChatPage = () => {
     audioRef.current = new Audio("/sounds/main bgm.mp3");
     audioRef.current.loop = true;
     audioRef.current.volume = bgmVolume;
-
-    const playPromise = audioRef.current.play();
-    if (playPromise !== undefined) {
-      playPromise
-        .then(() => setIsBgmPlaying(true))
-        .catch((error) => {
-          console.log("Auto-play prevented:", error);
-          setIsBgmPlaying(false);
-        });
-    }
-
     return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     };
   }, []);
+
+  // [Fix] 인트로가 끝나면('none') BGM 재생
+  useEffect(() => {
+    if (introStep === 'none' && audioRef.current && !isBgmPlaying) {
+        audioRef.current.play()
+            .then(() => setIsBgmPlaying(true))
+            .catch(e => console.log("BGM Autoplay prevented", e));
+    }
+  }, [introStep]);
 
   const toggleBgm = () => {
     if (isBgmPlaying) {
@@ -145,9 +143,15 @@ const ChatPage = () => {
         console.error("Failed to fetch user info", err);
       }
     };
-    if (showSettings) {
-        fetchUserInfo();
-    }
+    // 설정창 열 때 뿐만 아니라 초기 로딩 시에도 시크릿 모드 정보가 필요함 (이벤트 카드용)
+    fetchUserInfo();
+  }, []); // Mount 시 한 번 실행
+
+  // 설정창 열릴 때 리프레시
+  useEffect(() => {
+      if(showSettings) {
+          api.get("/users/me").then(res => setUserInfo(prev => ({...prev, isSecretMode: res.data.isSecretMode})));
+      }
   }, [showSettings]);
 
   const handleUpdateProfile = async () => {
@@ -158,42 +162,101 @@ const ChatPage = () => {
         profileDescription: userInfo.profileDescription,
         isSecretMode: userInfo.isSecretMode 
       });
-      showToast("설정이 성공적으로 저장되었습니다.", "success"); // [Changed] alert -> toast
+      showToast("프로필이 성공적으로 저장되었습니다.", "success");
     } catch (err) {
       console.error(err);
-      showToast("저장에 실패했습니다.", "error"); // [Changed] alert -> toast
+      showToast("저장에 실패했습니다.", "error");
     } finally {
       setIsSavingProfile(false);
     }
   };
 
-  // [MODIFIED] 시크릿 모드 토글 (즉시 서버 반영)
   const toggleSecretMode = async () => {
-      // 1. 변경할 값 계산
       const nextValue = !userInfo.isSecretMode;
-      
-      // 2. 낙관적 업데이트 (UI 먼저 반영)
       setUserInfo(prev => ({ ...prev, isSecretMode: nextValue }));
 
       try {
-          // 3. 서버로 즉시 전송 (기존 Update API 재사용)
-          // 주의: 닉네임과 설명도 현재 상태 그대로 같이 보내야 함 (PATCH 특성에 따라 다를 수 있지만 안전하게)
           await api.patch("/users/update", {
               nickname: userInfo.nickname,
               profileDescription: userInfo.profileDescription,
               isSecretMode: nextValue 
           });
-          
-          // 4. 성공 토스트 (선택 사항 - 너무 자주 뜨면 귀찮을 수 있으니 짧게 하거나 생략 가능)
-          // showToast(nextValue ? "시크릿 모드가 켜졌습니다." : "시크릿 모드가 꺼졌습니다.", "success");
-
       } catch (err) {
-          console.error("Failed to toggle secret mode", err);
-          
-          // 5. 실패 시 롤백 (UI 원상 복구)
           setUserInfo(prev => ({ ...prev, isSecretMode: !nextValue }));
           showToast("설정 변경에 실패했습니다.", "error");
       }
+  };
+
+  // ================= Init Logic =================
+  useEffect(() => {
+    const init = async () => {
+      if(!roomId) return;
+      setIsLoading(true); // 로딩 시작
+
+      try {
+        const roomRes = await api.get(`/chat/rooms/${roomId}`);
+        setRoomInfo(roomRes.data);
+        setAffection(roomRes.data.affectionScore);
+        
+        // 유저 정보 (시크릿모드 확인용)
+        const userRes = await api.get("/users/me");
+        setUserInfo({ ...userInfo, isSecretMode: userRes.data.isSecretMode || false });
+
+        const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=50`);
+        const logs = logsRes.data?.content || [];
+
+        if (logs.length === 0) {
+            // [Fix] 대화가 없으면 인트로 시작
+            await startIntroSequence(roomId);
+        } else {
+            // 기존 유저 복원
+            const sortedLogs = logs.reverse();
+            setMessages(sortedLogs);
+            if (sortedLogs.length > 0) {
+               const lastLog = sortedLogs[sortedLogs.length - 1];
+               if (lastLog.role === 'ASSISTANT') {
+                 setCurrentScene({
+                   dialogue: lastLog.cleanContent,
+                   narration: "",
+                   emotion: lastLog.emotionTag || "NEUTRAL"
+                 });
+                 setDisplayedEmotion(lastLog.emotionTag || "NEUTRAL");
+               }
+            }
+        }
+      } catch (err) {
+        console.error("Init Error", err);
+      } finally {
+        setIsLoading(false); // 로딩 끝 (화면 보여줌)
+      }
+    };
+    init();
+  }, [roomId]);
+
+  const startIntroSequence = async (roomId) => {
+      setIntroStep('door'); // 영상 재생 시작
+      try {
+          // 백엔드 init 요청
+          await api.post(`/chat/rooms/${roomId}/init`);
+          // 생성된 로그 다시 가져오기
+          const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=50`);
+          if (logsRes.data?.content) {
+              setMessages(logsRes.data.content.reverse());
+              // 인사하는 마지막 씬 설정
+              const last = logsRes.data.content[logsRes.data.content.length-1];
+              if(last) {
+                 setCurrentScene({ dialogue: last.cleanContent, emotion: last.emotionTag, narration: ""});
+                 setDisplayedEmotion(last.emotionTag);
+              }
+          }
+      } catch (e) {
+          console.error("Intro init failed", e);
+      }
+  };
+
+  const handleIntroSkip = () => {
+      if (introStep === 'door') setIntroStep('greeting');
+      else if (introStep === 'greeting') setIntroStep('none');
   };
 
   // ================= Chat Logic =================
@@ -209,12 +272,14 @@ const ChatPage = () => {
     }
   }, [currentScene]);
 
+  // 스크롤 처리
   useEffect(() => {
     if (showHistory && logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [showHistory, messages]);
 
+  // 초기화 및 인트로 체크
   useEffect(() => {
     const init = async () => {
       if(!roomId) return;
@@ -224,8 +289,14 @@ const ChatPage = () => {
         setAffection(roomRes.data.affectionScore);
         
         const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=50`);
-        if (logsRes.data && logsRes.data.content) {
-            const sortedLogs = logsRes.data.content.reverse();
+        const logs = logsRes.data?.content || [];
+
+        if (logs.length === 0) {
+            // [NEW] 대화가 없으면 인트로 시퀀스 시작
+            startIntroSequence(roomId);
+        } else {
+            // 기존 유저 로드
+            const sortedLogs = logs.reverse();
             setMessages(sortedLogs);
             
             if (sortedLogs.length > 0) {
@@ -284,35 +355,84 @@ const ChatPage = () => {
     }
   };
 
+  // [MODIFIED] 이벤트 트리거 -> 옵션 받기 (1단계)
   const handleTriggerEvent = async () => {
-    if (energy < 2) return showToast("이벤트를 실행하려면 에너지 2가 필요합니다.", "info");
-    setEnergy(prev => Math.max(0, prev - 2)); 
     setIsTyping(true); 
-
     try {
+        // [Change] events 호출 시 이제 3개의 옵션 리스트가 반환됨
         const res = await api.post(`/story/rooms/${roomId}/events`);
-        const { eventMessage, userEnergy } = res.data; 
-
-        setEnergy(userEnergy); 
-
-        const systemMsg = { role: 'SYSTEM', cleanContent: eventMessage };
-        setMessages(prev => [...prev, systemMsg]);
-
-        setCurrentScene({ 
-            dialogue: "", 
-            narration: eventMessage, 
-            emotion: displayedEmotion, 
-            isEvent: true
-        });
-
+        
+        // res.data -> { options: [...], userEnergy: ... }
+        // 옵션 모달을 띄운다
+        if (res.data.options && res.data.options.length > 0) {
+            setEventOptions(res.data.options);
+        } else {
+            showToast("이벤트 생성에 실패했습니다.", "error");
+        }
     } catch (err) {
         console.error("Event trigger failed", err);
-        showToast("이벤트 생성에 실패했습니다.", "error");
-        setIsTyping(false);
+        showToast("이벤트 생성 실패", "error");
     } finally {
         setIsTyping(false);
     }
   };
+
+  // [NEW] 이벤트 선택 -> 실행 (2단계)
+  const handleSelectEvent = async (option) => {
+      // 1. 에너지 체크
+      if (energy < option.energyCost) {
+          showToast(`에너지가 부족합니다. (필요: ${option.energyCost})`, "error");
+          return;
+      }
+      // 2. 시크릿 모드 체크
+      if (option.isSecret && !userInfo.isSecretMode) {
+          showToast("시크릿 모드 활성화가 필요합니다.", "info");
+          return;
+      }
+
+      setEventOptions(null); // 모달 닫기
+      setIsTyping(true);
+      setEnergy(prev => Math.max(0, prev - option.energyCost)); // 선차감(낙관적)
+
+      try {
+          const res = await api.post(`/story/rooms/${roomId}/events/select`, {
+              detail: option.detail,
+              energyCost: option.energyCost
+          });
+          
+          // 결과 처리 (Narrator Message + Character Reaction)
+          const { scenes, currentAffection } = res.data;
+          setAffection(currentAffection);
+          if (scenes && scenes.length > 0) {
+              setSceneQueue(scenes);
+          }
+          
+          // 시스템 메시지(이벤트 내용)는 scenes에 포함되지 않을 수 있으니 프론트에서 임의 추가하거나
+          // 백엔드 응답 구조에 따라 조정. 여기서는 Character Reaction만 온다고 가정.
+          // (백엔드 코드상 ChatLog는 저장되지만 리턴은 SceneResponse 리스트임)
+          // UX상 이벤트 내용을 먼저 보여주는게 좋음
+          const eventMsg = { role: 'SYSTEM', cleanContent: option.detail };
+          setMessages(prev => [...prev, eventMsg]);
+
+          const combinedText = scenes.map(s => s.dialogue).join(" ");
+          setMessages(prev => [...prev, { role: 'ASSISTANT', cleanContent: combinedText }]);
+          
+          // 씬 재생 시작
+          setCurrentScene({ 
+             dialogue: "", 
+             narration: option.detail, 
+             emotion: displayedEmotion,
+             isEvent: true 
+          });
+
+      } catch (err) {
+          console.error(err);
+          showToast("이벤트 진행 중 오류 발생", "error");
+      } finally {
+          setIsTyping(false);
+      }
+  };
+
 
   useEffect(() => {
     if (!currentScene && sceneQueue.length > 0) {
@@ -324,6 +444,7 @@ const ChatPage = () => {
 
   const handleNextScene = () => {
     if (currentScene?.isEvent) {
+        // 이벤트 나레이션이 끝나면 다음 대사로 넘어가기 위해 빈 메시지 처리 or just next
         handleSendMessage(null); 
         return;
     }
@@ -334,7 +455,6 @@ const ChatPage = () => {
     }
   };
 
-  // [Changed] 커스텀 모달 적용
   const handleClearHistory = () => {
     openConfirm(
         "정말로 모든 기억을 지우시겠습니까?\n이 작업은 되돌릴 수 없습니다.",
@@ -342,10 +462,13 @@ const ChatPage = () => {
             try {
                 await api.delete(`/chat/rooms/${roomId}`);
                 setMessages([]);
-                setCurrentScene({ dialogue: "...", emotion: "SAD", narration: "...모든 기억이 희미해집니다..." });
                 setAffection(0);
-                showToast("모든 대화 기록이 초기화되었습니다.", "success");
+                showToast("초기화되었습니다. 새로운 만남을 시작합니다.", "success");
                 closeConfirm();
+                
+                // [NEW] 초기화 후 인트로 다시 시작
+                startIntroSequence(roomId);
+
             } catch (err) {
                 showToast("오류가 발생했습니다.", "error");
                 closeConfirm();
@@ -355,7 +478,6 @@ const ChatPage = () => {
     );
   };
 
-  // [Changed] 커스텀 모달 적용
   const handleLogout = () => {
       openConfirm(
           "로그아웃 하시겠습니까?",
@@ -367,10 +489,12 @@ const ChatPage = () => {
       );
   };
 
-  if (!roomInfo) return <div className="h-full flex items-center justify-center text-white/50">Loading...</div>;
+  if (isLoading || !roomInfo) return <div className="h-full flex items-center justify-center text-white/50">Loading...</div>;
 
   return (
-    <div className="relative w-full h-screen font-sans overflow-hidden bg-gray-900 select-none">
+    <div className="relative w-full h-screen font-sans overflow-hidden bg-gray-900">
+      
+      {/* Background */}
       <img 
         src="/backgrounds/room_night.png"
         alt="Background"
@@ -378,9 +502,68 @@ const ChatPage = () => {
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-black/40 z-0" />
 
+      {/* ================= Intro Cinematic Overlay ================= */}
+      <AnimatePresence>
+          {introStep !== 'none' && (
+              <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 1 }}
+                  className="absolute inset-0 z-[999] bg-black flex flex-col items-center justify-center"
+              >
+                  {/* Step 1: Door Opening Video */}
+                  {introStep === 'door' && (
+                      <div className="relative w-full h-full">
+                          <video 
+                              autoPlay 
+                              playsInline
+                              onEnded={() => setIntroStep('greeting')}
+                              onClick={() => setIntroStep('greeting')} // Skip
+                              className="w-full h-full object-cover"
+                          >
+                              <source src="/public/videos/intro_door.mp4" type="video/mp4" />
+                          </video>
+                          <div className="absolute bottom-10 w-full text-center animate-pulse">
+                              <span className="text-white/30 text-xs tracking-widest cursor-pointer hover:text-white">
+                                  CLICK TO ENTER
+                              </span>
+                          </div>
+                      </div>
+                  )}
+
+                  {/* Step 2: Character Greeting Video */}
+                  {introStep === 'greeting' && (
+                      <motion.div 
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="relative w-full h-full"
+                      >
+                          <video 
+                              autoPlay 
+                              muted
+                              playsInline // 소리 재생 원하면 muted 제거 (브라우저 정책 주의)
+                              onEnded={() => setIntroStep('none')}
+                              onClick={() => setIntroStep('none')} // Skip
+                              className="w-full h-full object-cover"
+                          >
+                              <source src="/public/videos/intro_greeting.mp4" type="video/mp4" />
+                          </video>
+                           <div className="absolute bottom-10 w-full text-center animate-pulse">
+                              <span className="text-white/30 text-xs tracking-widest cursor-pointer hover:text-white">
+                                  CLICK TO SKIP
+                              </span>
+                          </div>
+                      </motion.div>
+                  )}
+              </motion.div>
+          )}
+      </AnimatePresence>
+
+
       <CharacterDisplay emotion={displayedEmotion} />
 
-      {/* 우측 상단 버튼 그룹 */}
+      {/* Top Buttons */}
       <div className="absolute top-6 right-6 z-50 flex items-center gap-3">
         <button 
             onClick={toggleBgm}
@@ -425,7 +608,84 @@ const ChatPage = () => {
         onTriggerEvent={handleTriggerEvent} 
       />
 
-      {/* ================= [NEW] Toast Notification ================= */}
+      {/* ================= Event Selection Modal (3-Branch) ================= */}
+      <AnimatePresence>
+        {eventOptions && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                <motion.div 
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.9, opacity: 0 }}
+                    className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-4"
+                >
+                    {eventOptions.map((opt, idx) => {
+                        const isLocked = opt.isSecret && !userInfo.isSecretMode;
+                        const isNoEnergy = energy < opt.energyCost;
+                        
+                        return (
+                            <button
+                                key={idx}
+                                onClick={() => !isLocked && !isNoEnergy && handleSelectEvent(opt)}
+                                disabled={isLocked || isNoEnergy}
+                                className={`relative group h-[400px] rounded-2xl border overflow-hidden transition-all duration-300 flex flex-col items-center justify-center p-6 text-center
+                                    ${opt.type === 'SECRET' 
+                                        ? 'border-red-500/50 bg-gradient-to-b from-red-900/80 to-black/80 hover:scale-105 hover:border-red-400 hover:shadow-[0_0_30px_rgba(220,38,38,0.5)]' 
+                                        : opt.type === 'AFFECTION'
+                                            ? 'border-pink-500/50 bg-gradient-to-b from-pink-900/80 to-black/80 hover:scale-105 hover:border-pink-400 hover:shadow-[0_0_30px_rgba(236,72,153,0.5)]'
+                                            : 'border-indigo-500/50 bg-gradient-to-b from-indigo-900/80 to-black/80 hover:scale-105 hover:border-indigo-400 hover:shadow-[0_0_30px_rgba(99,102,241,0.5)]'
+                                    }
+                                    ${(isLocked || isNoEnergy) ? 'opacity-50 grayscale cursor-not-allowed hover:scale-100' : ''}
+                                `}
+                            >
+                                {/* Background Image/Effect could go here */}
+                                
+                                {/* Icon & Title */}
+                                <div className="mb-4">
+                                    {opt.type === 'SECRET' ? <Sparkles size={40} className="text-red-400 animate-pulse"/> :
+                                     opt.type === 'AFFECTION' ? <Sparkles size={40} className="text-pink-400"/> :
+                                     <Zap size={40} className="text-indigo-400"/>}
+                                </div>
+                                
+                                <h3 className={`text-xl font-bold mb-2 ${
+                                    opt.type === 'SECRET' ? 'text-red-100' : opt.type === 'AFFECTION' ? 'text-pink-100' : 'text-indigo-100'
+                                }`}>
+                                    {opt.summary}
+                                </h3>
+
+                                {/* Secret Lock Mask */}
+                                {isLocked ? (
+                                    <div className="absolute inset-0 backdrop-blur-md flex flex-col items-center justify-center bg-black/40 z-10">
+                                        <Lock size={48} className="text-gray-400 mb-2"/>
+                                        <span className="text-gray-300 font-bold text-sm">Secret Mode Only</span>
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-gray-300 line-clamp-4 leading-relaxed mb-6">
+                                        {opt.detail}
+                                    </p>
+                                )}
+
+                                {/* Cost Badge */}
+                                <div className={`px-4 py-1.5 rounded-full text-xs font-bold border flex items-center gap-1
+                                    ${isNoEnergy ? 'bg-gray-700 text-gray-400 border-gray-600' : 
+                                      'bg-black/50 text-white border-white/20'}`}>
+                                    <Zap size={12} className={isNoEnergy ? "text-gray-500" : "text-yellow-400"} fill={isNoEnergy ? "none" : "currentColor"} />
+                                    Cost: {opt.energyCost}
+                                </div>
+
+                                {isNoEnergy && <span className="text-red-400 text-xs mt-2 font-bold">에너지 부족!</span>}
+                            </button>
+                        )
+                    })}
+                </motion.div>
+                
+                {/* Close Modal (Background Click) */}
+                <div className="absolute inset-0 -z-10" onClick={() => setEventOptions(null)} />
+            </div>
+        )}
+      </AnimatePresence>
+
+      {/* ... (Toast, Confirm, Settings, History Modals - 기존 코드 유지) ... */}
+      {/* Toast Notification */}
       <AnimatePresence>
         {toast && (
             <motion.div
@@ -444,7 +704,7 @@ const ChatPage = () => {
         )}
       </AnimatePresence>
 
-      {/* ================= [NEW] Custom Confirm Modal ================= */}
+      {/* Confirm Modal */}
       <AnimatePresence>
         {confirmModal && (
             <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
@@ -491,7 +751,7 @@ const ChatPage = () => {
         )}
       </AnimatePresence>
 
-      {/* ================= Settings Modal ================= */}
+      {/* Settings Modal (User Profile & Game Options) */}
       <AnimatePresence>
         {showSettings && (
             <motion.div 
@@ -514,7 +774,7 @@ const ChatPage = () => {
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar pb-32">
                     
-                    {/* [MOVED UP] 1. User Settings (위치를 위로 변경하여 툴팁 짤림 방지) */}
+                    {/* 1. User Settings (위) */}
                     <section>
                         <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
                             <UserIcon size={16}/> User Profile
@@ -531,7 +791,6 @@ const ChatPage = () => {
                                 />
                             </div>
                             
-                            {/* My Persona */}
                             <div className="relative">
                                 <label className="block text-xs text-gray-500 mb-1 flex justify-between">
                                     My Persona (Secret Mode Only)
@@ -564,14 +823,14 @@ const ChatPage = () => {
                                     }`}
                             >
                                 <Save size={18} />
-                                {isSavingProfile ? "Saving..." : "Save Settings"}
+                                {isSavingProfile ? "Saving..." : "Save Profile Info"}
                             </button>
                         </div>
                     </section>
 
                     <div className="h-px bg-white/10" />
 
-                    {/* [MOVED DOWN] 2. Game Settings (Secret Mode Toggle) */}
+                    {/* 2. Game Settings (아래) */}
                     <section>
                         <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
                             <Gamepad2 size={16}/> Game Options
@@ -581,13 +840,12 @@ const ChatPage = () => {
                             <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 relative group">
                                 <div className="flex flex-col">
                                     <span className={`text-sm font-bold flex items-center gap-2 ${userInfo.isSecretMode ? 'text-red-400' : 'text-gray-300'}`}>
-                                        Secret Mode (개발자 모드)
+                                        Secret Mode (NSFW)
                                         {userInfo.isSecretMode && <span className="text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30">ON</span>}
                                     </span>
                                     <span className="text-xs text-gray-500 mt-1">대화의 모든 리미트를 해제합니다.</span>
                                 </div>
 
-                                {/* Toggle Switch */}
                                 <button 
                                     onClick={toggleSecretMode}
                                     className={`w-12 h-7 rounded-full transition-colors duration-300 relative ${userInfo.isSecretMode ? 'bg-red-600' : 'bg-gray-700'}`}
@@ -595,7 +853,7 @@ const ChatPage = () => {
                                     <div className={`w-5 h-5 bg-white rounded-full shadow-md absolute top-1 left-1 transition-transform duration-300 ${userInfo.isSecretMode ? 'translate-x-5' : 'translate-x-0'}`} />
                                 </button>
 
-                                {/* Tooltip for Secret Mode (이제 아래쪽에 있어서 위로 뜰 공간 확보됨) */}
+                                {/* Tooltip */}
                                 <div className="absolute right-0 bottom-full mb-3 w-64 bg-black/95 border border-red-500/30 p-4 rounded-xl text-xs text-gray-300
                                 opacity-0 group-hover:opacity-100 transition-opacity duration-200
                                 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
@@ -659,7 +917,6 @@ const ChatPage = () => {
                             </div>
                         </div>
                     </section>
-
                 </div>
 
                 <div className="p-6 border-t border-white/10 bg-white/5">
@@ -674,8 +931,8 @@ const ChatPage = () => {
             </motion.div>
         )}
       </AnimatePresence>
-      
-      {/* 히스토리 모달 */}
+
+      {/* History Modal (기존 동일) */}
       <AnimatePresence>
         {showHistory && (
           <motion.div 
@@ -723,7 +980,6 @@ const ChatPage = () => {
               <div ref={logsEndRef} />
             </div>
             <div className="p-6 border-t border-white/10 bg-black/40">
-              {/* [Changed] 버튼 클릭 시 커스텀 모달 호출 */}
               <button 
                 onClick={handleClearHistory}
                 className="w-full py-3 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition flex items-center justify-center gap-2 font-bold"
