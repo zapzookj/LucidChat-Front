@@ -26,6 +26,10 @@ const ChatPage = () => {
   const [affection, setAffection] = useState(0);
   const [energy, setEnergy] = useState(user?.energy || 100);
   const [isTyping, setIsTyping] = useState(false);
+
+  // [NEW] 인트로 시퀀스 상태 ('none' | 'door' | 'greeting')
+  const [introStep, setIntroStep] = useState('none');
+  const [isLoading, setIsLoading] = useState(true); // 깜빡임 방지용
   
   // [UI 상태]
   const [showHistory, setShowHistory] = useState(false);
@@ -51,9 +55,7 @@ const ChatPage = () => {
   const [toast, setToast] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
 
-  // [NEW] 인트로 시퀀스 상태 ('none' | 'door' | 'greeting')
-  const [introStep, setIntroStep] = useState('none');
-  const [isLoading, setIsLoading] = useState(true); // 깜빡임 방지용
+  
   
   // [NEW] 이벤트 선택지 모달 상태
   const [eventOptions, setEventOptions] = useState(null); // Array or null
@@ -104,14 +106,14 @@ const ChatPage = () => {
     };
   }, []);
 
-  // [Fix] 인트로가 끝나면('none') BGM 재생
+  // 인트로가 'none' 상태일 때만 BGM 재생 시도
   useEffect(() => {
-    if (introStep === 'none' && audioRef.current && !isBgmPlaying) {
+    if (introStep === 'none' && !isLoading && audioRef.current && !isBgmPlaying) {
         audioRef.current.play()
             .then(() => setIsBgmPlaying(true))
-            .catch(e => console.log("BGM Autoplay prevented", e));
+            .catch(e => console.log("BGM Autoplay blocked", e));
     }
-  }, [introStep]);
+  }, [introStep, isLoading]);
 
   const toggleBgm = () => {
     if (isBgmPlaying) {
@@ -191,27 +193,33 @@ const ChatPage = () => {
   useEffect(() => {
     const init = async () => {
       if(!roomId) return;
-      setIsLoading(true); // 로딩 시작
+      setIsLoading(true); 
 
       try {
-        const roomRes = await api.get(`/chat/rooms/${roomId}`);
+        // 1. 기본 정보 병렬 로드
+        const [roomRes, userRes, logsRes] = await Promise.all([
+            api.get(`/chat/rooms/${roomId}`),
+            api.get("/users/me"),
+            api.get(`/chat/rooms/${roomId}/logs?page=0&size=50`)
+        ]);
+
         setRoomInfo(roomRes.data);
         setAffection(roomRes.data.affectionScore);
-        
-        // 유저 정보 (시크릿모드 확인용)
-        const userRes = await api.get("/users/me");
         setUserInfo({ ...userInfo, isSecretMode: userRes.data.isSecretMode || false });
 
-        const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=50`);
         const logs = logsRes.data?.content || [];
 
         if (logs.length === 0) {
-            // [Fix] 대화가 없으면 인트로 시작
+            // [Case A] 신규 유저 -> 인트로 시퀀스 시작
             await startIntroSequence(roomId);
+            // 주의: startIntroSequence 내부에서 isLoading을 끄지 않음 (영상 끝날때까지 유지하려 했으나, 
+            // 영상 오버레이는 isLoading이 false여야 보임. 아래 finally에서 false로 만듦)
         } else {
-            // 기존 유저 복원
+            // [Case B] 기존 유저 -> 마지막 상태 복원
             const sortedLogs = logs.reverse();
             setMessages(sortedLogs);
+            
+            // 마지막 로그가 캐릭터 대사라면 씬 복원
             if (sortedLogs.length > 0) {
                const lastLog = sortedLogs[sortedLogs.length - 1];
                if (lastLog.role === 'ASSISTANT') {
@@ -226,37 +234,64 @@ const ChatPage = () => {
         }
       } catch (err) {
         console.error("Init Error", err);
+        showToast("초기화 중 오류가 발생했습니다.", "error");
       } finally {
-        setIsLoading(false); // 로딩 끝 (화면 보여줌)
+        // 데이터 로딩이 끝났으므로 화면 렌더링 허용
+        // (인트로 영상 오버레이도 isLoading이 false여야 렌더링됨)
+        setIsLoading(false);
       }
     };
     init();
   }, [roomId]);
 
   const startIntroSequence = async (roomId) => {
-      setIntroStep('door'); // 영상 재생 시작
+      setIntroStep('door'); // 1. 영상 재생 시작
+      
       try {
-          // 백엔드 init 요청
+          // 2. 백엔드 init (나레이션 + 첫인사 생성)
           await api.post(`/chat/rooms/${roomId}/init`);
-          // 생성된 로그 다시 가져오기
-          const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=50`);
-          if (logsRes.data?.content) {
-              setMessages(logsRes.data.content.reverse());
-              // 인사하는 마지막 씬 설정
-              const last = logsRes.data.content[logsRes.data.content.length-1];
-              if(last) {
-                 setCurrentScene({ dialogue: last.cleanContent, emotion: last.emotionTag, narration: ""});
-                 setDisplayedEmotion(last.emotionTag);
-              }
+          
+          // 3. 생성된 로그 가져오기
+          const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=5`);
+          const newLogs = logsRes.data.content.reverse(); // [System(Narration), Assistant(Hello)]
+          
+          setMessages(newLogs);
+
+          // 4. 씬 큐(Scene Queue) 구성
+          // UX: 영상이 끝나면(IntroStep none) -> System 나레이션 재생 -> Assistant 대사 재생
+          const queue = [];
+          
+          // (1) 나레이션 씬
+          const narrationLog = newLogs.find(l => l.role === 'SYSTEM');
+          if (narrationLog) {
+              queue.push({
+                  dialogue: "", 
+                  narration: narrationLog.cleanContent, 
+                  emotion: "NEUTRAL", 
+                  isIntroNarration: true // 캐릭터 숨김용 플래그
+              });
           }
+          
+          // (2) 첫인사 씬
+          const greetingLog = newLogs.find(l => l.role === 'ASSISTANT');
+          if (greetingLog) {
+              queue.push({
+                  dialogue: greetingLog.cleanContent,
+                  narration: "메이드 아이리가 고개를 숙여 인사하며 부드럽게 미소짓는다.", // 
+                  emotion: greetingLog.emotionTag
+              });
+          }
+          
+          setSceneQueue(queue); // 큐에 넣고 대기 (영상 끝날 때까지 Play 안됨? 아니, Scene logic이 돌 것임)
+          
       } catch (e) {
-          console.error("Intro init failed", e);
+          console.error("Intro Sequence Failed", e);
       }
   };
 
-  const handleIntroSkip = () => {
-      if (introStep === 'door') setIntroStep('greeting');
-      else if (introStep === 'greeting') setIntroStep('none');
+  const handleIntroVideoEnd = () => {
+      setIntroStep('none'); // 오버레이 제거 -> 이때부터 DialogueBox가 보임
+      // DialogueBox는 sceneQueue에 들어있는 첫 번째(나레이션)를 자동으로 재생 시작
   };
 
   // ================= Chat Logic =================
@@ -278,46 +313,6 @@ const ChatPage = () => {
       logsEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [showHistory, messages]);
-
-  // 초기화 및 인트로 체크
-  useEffect(() => {
-    const init = async () => {
-      if(!roomId) return;
-      try {
-        const roomRes = await api.get(`/chat/rooms/${roomId}`);
-        setRoomInfo(roomRes.data);
-        setAffection(roomRes.data.affectionScore);
-        
-        const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=50`);
-        const logs = logsRes.data?.content || [];
-
-        if (logs.length === 0) {
-            // [NEW] 대화가 없으면 인트로 시퀀스 시작
-            startIntroSequence(roomId);
-        } else {
-            // 기존 유저 로드
-            const sortedLogs = logs.reverse();
-            setMessages(sortedLogs);
-            
-            if (sortedLogs.length > 0) {
-               const lastLog = sortedLogs[sortedLogs.length - 1];
-               if (lastLog.role === 'ASSISTANT') {
-                 const restoredScene = {
-                   dialogue: lastLog.cleanContent,
-                   narration: "",
-                   emotion: lastLog.emotionTag || "NEUTRAL"
-                 };
-                 setCurrentScene(restoredScene);
-                 setDisplayedEmotion(restoredScene.emotion);
-               }
-            }
-        }
-      } catch (err) {
-        console.error("초기화 에러", err);
-      }
-    };
-    init();
-  }, [roomId]);
 
   const handleSendMessage = async (text) => {
     if (text && energy <= 0) {
@@ -390,6 +385,8 @@ const ChatPage = () => {
           return;
       }
 
+      // UX: 로딩 중일 때 이전 대사 지우기 (몰입감)
+      setCurrentScene({ dialogue: "", narration: "운명의 흐름을 읽는 중...", emotion: displayedEmotion, isEvent: true });
       setEventOptions(null); // 모달 닫기
       setIsTyping(true);
       setEnergy(prev => Math.max(0, prev - option.energyCost)); // 선차감(낙관적)
@@ -403,37 +400,52 @@ const ChatPage = () => {
           // 결과 처리 (Narrator Message + Character Reaction)
           const { scenes, currentAffection } = res.data;
           setAffection(currentAffection);
-          if (scenes && scenes.length > 0) {
-              setSceneQueue(scenes);
+          // 큐 구성: [이벤트 나레이션] -> [캐릭터 반응1] -> [반응2]...
+          const newQueue = [];
+          
+          // 1. 이벤트 나레이션 (옵션의 detail)
+          newQueue.push({
+              dialogue: "",
+              narration: option.detail, // 선택한 상황 묘사
+              emotion: displayedEmotion, // 감정 유지
+              isEvent: true // 다음 씬 자동 넘김용 플래그 아님 (수정됨)
+          });
+          
+          // 2. 캐릭터 반응 추가
+          if (scenes?.length) {
+              newQueue.push(...scenes);
           }
           
-          // 시스템 메시지(이벤트 내용)는 scenes에 포함되지 않을 수 있으니 프론트에서 임의 추가하거나
-          // 백엔드 응답 구조에 따라 조정. 여기서는 Character Reaction만 온다고 가정.
-          // (백엔드 코드상 ChatLog는 저장되지만 리턴은 SceneResponse 리스트임)
-          // UX상 이벤트 내용을 먼저 보여주는게 좋음
-          const eventMsg = { role: 'SYSTEM', cleanContent: option.detail };
-          setMessages(prev => [...prev, eventMsg]);
+          setSceneQueue(newQueue);
 
-          const combinedText = scenes.map(s => s.dialogue).join(" ");
-          setMessages(prev => [...prev, { role: 'ASSISTANT', cleanContent: combinedText }]);
-          
-          // 씬 재생 시작
-          setCurrentScene({ 
-             dialogue: "", 
-             narration: option.detail, 
-             emotion: displayedEmotion,
-             isEvent: true 
-          });
+          // 로그 업데이트 (히스토리용)
+          setMessages(prev => [
+              ...prev, 
+              { role: 'SYSTEM', cleanContent: option.detail },
+              { role: 'ASSISTANT', cleanContent: scenes.map(s => s.dialogue).join(" ") }
+          ]);
 
-      } catch (err) {
-          console.error(err);
-          showToast("이벤트 진행 중 오류 발생", "error");
-      } finally {
-          setIsTyping(false);
+      } catch (e) { 
+          showToast("오류 발생", "error"); 
+          setCurrentScene(null);
+      } finally { 
+          setIsTyping(false); 
       }
   };
 
+  // [Core Fix 4] 씬 전환 로직 수정 (자동 "..." 발송 제거)
+  const handleNextScene = () => {
+    // 큐에 남은 씬이 있다면 다음 씬 재생
+    if (sceneQueue.length > 0) {
+      const nextScene = sceneQueue[0];
+      setCurrentScene(nextScene);
+      setSceneQueue(prev => prev.slice(1));
+    } 
+    // 큐가 비었다면? 그냥 대기 (사용자 입력 대기)
+    // 이전에 있던 handleSendMessage(null) 제거함 -> "..." 자동 발송 방지
+  };
 
+  // 큐 자동 재생 (초기 진입 시)
   useEffect(() => {
     if (!currentScene && sceneQueue.length > 0) {
       const nextScene = sceneQueue[0];
@@ -441,19 +453,6 @@ const ChatPage = () => {
       setSceneQueue(prev => prev.slice(1));
     }
   }, [sceneQueue, currentScene]);
-
-  const handleNextScene = () => {
-    if (currentScene?.isEvent) {
-        // 이벤트 나레이션이 끝나면 다음 대사로 넘어가기 위해 빈 메시지 처리 or just next
-        handleSendMessage(null); 
-        return;
-    }
-    if (sceneQueue.length > 0) {
-      const nextScene = sceneQueue[0];
-      setCurrentScene(nextScene);
-      setSceneQueue(prev => prev.slice(1));
-    }
-  };
 
   const handleClearHistory = () => {
     openConfirm(
@@ -489,7 +488,7 @@ const ChatPage = () => {
       );
   };
 
-  if (isLoading || !roomInfo) return <div className="h-full flex items-center justify-center text-white/50">Loading...</div>;
+  if (isLoading || !roomInfo) return <div className="h-full flex items-center justify-center bg-gray-900 text-white/30 animate-pulse">Loading Lucid Chat...</div>;
 
   return (
     <div className="relative w-full h-screen font-sans overflow-hidden bg-gray-900">
@@ -504,58 +503,24 @@ const ChatPage = () => {
 
       {/* ================= Intro Cinematic Overlay ================= */}
       <AnimatePresence>
-          {introStep !== 'none' && (
+          {introStep === 'door' && (
               <motion.div 
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 1 }}
+                  initial={{ opacity: 1 }} // Loading에서 바로 이어지므로 1
+                  exit={{ opacity: 0 }} 
+                  transition={{ duration: 1.5 }} // 천천히 페이드 아웃
                   className="absolute inset-0 z-[999] bg-black flex flex-col items-center justify-center"
               >
-                  {/* Step 1: Door Opening Video */}
-                  {introStep === 'door' && (
-                      <div className="relative w-full h-full">
-                          <video 
-                              autoPlay 
-                              playsInline
-                              onEnded={() => setIntroStep('greeting')}
-                              onClick={() => setIntroStep('greeting')} // Skip
-                              className="w-full h-full object-cover"
-                          >
-                              <source src="/public/videos/intro_door.mp4" type="video/mp4" />
-                          </video>
-                          <div className="absolute bottom-10 w-full text-center animate-pulse">
-                              <span className="text-white/30 text-xs tracking-widest cursor-pointer hover:text-white">
-                                  CLICK TO ENTER
-                              </span>
-                          </div>
-                      </div>
-                  )}
-
-                  {/* Step 2: Character Greeting Video */}
-                  {introStep === 'greeting' && (
-                      <motion.div 
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className="relative w-full h-full"
-                      >
-                          <video 
-                              autoPlay 
-                              muted
-                              playsInline // 소리 재생 원하면 muted 제거 (브라우저 정책 주의)
-                              onEnded={() => setIntroStep('none')}
-                              onClick={() => setIntroStep('none')} // Skip
-                              className="w-full h-full object-cover"
-                          >
-                              <source src="/public/videos/intro_greeting.mp4" type="video/mp4" />
-                          </video>
-                           <div className="absolute bottom-10 w-full text-center animate-pulse">
-                              <span className="text-white/30 text-xs tracking-widest cursor-pointer hover:text-white">
-                                  CLICK TO SKIP
-                              </span>
-                          </div>
-                      </motion.div>
-                  )}
+                  <video 
+                      autoPlay playsInline 
+                      onEnded={handleIntroVideoEnd} 
+                      onClick={handleIntroVideoEnd} // Skip
+                      className="w-full h-full object-cover"
+                  >
+                      <source src="/videos/intro_door.mp4" type="video/mp4" />
+                  </video>
+                  <div className="absolute bottom-10 w-full text-center animate-pulse">
+                      <span className="text-white/30 text-xs tracking-widest cursor-pointer">CLICK TO SKIP</span>
+                  </div>
               </motion.div>
           )}
       </AnimatePresence>
