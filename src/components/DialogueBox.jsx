@@ -85,7 +85,7 @@ const DialogueBox = ({
   };
 
   return (
-    <div className="absolute bottom-0 w-full z-20 p-4 pb-8 flex justify-center">
+    <div className="absolute bottom-0 w-full z-20 p-4 pb-8 flex justify-center select-none">
       <div className="w-full max-w-4xl flex flex-col gap-3">
         
         {/* 상단 정보바 */}

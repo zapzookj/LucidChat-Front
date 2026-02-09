@@ -45,14 +45,14 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-[url('/backgrounds/room_night.png')] bg-cover bg-center">
+    <div className="flex items-center justify-center min-h-screen bg-[url('/backgrounds/room_night.png')] bg-cover bg-center select-none">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" /> 
       
       <div className="relative w-full max-w-md p-8 bg-black/50 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl transition-all duration-500">
         {/* 타이틀 & 탭 */}
         <div className="text-center mb-8">
           <h2 className="text-3xl font-bold text-white drop-shadow-lg mb-6">
-            {isLoginMode ? "Welcome Back" : "Join Us"}
+            {isLoginMode ? "Welcome" : "Join Us"}
           </h2>
           
           <div className="flex bg-white/10 rounded-full p-1 relative">

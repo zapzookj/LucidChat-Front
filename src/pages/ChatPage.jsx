@@ -370,7 +370,7 @@ const ChatPage = () => {
   if (!roomInfo) return <div className="h-full flex items-center justify-center text-white/50">Loading...</div>;
 
   return (
-    <div className="relative w-full h-screen font-sans overflow-hidden bg-gray-900">
+    <div className="relative w-full h-screen font-sans overflow-hidden bg-gray-900 select-none">
       <img 
         src="/backgrounds/room_night.png"
         alt="Background"
