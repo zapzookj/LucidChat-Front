@@ -189,6 +189,32 @@ const ChatPage = () => {
       }
   };
 
+  // 길면 여러 씬으로 쪼개는 유틸 (대충 문장/줄 기준 + maxChars)
+const splitNarration = (text, maxChars = 140) => {
+  const cleaned = (text ?? "")
+    .replace(/^\s*\[NARRATION\]\s*/i, "") // 네가 넣은 [NARRATION] 제거
+    .trim();
+
+  // 우선 줄바꿈 단락 기준
+  const paras = cleaned.split(/\n+/).map(s => s.trim()).filter(Boolean);
+
+  // 문장 단위로 쪼개기 (마침표/물음표/느낌표/… 기준)
+  const sentences = paras.flatMap(p => p.match(/[^.!?…]+[.!?…]?/g) ?? [p]);
+
+  const chunks = [];
+  let buf = "";
+  for (const s of sentences) {
+    if (!buf) buf = s.trim();
+    else if ((buf + " " + s).length <= maxChars) buf += " " + s.trim();
+    else {
+      chunks.push(buf.trim());
+      buf = s.trim();
+    }
+  }
+  if (buf) chunks.push(buf.trim());
+  return chunks;
+};
+
   // ================= Init Logic =================
   useEffect(() => {
     const init = async () => {
@@ -264,12 +290,17 @@ const ChatPage = () => {
           // (1) 나레이션 씬
           const narrationLog = newLogs.find(l => l.role === 'SYSTEM');
           if (narrationLog) {
+            const parts = splitNarration(narrationLog.cleanContent, 140);
+            parts.forEach(part => {
               queue.push({
                   dialogue: "", 
-                  narration: narrationLog.cleanContent, 
-                  emotion: "NEUTRAL", 
+                  narration: part, 
+                  emotion: "NEUTRAL",
+                  isEvent: true,
+                  sceneType: "INTRO",
                   isIntroNarration: true // 캐릭터 숨김용 플래그
               });
+            });
           }
           
           // (2) 첫인사 씬
@@ -278,7 +309,9 @@ const ChatPage = () => {
               queue.push({
                   dialogue: greetingLog.cleanContent,
                   narration: "메이드 아이리가 고개를 숙여 인사하며 부드럽게 미소짓는다.", // 
-                  emotion: greetingLog.emotionTag
+                  emotion: greetingLog.emotionTag,
+                  isEvent: false,
+                  sceneType: "NORMAL"
               });
           }
           
