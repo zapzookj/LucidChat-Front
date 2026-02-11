@@ -77,6 +77,20 @@ const ChatPage = () => {
       setConfirmModal(null);
   };
 
+  const unwrap = (res) => res?.data?.data ?? res?.data;
+
+  const refreshUserInfo = async () => {
+    const res = await api.get("/users/me");
+    const u = unwrap(res);
+
+    setUserInfo({
+      nickname: u?.nickname ?? "",
+      profileDescription: u?.profileDescription ?? "",
+      isSecretMode: !!u?.isSecretMode,
+    });
+  };
+
+
   // ================= Image Preloading (Optimization) =================
   useEffect(() => {
     const characterImages = [
@@ -132,28 +146,28 @@ const ChatPage = () => {
   }, [bgmVolume]);
 
   // ================= User Info Logic =================
-  useEffect(() => {
-    const fetchUserInfo = async () => {
-      try {
-        const res = await api.get("/users/me");
-        setUserInfo({
-          nickname: res.data.nickname || "",
-          profileDescription: res.data.profileDescription || "",
-          isSecretMode: res.data.isSecretMode || false
-        });
-      } catch (err) {
-        console.error("Failed to fetch user info", err);
-      }
-    };
-    // 설정창 열 때 뿐만 아니라 초기 로딩 시에도 시크릿 모드 정보가 필요함 (이벤트 카드용)
-    fetchUserInfo();
-  }, []); // Mount 시 한 번 실행
+  // useEffect(() => {
+  //   const fetchUserInfo = async () => {
+  //     try {
+  //       const res = await api.get("/users/me");
+  //       setUserInfo({
+  //         nickname: res.data.nickname || "",
+  //         profileDescription: res.data.profileDescription || "",
+  //         isSecretMode: res.data.isSecretMode || false
+  //       });
+  //     } catch (err) {
+  //       console.error("Failed to fetch user info", err);
+  //     }
+  //   };
+  //   // 설정창 열 때 뿐만 아니라 초기 로딩 시에도 시크릿 모드 정보가 필요함 (이벤트 카드용)
+  //   fetchUserInfo();
+  // }, []); // Mount 시 한 번 실행
 
   // 설정창 열릴 때 리프레시
   useEffect(() => {
-      if(showSettings) {
-          api.get("/users/me").then(res => setUserInfo(prev => ({...prev, isSecretMode: res.data.isSecretMode})));
-      }
+    if (showSettings) {
+      refreshUserInfo().catch(err => console.error("Failed to refresh user info", err));
+    }
   }, [showSettings]);
 
   const handleUpdateProfile = async () => {
@@ -231,8 +245,13 @@ const splitNarration = (text, maxChars = 140) => {
 
         setRoomInfo(roomRes.data);
         setAffection(roomRes.data.affectionScore);
-        setUserInfo({ ...userInfo, isSecretMode: userRes.data.isSecretMode || false });
-
+        // setUserInfo({ ...userInfo, isSecretMode: userRes.data.isSecretMode || false });
+        const u = unwrap(userRes);
+        setUserInfo({
+          nickname: u?.nickname ?? "",
+          profileDescription: u?.profileDescription ?? "",
+          isSecretMode: !!u?.isSecretMode,
+        });
         const logs = logsRes.data?.content || [];
 
         if (logs.length === 0) {
