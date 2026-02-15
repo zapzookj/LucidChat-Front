@@ -99,10 +99,13 @@ const ChatPage = () => {
     setIsBgmPlaying(!isBgmPlaying);
   };
 
-  // 인트로 완료 시 BGM 자동 시작 + 기본 BGM 설정
+  // 인트로 완료 시 BGM 자동 시작
+  // bgmMode와 isBgmPlaying을 반드시 같은 effect에서 동시에 세팅해야
+  // AudioEngine이 unmuted 상태에서 audio를 생성 → Autoplay Policy 통과
   useEffect(() => {
-    if (introStep === 'none' && !isLoading && !isBgmPlaying && !currentBgmMode) {
-      setCurrentBgmMode("DAILY");
+    if (introStep === 'none' && !isLoading && !isBgmPlaying) {
+      const restoredBgm = roomInfo?.currentBgmMode || "DAILY";
+      setCurrentBgmMode(restoredBgm);
       setIsBgmPlaying(true);
     }
   }, [introStep, isLoading]);
@@ -211,7 +214,19 @@ const splitNarration = (text, maxChars = 140) => {
 
         setRoomInfo(roomRes.data);
         setAffection(roomRes.data.affectionScore);
-        setUserInfo({ ...userInfo, isSecretMode: userRes.data.isSecretMode || false });
+        // [Fix] 스테일 클로저 방지 — userRes에서 전체 유저 정보를 세팅
+        setUserInfo({
+            nickname: userRes.data.nickname || "",
+            profileDescription: userRes.data.profileDescription || "",
+            isSecretMode: userRes.data.isSecretMode || false
+        });
+
+        // [Phase 4.1] 씬 상태 복원 (재접속 시 서버에서 마지막 상태 로드)
+        // Note: bgmMode는 여기서 복원하지 않음 — auto-start effect에서 isBgmPlaying과 동시에 세팅해야
+        // 브라우저 Autoplay Policy 문제를 방지할 수 있음
+        if (roomRes.data.currentLocation) setCurrentLocation(roomRes.data.currentLocation);
+        if (roomRes.data.currentOutfit) setCurrentOutfit(roomRes.data.currentOutfit);
+        if (roomRes.data.currentTimeOfDay) setCurrentTime(roomRes.data.currentTimeOfDay);
 
         const logs = logsRes.data?.content || [];
 
@@ -479,7 +494,7 @@ const splitNarration = (text, maxChars = 140) => {
                 setCurrentLocation("ENTRANCE");
                 setCurrentTime("NIGHT");
                 setCurrentOutfit("MAID");
-                setCurrentBgmMode("ROMANTIC");
+                setCurrentBgmMode("DAILY");
                 showToast("초기화되었습니다. 새로운 만남을 시작합니다.", "success");
                 closeConfirm();
                 

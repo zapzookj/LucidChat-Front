@@ -304,7 +304,7 @@ const CharacterDisplay = ({ emotion = "NEUTRAL", outfit = "MAID" }) => {
               animate={{ opacity: 1, scale: 1.05 }}
               exit={{ opacity: 0, scale: 1.02 }}
               transition={{ duration: 0.5, ease: "easeInOut" }}
-              className="h-[85%] md:h-[90%] object-contain"
+              className="h-[85%] md:h-[90%] object-contain outline-none border-none ring-0 focus:ring-0 select-none pointer-events-none"
               style={{
                 filter: `
                   drop-shadow(0 0 25px ${config.glow})

@@ -2,21 +2,22 @@ import { useEffect, useRef, useCallback } from "react";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4] AudioEngine — 동적 청각 엔진
+//  [Phase 4.1] BGM 관성 시스템 — 쿨다운 방어선 추가
 //
 //  3-Layer Audio System:
-//    L1. BGM       — 감정 테마별 루프 (크로스페이드 전환)
+//    L1. BGM       — 감정 테마별 루프 (크로스페이드 + 60초 쿨다운)
 //    L2. Ambience  — 장소별 환경음 루프 (페이드 전환)
 //    L3. SFX       — 장소 전환 시 1회 효과음
 //
 //  Props:
-//    bgmMode     — "ROMANTIC" | "EXCITING" | "TOUCHING" | "TENSE" | null
+//    bgmMode     — BGM 모드 string | null
 //    location    — Location enum string | null
 //    time        — "DAY" | "NIGHT" | "SUNSET" | null
 //    masterVolume — 0~1 (설정에서 조절)
 //    isMuted      — boolean (BGM 토글)
 // ═══════════════════════════════════════════════════════════════
 
-// ─── BGM 매핑 ───
+// ─── BGM 매핑 (7개 테마) ───
 const BGM_MAP = {
   LOBBY:    "/sounds/bgm_lobby.mp3",
   DAILY:    "/sounds/bgm_daily.mp3",
@@ -24,10 +25,10 @@ const BGM_MAP = {
   EXCITING: "/sounds/bgm_exciting.mp3",
   TOUCHING: "/sounds/bgm_touching.mp3",
   TENSE:    "/sounds/bgm_tense.mp3",
+  EROTIC:   "/sounds/bgm_erotic.mp3",
 };
 
 // ─── Ambience 매핑 (location + time → ambience 배열) ───
-// 여러 엠비언스를 동시에 재생할 수 있음 (예: 정원 밤 = 귀뚜라미 + 올빼미)
 const AMBIENCE_MAP = {
   BEACH:      ["/sounds/amb_beach.mp3"],
   KITCHEN:    ["/sounds/amb_kitchen.mp3"],
@@ -35,7 +36,6 @@ const AMBIENCE_MAP = {
   BAR:        ["/sounds/amb_bar.mp3"],
   BATHROOM:   ["/sounds/amb_bathroom.mp3"],
 
-  // 정원/발코니: 시간대에 따라 다른 엠비언스
   GARDEN_DAY:     ["/sounds/amb_birds.mp3"],
   GARDEN_NIGHT:   ["/sounds/amb_crickets.mp3", "/sounds/amb_owl.mp3"],
   BALCONY_DAY:    ["/sounds/amb_birds.mp3"],
@@ -44,7 +44,6 @@ const AMBIENCE_MAP = {
 
 // ─── SFX 매핑 (장소 전환 시 1회 재생) ───
 const SFX_MAP = {
-  // 실내 진입 시 문 열리는 소리
   BAR:       "/sounds/sfx_door_open.mp3",
   BEDROOM:   "/sounds/sfx_door_open.mp3",
   STUDY:     "/sounds/sfx_door_open.mp3",
@@ -52,16 +51,17 @@ const SFX_MAP = {
   KITCHEN:   "/sounds/sfx_door_open.mp3",
   BATHROOM:  "/sounds/sfx_door_open.mp3",
   ENTRANCE:  "/sounds/sfx_door_open.mp3",
-
-  // 해변: 갈매기
   BEACH:     "/sounds/sfx_seagull.mp3",
 };
 
-// ─── 볼륨 상수 ───
-const BGM_VOLUME_RATIO = 0.45;      // master 대비 BGM 비율
-const AMBIENCE_VOLUME_RATIO = 0.25;  // master 대비 엠비언스 비율
-const SFX_VOLUME_RATIO = 0.6;       // master 대비 SFX 비율
-const FADE_DURATION = 1500;          // 크로스페이드 시간 (ms)
+// ─── 볼륨 & 타이밍 상수 ───
+const BGM_VOLUME_RATIO = 0.45;
+const AMBIENCE_VOLUME_RATIO = 0.25;
+const SFX_VOLUME_RATIO = 0.6;
+const FADE_DURATION = 1500;
+
+// [Phase 4.1] BGM 쿨다운 — LLM이 프롬프트를 무시해도 프론트에서 방어
+const BGM_COOLDOWN_MS = 60_000; // 60초 이내 BGM 재전환 차단
 
 /**
  * Audio를 부드럽게 페이드 아웃 후 정지
@@ -82,7 +82,7 @@ function fadeOut(audio, duration = FADE_DURATION) {
       if (step >= steps) {
         clearInterval(timer);
         audio.pause();
-        audio.volume = startVol; // 복원 (재사용 대비)
+        audio.volume = startVol;
         resolve();
       }
     }, interval);
@@ -115,22 +115,38 @@ function fadeIn(audio, targetVolume, duration = FADE_DURATION) {
 
 const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = false }) => {
   // ── Refs ──
-  const bgmRef = useRef(null);           // 현재 BGM Audio
-  const bgmModeRef = useRef(null);       // 현재 BGM 모드 (중복 방지)
-  const ambienceRefs = useRef([]);        // 현재 Ambience Audio 배열
-  const ambienceKeyRef = useRef("");      // 현재 Ambience 키 (중복 방지)
-  const prevLocationRef = useRef(null);   // 이전 location (SFX 트리거용)
+  const bgmRef = useRef(null);
+  const bgmModeRef = useRef(null);
+  const ambienceRefs = useRef([]);
+  const ambienceKeyRef = useRef("");
+  const prevLocationRef = useRef(null);
   const masterRef = useRef(masterVolume);
   const mutedRef = useRef(isMuted);
 
-  // masterVolume / isMuted 동기화
+  // [Phase 4.1] BGM 쿨다운 ref
+  const bgmLastChangedRef = useRef(0); // 마지막 BGM 전환 시각 (ms)
+
+  // masterVolume / isMuted 동기화 + [Phase 4.1] Autoplay Policy 복구
   useEffect(() => {
     masterRef.current = masterVolume;
+
+    // BGM: 볼륨 세팅 + unmute 시 paused 상태면 재생 재시도
     if (bgmRef.current) {
-      bgmRef.current.volume = isMuted ? 0 : masterVolume * BGM_VOLUME_RATIO;
+      const vol = isMuted ? 0 : masterVolume * BGM_VOLUME_RATIO;
+      bgmRef.current.volume = vol;
+      if (!isMuted && bgmRef.current.paused) {
+        bgmRef.current.play().catch(() => {});
+      }
     }
+
+    // Ambience: 동일 로직
     ambienceRefs.current.forEach(a => {
-      if (a) a.volume = isMuted ? 0 : masterVolume * AMBIENCE_VOLUME_RATIO;
+      if (a) {
+        a.volume = isMuted ? 0 : masterVolume * AMBIENCE_VOLUME_RATIO;
+        if (!isMuted && a.paused) {
+          a.play().catch(() => {});
+        }
+      }
     });
   }, [masterVolume, isMuted]);
 
@@ -138,21 +154,62 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
     mutedRef.current = isMuted;
   }, [isMuted]);
 
-  // ── L1: BGM 전환 ──
+  // [Phase 4.1] Autoplay Policy 복구 — 첫 유저 인터랙션 시 재생 재시도
+  // 브라우저가 자동재생을 차단한 경우, 문서 어디든 클릭/터치하면 재생 시도
+  useEffect(() => {
+    const resumeAudio = () => {
+      if (bgmRef.current && bgmRef.current.paused && !mutedRef.current) {
+        bgmRef.current.play().catch(() => {});
+      }
+      ambienceRefs.current.forEach(a => {
+        if (a && a.paused && !mutedRef.current) {
+          a.play().catch(() => {});
+        }
+      });
+      // 한 번 성공하면 리스너 제거
+      document.removeEventListener("click", resumeAudio);
+      document.removeEventListener("touchstart", resumeAudio);
+    };
+
+    document.addEventListener("click", resumeAudio, { once: false });
+    document.addEventListener("touchstart", resumeAudio, { once: false });
+
+    return () => {
+      document.removeEventListener("click", resumeAudio);
+      document.removeEventListener("touchstart", resumeAudio);
+    };
+  }, []);
+
+  // ── L1: BGM 전환 (쿨다운 방어선 포함) ──
   useEffect(() => {
     if (!bgmMode || bgmMode === bgmModeRef.current) return;
-    bgmModeRef.current = bgmMode;
 
     const newSrc = BGM_MAP[bgmMode];
     if (!newSrc) return;
 
+    // [Phase 4.1] 쿨다운 체크 — 60초 이내 재전환 차단
+    // 단, 최초 재생(bgmModeRef.current === null)은 쿨다운 무시
+    const now = Date.now();
+    if (bgmModeRef.current !== null) {
+      const elapsed = now - bgmLastChangedRef.current;
+      if (elapsed < BGM_COOLDOWN_MS) {
+        console.log(
+          `🎵 [AudioEngine] BGM change BLOCKED by cooldown: ${bgmModeRef.current} → ${bgmMode} (${Math.round(elapsed/1000)}s < ${BGM_COOLDOWN_MS/1000}s)`
+        );
+        return;
+      }
+    }
+
+    // 쿨다운 통과 → 전환 허용
+    console.log(`🎵 [AudioEngine] BGM switching: ${bgmModeRef.current} → ${bgmMode}`);
+    bgmModeRef.current = bgmMode;
+    bgmLastChangedRef.current = now;
+
     const switchBgm = async () => {
-      // 기존 BGM 페이드 아웃
       if (bgmRef.current) {
         await fadeOut(bgmRef.current);
       }
 
-      // 새 BGM 생성 및 페이드 인
       const newAudio = new Audio(newSrc);
       newAudio.loop = true;
       newAudio.preload = "auto";
@@ -169,7 +226,6 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
   useEffect(() => {
     if (!location) return;
 
-    // location+time 조합으로 ambience 키 결정
     const timeKey = time || "NIGHT";
     const specificKey = `${location}_${timeKey}`;
     const sources = AMBIENCE_MAP[specificKey] || AMBIENCE_MAP[location] || [];
@@ -178,12 +234,10 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
     if (newKey === ambienceKeyRef.current) return;
     ambienceKeyRef.current = newKey;
 
-    // 기존 ambience 모두 페이드 아웃
     const oldAmbience = [...ambienceRefs.current];
-    oldAmbience.forEach(a => fadeOut(a, 800).then(() => { /* GC 대기 */ }));
+    oldAmbience.forEach(a => fadeOut(a, 800));
     ambienceRefs.current = [];
 
-    // 새 ambience 페이드 인
     if (sources.length > 0) {
       const targetVol = mutedRef.current ? 0 : masterRef.current * AMBIENCE_VOLUME_RATIO;
       const newAudios = sources.map(src => {
@@ -222,7 +276,6 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
     };
   }, []);
 
-  // 렌더링 없음 (순수 로직 컴포넌트)
   return null;
 };
 
