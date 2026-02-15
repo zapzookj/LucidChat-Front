@@ -3,6 +3,8 @@ import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import CharacterDisplay from "../components/CharacterDisplay";
 import DialogueBox from "../components/DialogueBox";
+import BackgroundDisplay from "../components/BackgroundDisplay";
+import AudioEngine from "../components/AudioEngine";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
@@ -22,12 +24,18 @@ const ChatPage = () => {
   const [currentScene, setCurrentScene] = useState(null);
   const [displayedEmotion, setDisplayedEmotion] = useState("NEUTRAL");
   
+  // [Phase 4] 씬 디렉션 상태
+  const [currentLocation, setCurrentLocation] = useState("ENTRANCE");
+  const [currentTime, setCurrentTime] = useState("NIGHT");
+  const [currentOutfit, setCurrentOutfit] = useState("MAID");
+  const [currentBgmMode, setCurrentBgmMode] = useState(null);
+  
   // [상태 정보]
   const [affection, setAffection] = useState(0);
   const [energy, setEnergy] = useState(user?.energy || 100);
   const [isTyping, setIsTyping] = useState(false);
 
-  // [NEW] 인트로 시퀀스 상태 ('none' | 'door' | 'greeting')
+  // 인트로 시퀀스 상태 ('none' | 'door' | 'greeting')
   const [introStep, setIntroStep] = useState('none');
   const [isLoading, setIsLoading] = useState(true); // 깜빡임 방지용
   
@@ -55,13 +63,10 @@ const ChatPage = () => {
   const [toast, setToast] = useState(null);
   const [confirmModal, setConfirmModal] = useState(null);
 
-  
-  
-  // [NEW] 이벤트 선택지 모달 상태
-  const [eventOptions, setEventOptions] = useState(null); // Array or null
+  // 이벤트 선택지 모달 상태
+  const [eventOptions, setEventOptions] = useState(null);
 
   const logsEndRef = useRef(null);
-  const audioRef = useRef(null);
 
   // ================= Helper Functions =================
   const showToast = (message, type = 'success') => {
@@ -77,97 +82,58 @@ const ChatPage = () => {
       setConfirmModal(null);
   };
 
-  const unwrap = (res) => res?.data?.data ?? res?.data;
-
-  const refreshUserInfo = async () => {
-    const res = await api.get("/users/me");
-    const u = unwrap(res);
-
-    setUserInfo({
-      nickname: u?.nickname ?? "",
-      profileDescription: u?.profileDescription ?? "",
-      isSecretMode: !!u?.isSecretMode,
-    });
-  };
-
-
-  // ================= Image Preloading (Optimization) =================
+  // ================= Image Preloading (Phase 4: outfit-aware) =================
   useEffect(() => {
-    const characterImages = [
-      "/characters/neutral.png",
-      "/characters/joy.png",
-      "/characters/sad.png",
-      "/characters/angry.png",
-      "/characters/shy.png",
-      "/characters/surprise.png",
-      "/characters/panic.png",
-      "/characters/disgust.png",
-      "/characters/relax.png"
-    ];
-    characterImages.forEach((src) => {
-      const img = new Image();
-      img.src = src;
+    const outfits = ["maid"];
+    const emotions = ["neutral","joy","sad","angry","shy","surprise","panic","disgust","relax","frightened","flirtatious","heated"];
+    outfits.forEach(outfit => {
+      emotions.forEach(emo => {
+        const img = new Image();
+        img.src = `/characters/${outfit}_${emo}.png`;
+      });
     });
   }, []);
 
-  // ================= BGM Logic =================
-  useEffect(() => {
-    audioRef.current = new Audio("/sounds/main bgm.mp3");
-    audioRef.current.loop = true;
-    audioRef.current.volume = bgmVolume;
-    return () => {
-      if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-    };
-  }, []);
-
-  // 인트로가 'none' 상태일 때만 BGM 재생 시도
-  useEffect(() => {
-    if (introStep === 'none' && !isLoading && audioRef.current && !isBgmPlaying) {
-        audioRef.current.play()
-            .then(() => setIsBgmPlaying(true))
-            .catch(e => console.log("BGM Autoplay blocked", e));
-    }
-  }, [introStep, isLoading]);
-
+  // ================= BGM Logic (Phase 4: AudioEngine handles playback) =================
   const toggleBgm = () => {
-    if (isBgmPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play().catch(e => console.error(e));
-    }
     setIsBgmPlaying(!isBgmPlaying);
   };
 
+  // 인트로 완료 시 BGM 자동 시작 + 기본 BGM 설정
+  useEffect(() => {
+    if (introStep === 'none' && !isLoading && !isBgmPlaying && !currentBgmMode) {
+      setCurrentBgmMode("DAILY");
+      setIsBgmPlaying(true);
+    }
+  }, [introStep, isLoading]);
+
   useEffect(() => {
     localStorage.setItem("bgmVolume", String(bgmVolume));
-    if (audioRef.current) {
-      audioRef.current.volume = bgmVolume;
-    }
   }, [bgmVolume]);
 
   // ================= User Info Logic =================
-  // useEffect(() => {
-  //   const fetchUserInfo = async () => {
-  //     try {
-  //       const res = await api.get("/users/me");
-  //       setUserInfo({
-  //         nickname: res.data.nickname || "",
-  //         profileDescription: res.data.profileDescription || "",
-  //         isSecretMode: res.data.isSecretMode || false
-  //       });
-  //     } catch (err) {
-  //       console.error("Failed to fetch user info", err);
-  //     }
-  //   };
-  //   // 설정창 열 때 뿐만 아니라 초기 로딩 시에도 시크릿 모드 정보가 필요함 (이벤트 카드용)
-  //   fetchUserInfo();
-  // }, []); // Mount 시 한 번 실행
+  useEffect(() => {
+    const fetchUserInfo = async () => {
+      try {
+        const res = await api.get("/users/me");
+        setUserInfo({
+          nickname: res.data.nickname || "",
+          profileDescription: res.data.profileDescription || "",
+          isSecretMode: res.data.isSecretMode || false
+        });
+      } catch (err) {
+        console.error("Failed to fetch user info", err);
+      }
+    };
+    // 설정창뿐 아니라 초기 로딩 시에도 시크릿 모드 정보가 필요함 (이벤트 카드용)
+    fetchUserInfo();
+  }, []); // Mount 시 한 번 실행
 
   // 설정창 열릴 때 리프레시
   useEffect(() => {
-    if (showSettings) {
-      refreshUserInfo().catch(err => console.error("Failed to refresh user info", err));
-    }
+      if(showSettings) {
+          api.get("/users/me").then(res => setUserInfo(prev => ({...prev, isSecretMode: res.data.isSecretMode})));
+      }
   }, [showSettings]);
 
   const handleUpdateProfile = async () => {
@@ -203,13 +169,13 @@ const ChatPage = () => {
       }
   };
 
-  // 길면 여러 씬으로 쪼개는 유틸 (대충 문장/줄 기준 + maxChars)
+  // 길면 여러 씬으로 쪼개는 유틸 (문장/줄 기준 + maxChars)
 const splitNarration = (text, maxChars = 140) => {
   const cleaned = (text ?? "")
-    .replace(/^\s*\[NARRATION\]\s*/i, "") // 네가 넣은 [NARRATION] 제거
+    .replace(/^\s*\[NARRATION\]\s*/i, "") // [NARRATION] 태그 제거
     .trim();
 
-  // 우선 줄바꿈 단락 기준
+  // 줄바꿈 단락 기준
   const paras = cleaned.split(/\n+/).map(s => s.trim()).filter(Boolean);
 
   // 문장 단위로 쪼개기 (마침표/물음표/느낌표/… 기준)
@@ -245,20 +211,13 @@ const splitNarration = (text, maxChars = 140) => {
 
         setRoomInfo(roomRes.data);
         setAffection(roomRes.data.affectionScore);
-        // setUserInfo({ ...userInfo, isSecretMode: userRes.data.isSecretMode || false });
-        const u = unwrap(userRes);
-        setUserInfo({
-          nickname: u?.nickname ?? "",
-          profileDescription: u?.profileDescription ?? "",
-          isSecretMode: !!u?.isSecretMode,
-        });
+        setUserInfo({ ...userInfo, isSecretMode: userRes.data.isSecretMode || false });
+
         const logs = logsRes.data?.content || [];
 
         if (logs.length === 0) {
             // [Case A] 신규 유저 -> 인트로 시퀀스 시작
             await startIntroSequence(roomId);
-            // 주의: startIntroSequence 내부에서 isLoading을 끄지 않음 (영상 끝날때까지 유지하려 했으나, 
-            // 영상 오버레이는 isLoading이 false여야 보임. 아래 finally에서 false로 만듦)
         } else {
             // [Case B] 기존 유저 -> 마지막 상태 복원
             const sortedLogs = logs.reverse();
@@ -281,8 +240,6 @@ const splitNarration = (text, maxChars = 140) => {
         console.error("Init Error", err);
         showToast("초기화 중 오류가 발생했습니다.", "error");
       } finally {
-        // 데이터 로딩이 끝났으므로 화면 렌더링 허용
-        // (인트로 영상 오버레이도 isLoading이 false여야 렌더링됨)
         setIsLoading(false);
       }
     };
@@ -298,7 +255,7 @@ const splitNarration = (text, maxChars = 140) => {
           
           // 3. 생성된 로그 가져오기
           const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=5`);
-          const newLogs = logsRes.data.content.reverse(); // [System(Narration), Assistant(Hello)]
+          const newLogs = logsRes.data.content.reverse();
           
           setMessages(newLogs);
 
@@ -327,14 +284,14 @@ const splitNarration = (text, maxChars = 140) => {
           if (greetingLog) {
               queue.push({
                   dialogue: greetingLog.cleanContent,
-                  narration: "메이드 아이리가 고개를 숙여 인사하며 부드럽게 미소짓는다.", // 
+                  narration: "메이드 아이리가 고개를 숙여 인사하며 부드럽게 미소짓는다.",
                   emotion: greetingLog.emotionTag,
                   isEvent: false,
                   sceneType: "NORMAL"
               });
           }
           
-          setSceneQueue(queue); // 큐에 넣고 대기 (영상 끝날 때까지 Play 안됨? 아니, Scene logic이 돌 것임)
+          setSceneQueue(queue); // 큐에 넣고 대기 (영상 끝나면 Scene logic이 돌 것임)
           
       } catch (e) {
           console.error("Intro Sequence Failed", e);
@@ -353,10 +310,17 @@ const splitNarration = (text, maxChars = 140) => {
     }
   }, [user]);
 
+  // [Phase 4] 씬 전환 시 감정 + 디렉션 업데이트
   useEffect(() => {
-    if (currentScene?.emotion) {
+    if (!currentScene) return;
+    if (currentScene.emotion) {
       setDisplayedEmotion(currentScene.emotion);
     }
+    // null이 아닌 값만 업데이트 (null = 이전 상태 유지)
+    if (currentScene.location) setCurrentLocation(currentScene.location);
+    if (currentScene.time) setCurrentTime(currentScene.time);
+    if (currentScene.outfit) setCurrentOutfit(currentScene.outfit);
+    if (currentScene.bgmMode) setCurrentBgmMode(currentScene.bgmMode);
   }, [currentScene]);
 
   // 스크롤 처리
@@ -402,14 +366,12 @@ const splitNarration = (text, maxChars = 140) => {
     }
   };
 
-  // [MODIFIED] 이벤트 트리거 -> 옵션 받기 (1단계)
+  // 이벤트 트리거 -> 옵션 받기 (1단계)
   const handleTriggerEvent = async () => {
     setIsTyping(true); 
     try {
-        // [Change] events 호출 시 이제 3개의 옵션 리스트가 반환됨
         const res = await api.post(`/story/rooms/${roomId}/events`);
         
-        // res.data -> { options: [...], userEnergy: ... }
         // 옵션 모달을 띄운다
         if (res.data.options && res.data.options.length > 0) {
             setEventOptions(res.data.options);
@@ -424,7 +386,7 @@ const splitNarration = (text, maxChars = 140) => {
     }
   };
 
-  // [NEW] 이벤트 선택 -> 실행 (2단계)
+  // 이벤트 선택 -> 실행 (2단계)
   const handleSelectEvent = async (option) => {
       // 1. 에너지 체크
       if (energy < option.energyCost) {
@@ -452,7 +414,7 @@ const splitNarration = (text, maxChars = 140) => {
           // 결과 처리 (Narrator Message + Character Reaction)
           const { scenes, currentAffection } = res.data;
           setAffection(currentAffection);
-          // 큐 구성: [이벤트 나레이션] -> [캐릭터 반응1] -> [반응2]...
+          // 큐구성: [이벤트 나레이션] -> [캐릭터 반응1] -> [반응2]...
           const newQueue = [];
           
           // 1. 이벤트 나레이션 (옵션의 detail)
@@ -460,7 +422,7 @@ const splitNarration = (text, maxChars = 140) => {
               dialogue: "",
               narration: option.detail, // 선택한 상황 묘사
               emotion: displayedEmotion, // 감정 유지
-              isEvent: true // 다음 씬 자동 넘김용 플래그 아님 (수정됨)
+              isEvent: true // 이벤트 씬 플래그
           });
           
           // 2. 캐릭터 반응 추가
@@ -485,7 +447,7 @@ const splitNarration = (text, maxChars = 140) => {
       }
   };
 
-  // [Core Fix 4] 씬 전환 로직 수정 (자동 "..." 발송 제거)
+  // 씬 전환 로직 (자동 "..." 발송 제거)
   const handleNextScene = () => {
     // 큐에 남은 씬이 있다면 다음 씬 재생
     if (sceneQueue.length > 0) {
@@ -493,8 +455,7 @@ const splitNarration = (text, maxChars = 140) => {
       setCurrentScene(nextScene);
       setSceneQueue(prev => prev.slice(1));
     } 
-    // 큐가 비었다면? 그냥 대기 (사용자 입력 대기)
-    // 이전에 있던 handleSendMessage(null) 제거함 -> "..." 자동 발송 방지
+    // 큐가 비었다면 대기 (사용자 입력 대기)
   };
 
   // 큐 자동 재생 (초기 진입 시)
@@ -514,10 +475,15 @@ const splitNarration = (text, maxChars = 140) => {
                 await api.delete(`/chat/rooms/${roomId}`);
                 setMessages([]);
                 setAffection(0);
+                // [Phase 4] 씬 디렉션 초기화
+                setCurrentLocation("ENTRANCE");
+                setCurrentTime("NIGHT");
+                setCurrentOutfit("MAID");
+                setCurrentBgmMode("ROMANTIC");
                 showToast("초기화되었습니다. 새로운 만남을 시작합니다.", "success");
                 closeConfirm();
                 
-                // [NEW] 초기화 후 인트로 다시 시작
+                // 초기화 후 인트로 다시 시작
                 startIntroSequence(roomId);
 
             } catch (err) {
@@ -545,19 +511,23 @@ const splitNarration = (text, maxChars = 140) => {
   return (
     <div className="relative w-full h-screen font-sans overflow-hidden bg-gray-900">
       
-      {/* Background */}
-      <img 
-        src="/backgrounds/room_night.png"
-        alt="Background"
-        className="absolute inset-0 w-full h-full object-cover z-0 opacity-80"
+      {/* [Phase 4] Dynamic Background */}
+      <BackgroundDisplay location={currentLocation} time={currentTime} />
+
+      {/* [Phase 4] Audio Engine (BGM + Ambience + SFX) */}
+      <AudioEngine 
+        bgmMode={currentBgmMode}
+        location={currentLocation}
+        time={currentTime}
+        masterVolume={bgmVolume}
+        isMuted={!isBgmPlaying}
       />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-black/40 z-0" />
 
       {/* ================= Intro Cinematic Overlay ================= */}
       <AnimatePresence>
           {introStep === 'door' && (
               <motion.div 
-                  initial={{ opacity: 1 }} // Loading에서 바로 이어지므로 1
+                  initial={{ opacity: 1 }}
                   exit={{ opacity: 0 }} 
                   transition={{ duration: 1.5 }} // 천천히 페이드 아웃
                   className="absolute inset-0 z-[999] bg-black flex flex-col items-center justify-center"
@@ -565,7 +535,7 @@ const splitNarration = (text, maxChars = 140) => {
                   <video 
                       autoPlay playsInline 
                       onEnded={handleIntroVideoEnd} 
-                      onClick={handleIntroVideoEnd} // Skip
+                      onClick={handleIntroVideoEnd}
                       className="w-full h-full object-cover"
                   >
                       <source src="/videos/intro_door.mp4" type="video/mp4" />
@@ -578,7 +548,7 @@ const splitNarration = (text, maxChars = 140) => {
       </AnimatePresence>
 
 
-      <CharacterDisplay emotion={displayedEmotion} />
+      <CharacterDisplay emotion={displayedEmotion} outfit={currentOutfit} />
 
       {/* Top Buttons */}
       <div className="absolute top-6 right-6 z-50 flex items-center gap-3">
@@ -654,8 +624,6 @@ const splitNarration = (text, maxChars = 140) => {
                                     ${(isLocked || isNoEnergy) ? 'opacity-50 grayscale cursor-not-allowed hover:scale-100' : ''}
                                 `}
                             >
-                                {/* Background Image/Effect could go here */}
-                                
                                 {/* Icon & Title */}
                                 <div className="mb-4">
                                     {opt.type === 'SECRET' ? <Sparkles size={40} className="text-red-400 animate-pulse"/> :
@@ -701,7 +669,6 @@ const splitNarration = (text, maxChars = 140) => {
         )}
       </AnimatePresence>
 
-      {/* ... (Toast, Confirm, Settings, History Modals - 기존 코드 유지) ... */}
       {/* Toast Notification */}
       <AnimatePresence>
         {toast && (
@@ -768,7 +735,7 @@ const splitNarration = (text, maxChars = 140) => {
         )}
       </AnimatePresence>
 
-      {/* Settings Modal (User Profile & Game Options) */}
+      {/* Settings Modal */}
       <AnimatePresence>
         {showSettings && (
             <motion.div 
@@ -791,7 +758,7 @@ const splitNarration = (text, maxChars = 140) => {
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar pb-32">
                     
-                    {/* 1. User Settings (위) */}
+                    {/* 1. User Settings */}
                     <section>
                         <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
                             <UserIcon size={16}/> User Profile
@@ -824,7 +791,7 @@ const splitNarration = (text, maxChars = 140) => {
                                         }`}
                                     placeholder={
                                         userInfo.isSecretMode 
-                                        ? "캐릭터에게 보여질 나의 설정, 외모, 성격 등을 자유롭게 적어주세요. \n(예: 나는 키 188cm에 몸무게 88kg, 그리고 골격근량 48kg, 체지방 8%를 유지하고 있으며...)" 
+                                        ? "캐릭터에게 보여질 나의 설정, 외모, 성격 등을 자유롭게 적어주세요.\n(예: 나는 키 188cm에 몸무게 88kg, 그리고 골격근량 48kg, 체지방 8%를 유지하고 있으며...)" 
                                         : "🔒 시크릿 모드를 활성화하면 페르소나를 설정할 수 있습니다."
                                     }
                                 />
@@ -847,7 +814,7 @@ const splitNarration = (text, maxChars = 140) => {
 
                     <div className="h-px bg-white/10" />
 
-                    {/* 2. Game Settings (아래) */}
+                    {/* 2. Game Settings */}
                     <section>
                         <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
                             <Gamepad2 size={16}/> Game Options
@@ -887,7 +854,7 @@ const splitNarration = (text, maxChars = 140) => {
                                 </div>
                             </div>
 
-                            {/* Dummy Options */}
+                            {/* BGM Volume */}
                             <div className="space-y-4">
                               <div>
                                 <div className="flex justify-between text-xs text-gray-400 mb-2">
@@ -908,27 +875,9 @@ const splitNarration = (text, maxChars = 140) => {
                                 />
 
                                 <div className="mt-2 flex items-center justify-between">
-                                  <button
-                                    type="button"
-                                    onClick={() => setBgmVolume(0)}
-                                    className="text-[11px] text-gray-400 hover:text-white transition"
-                                  >
-                                    Mute
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setBgmVolume(0.5)}
-                                    className="text-[11px] text-gray-400 hover:text-white transition"
-                                  >
-                                    Reset
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setBgmVolume(1)}
-                                    className="text-[11px] text-gray-400 hover:text-white transition"
-                                  >
-                                    Max
-                                  </button>
+                                  <button type="button" onClick={() => setBgmVolume(0)} className="text-[11px] text-gray-400 hover:text-white transition">Mute</button>
+                                  <button type="button" onClick={() => setBgmVolume(0.5)} className="text-[11px] text-gray-400 hover:text-white transition">Reset</button>
+                                  <button type="button" onClick={() => setBgmVolume(1)} className="text-[11px] text-gray-400 hover:text-white transition">Max</button>
                                 </div>
                               </div>
                             </div>
@@ -949,7 +898,7 @@ const splitNarration = (text, maxChars = 140) => {
         )}
       </AnimatePresence>
 
-      {/* History Modal (기존 동일) */}
+      {/* History Modal */}
       <AnimatePresence>
         {showHistory && (
           <motion.div 
