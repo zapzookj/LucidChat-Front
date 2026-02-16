@@ -9,7 +9,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
   LogOut, User as UserIcon, Gamepad2, Save, Sparkles, Lock, Unlock,
-  CheckCircle, AlertTriangle, Info, Zap, Play, SkipForward
+  CheckCircle, AlertTriangle, Info, Zap, Play, SkipForward,
+  Heart, Crown, MapPin, Shirt
 } from "lucide-react";
 
 const ChatPage = () => {
@@ -65,6 +66,11 @@ const ChatPage = () => {
 
   // 이벤트 선택지 모달 상태
   const [eventOptions, setEventOptions] = useState(null);
+
+  // ━━━ [Phase 5] 관계 승급 이벤트 상태 ━━━
+  const [promotionOverlay, setPromotionOverlay] = useState(null);   // null | 'STARTED' | 'SUCCESS' | 'FAILURE' | 'SUCCESS_PENDING' | 'FAILURE_PENDING'
+  const [promotionProgress, setPromotionProgress] = useState(null); // IN_PROGRESS 배너용 { target, displayName, turnsRemaining, moodScore }
+  const [promotionResult, setPromotionResult] = useState(null);     // 오버레이에 표시할 이벤트 데이터
 
   const logsEndRef = useRef(null);
 
@@ -345,6 +351,72 @@ const splitNarration = (text, maxChars = 140) => {
     }
   }, [showHistory, messages]);
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  [Phase 5] 관계 승급 이벤트 처리
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  const getRelationColor = (relation) => {
+    switch(relation) {
+      case 'ACQUAINTANCE': return { bg: 'from-emerald-600 to-teal-600', border: 'border-emerald-500/50', text: 'text-emerald-300', glow: 'shadow-emerald-500/30' };
+      case 'FRIEND': return { bg: 'from-blue-600 to-indigo-600', border: 'border-blue-500/50', text: 'text-blue-300', glow: 'shadow-blue-500/30' };
+      case 'LOVER': return { bg: 'from-rose-600 to-pink-600', border: 'border-rose-500/50', text: 'text-rose-300', glow: 'shadow-rose-500/30' };
+      default: return { bg: 'from-gray-600 to-gray-700', border: 'border-gray-500/50', text: 'text-gray-300', glow: 'shadow-gray-500/30' };
+    }
+  };
+
+  const getUnlockIcon = (type) => type === 'LOCATION' ? <MapPin size={22} /> : <Shirt size={22} />;
+
+  const handlePromotionEvent = (promoEvent) => {
+    if (!promoEvent) return;
+    switch (promoEvent.status) {
+      case 'STARTED':
+        setPromotionResult(promoEvent);
+        setPromotionOverlay('STARTED');
+        setPromotionProgress({
+          target: promoEvent.targetRelation,
+          displayName: promoEvent.targetDisplayName,
+          turnsRemaining: promoEvent.turnsRemaining,
+          moodScore: 0
+        });
+        setTimeout(() => setPromotionOverlay(null), 3500);
+        break;
+      case 'IN_PROGRESS':
+        setPromotionProgress({
+          target: promoEvent.targetRelation,
+          displayName: promoEvent.targetDisplayName,
+          turnsRemaining: promoEvent.turnsRemaining,
+          moodScore: promoEvent.moodScore
+        });
+        break;
+      case 'SUCCESS':
+        setPromotionProgress(null);
+        setPromotionResult(promoEvent);
+        setPromotionOverlay('SUCCESS_PENDING');
+        break;
+      case 'FAILURE':
+        setPromotionProgress(null);
+        setPromotionResult(promoEvent);
+        setPromotionOverlay('FAILURE_PENDING');
+        break;
+    }
+  };
+
+  const dismissPromotionOverlay = () => {
+    setPromotionOverlay(null);
+    setPromotionResult(null);
+  };
+
+  // 씬 큐 소진 후 pending → 실제 오버레이 표시
+  useEffect(() => {
+    if (sceneQueue.length === 0 && currentScene && !isTyping) {
+      if (promotionOverlay === 'SUCCESS_PENDING') {
+        setTimeout(() => setPromotionOverlay('SUCCESS'), 800);
+      } else if (promotionOverlay === 'FAILURE_PENDING') {
+        setTimeout(() => setPromotionOverlay('FAILURE'), 800);
+      }
+    }
+  }, [sceneQueue, currentScene, isTyping, promotionOverlay]);
+
   const handleSendMessage = async (text) => {
     if (text && energy <= 0) {
       showToast("에너지가 부족합니다. 내일 다시 대화해주세요!", "error");
@@ -362,7 +434,7 @@ const splitNarration = (text, maxChars = 140) => {
       const messagePayload = text || "..."; 
       const res = await api.post(`/chat/rooms/${roomId}/messages`, { roomId, message: messagePayload });
 
-      const { scenes, currentAffection } = res.data;
+      const { scenes, currentAffection, promotionEvent } = res.data;
       setAffection(currentAffection);
       
       if (scenes && scenes.length > 0) {
@@ -371,6 +443,11 @@ const splitNarration = (text, maxChars = 140) => {
 
       const combinedText = scenes.map(s => s.dialogue).join(" ");
       setMessages(prev => [...prev, { role: 'ASSISTANT', cleanContent: combinedText }]);
+
+      // [Phase 5] 승급 이벤트 처리
+      if (promotionEvent) {
+        handlePromotionEvent(promotionEvent);
+      }
 
     } catch (err) {
       console.error(err);
@@ -495,6 +572,10 @@ const splitNarration = (text, maxChars = 140) => {
                 setCurrentTime("NIGHT");
                 setCurrentOutfit("MAID");
                 setCurrentBgmMode("DAILY");
+                // [Phase 5] 승급 이벤트 상태 초기화
+                setPromotionOverlay(null);
+                setPromotionProgress(null);
+                setPromotionResult(null);
                 showToast("초기화되었습니다. 새로운 만남을 시작합니다.", "success");
                 closeConfirm();
                 
@@ -564,6 +645,48 @@ const splitNarration = (text, maxChars = 140) => {
 
 
       <CharacterDisplay emotion={displayedEmotion} outfit={currentOutfit} />
+
+      {/* ━━━ [Phase 5] Promotion IN_PROGRESS Banner ━━━ */}
+      <AnimatePresence>
+        {promotionProgress && !promotionOverlay && (
+          <motion.div
+            initial={{ opacity: 0, y: -30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -30 }}
+            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            className="absolute top-6 left-6 z-40"
+          >
+            <div className={`flex items-center gap-3 px-4 py-2.5 rounded-xl backdrop-blur-xl border bg-black/60 shadow-lg ${
+              getRelationColor(promotionProgress.target).border
+            }`}>
+              <Heart size={18} className={`${getRelationColor(promotionProgress.target).text} animate-pulse`} fill="currentColor" />
+              <div className="flex flex-col">
+                <span className="text-[10px] text-gray-400 uppercase tracking-wider font-bold">Promotion Event</span>
+                <span className={`text-xs font-bold ${getRelationColor(promotionProgress.target).text}`}>
+                  → {promotionProgress.displayName}
+                </span>
+              </div>
+              <div className="h-8 w-px bg-white/10" />
+              <div className="flex flex-col items-center">
+                <span className="text-[10px] text-gray-500">남은 턴</span>
+                <span className="text-sm font-bold text-white">{promotionProgress.turnsRemaining}</span>
+              </div>
+              <div className="flex flex-col items-center">
+                <span className="text-[10px] text-gray-500">분위기</span>
+                <div className="flex gap-0.5">
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className={`w-1.5 h-3 rounded-full transition-colors ${
+                      i < Math.max(0, promotionProgress.moodScore)
+                        ? 'bg-yellow-400'
+                        : 'bg-white/10'
+                    }`} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Top Buttons */}
       <div className="absolute top-6 right-6 z-50 flex items-center gap-3">
@@ -681,6 +804,276 @@ const splitNarration = (text, maxChars = 140) => {
                 {/* Close Modal (Background Click) */}
                 <div className="absolute inset-0 -z-10" onClick={() => setEventOptions(null)} />
             </div>
+        )}
+      </AnimatePresence>
+
+      {/* ━━━━━━━ [Phase 5] PROMOTION STARTED Overlay ━━━━━━━ */}
+      <AnimatePresence>
+        {promotionOverlay === 'STARTED' && promotionResult && (() => {
+          const rc = getRelationColor(promotionResult.targetRelation);
+          return (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md"
+          >
+            {/* 파티클 */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              {[...Array(20)].map((_, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, y: '100vh', x: `${Math.random() * 100}vw` }}
+                  animate={{ opacity: [0, 0.6, 0], y: '-10vh' }}
+                  transition={{ duration: 3 + Math.random() * 2, delay: Math.random() * 1.5, repeat: Infinity }}
+                  className={`absolute w-1 h-1 rounded-full ${
+                    i % 3 === 0 ? 'bg-yellow-400' : i % 3 === 1 ? 'bg-pink-400' : 'bg-white'
+                  }`}
+                />
+              ))}
+            </div>
+
+            <motion.div
+              initial={{ scale: 0.8, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.3 }}
+              className="text-center"
+            >
+              <motion.div
+                initial={{ scale: 0, rotate: -180 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: "spring", stiffness: 200, delay: 0.5 }}
+                className="mx-auto mb-6"
+              >
+                <div className={`w-20 h-20 rounded-full bg-gradient-to-br ${rc.bg} flex items-center justify-center shadow-2xl ${rc.glow}`}>
+                  <Heart size={36} className="text-white" fill="currentColor" />
+                </div>
+              </motion.div>
+
+              <motion.p
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.8 }}
+                className="text-gray-400 text-sm tracking-widest uppercase mb-3"
+              >
+                Relationship Event
+              </motion.p>
+
+              <motion.h2
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 1.0 }}
+                className="text-3xl font-bold text-white mb-2"
+              >
+                관계 변화의 기운이 느껴집니다
+              </motion.h2>
+
+              <motion.p
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 1.3 }}
+                className={`text-lg font-bold ${rc.text}`}
+              >
+                → {promotionResult.targetDisplayName} 승급 이벤트
+              </motion.p>
+
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.5 }}
+                transition={{ delay: 2.0 }}
+                className="text-xs text-gray-500 mt-6"
+              >
+                다음 {promotionResult.turnsRemaining}턴 동안 그녀의 마음을 움직이세요
+              </motion.p>
+            </motion.div>
+          </motion.div>
+          );
+        })()}
+      </AnimatePresence>
+
+      {/* ━━━━━━━ [Phase 5] PROMOTION SUCCESS Overlay ━━━━━━━ */}
+      <AnimatePresence>
+        {promotionOverlay === 'SUCCESS' && promotionResult && (() => {
+          const rc = getRelationColor(promotionResult.targetRelation);
+          return (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/85 backdrop-blur-lg"
+            onClick={dismissPromotionOverlay}
+          >
+            {/* 축하 컨페티 */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+              {[...Array(40)].map((_, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, y: '-10vh', x: `${Math.random() * 100}vw`, rotate: 0 }}
+                  animate={{ opacity: [0, 1, 0], y: '110vh', rotate: 360 * (Math.random() > 0.5 ? 1 : -1) }}
+                  transition={{ duration: 3 + Math.random() * 3, delay: Math.random() * 2, repeat: Infinity }}
+                  className={`absolute rounded-sm ${
+                    i % 5 === 0 ? 'w-2 h-3 bg-yellow-400' :
+                    i % 5 === 1 ? 'w-1.5 h-2.5 bg-pink-400' :
+                    i % 5 === 2 ? 'w-2 h-2 bg-indigo-400' :
+                    i % 5 === 3 ? 'w-1 h-3 bg-emerald-400' :
+                    'w-2.5 h-1 bg-white/80'
+                  }`}
+                />
+              ))}
+            </div>
+
+            <div className="text-center max-w-md mx-auto px-6">
+              <motion.div
+                initial={{ scale: 0, rotate: -180 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ type: "spring", stiffness: 200, delay: 0.3 }}
+                className="mx-auto mb-6"
+              >
+                <div className={`w-24 h-24 rounded-full bg-gradient-to-br ${rc.bg} flex items-center justify-center shadow-2xl ${rc.glow} ring-4 ring-white/20`}>
+                  <Crown size={44} className="text-white" />
+                </div>
+              </motion.div>
+
+              <motion.p
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.6 }}
+                className="text-yellow-400 text-sm tracking-[0.3em] uppercase font-bold mb-2"
+              >
+                Relationship Up
+              </motion.p>
+
+              <motion.h2
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.8 }}
+                className="text-3xl font-bold text-white mb-1"
+              >
+                {promotionResult.targetDisplayName}
+              </motion.h2>
+
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 1.0 }}
+                className="text-gray-400 text-sm mb-8"
+              >
+                아이리와의 관계가 깊어졌습니다
+              </motion.p>
+
+              {/* 해금 카드 */}
+              {promotionResult.unlocks && promotionResult.unlocks.length > 0 && (
+                <div className="space-y-3 mb-8">
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 1.2 }}
+                    className="text-xs text-gray-500 uppercase tracking-widest mb-4"
+                  >
+                    New Unlocks
+                  </motion.p>
+                  {promotionResult.unlocks.map((unlock, idx) => (
+                    <motion.div
+                      key={idx}
+                      initial={{ opacity: 0, x: -30 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 1.4 + idx * 0.25, type: "spring", stiffness: 200 }}
+                      className={`flex items-center gap-4 px-5 py-3.5 rounded-xl border bg-white/5 backdrop-blur-sm ${rc.border}`}
+                    >
+                      <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${rc.bg} flex items-center justify-center shadow-md text-white`}>
+                        {getUnlockIcon(unlock.type)}
+                      </div>
+                      <div className="flex-1 text-left">
+                        <span className="text-[10px] text-gray-500 uppercase">
+                          {unlock.type === 'LOCATION' ? '장소 해금' : '복장 해금'}
+                        </span>
+                        <p className="text-white font-bold text-sm">{unlock.displayName}</p>
+                      </div>
+                      <Unlock size={16} className={rc.text} />
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.4 }}
+                transition={{ delay: 2.0 + (promotionResult.unlocks?.length || 0) * 0.25 }}
+                className="text-xs text-gray-500"
+              >
+                화면을 터치하여 계속
+              </motion.p>
+            </div>
+          </motion.div>
+          );
+        })()}
+      </AnimatePresence>
+
+      {/* ━━━━━━━ [Phase 5] PROMOTION FAILURE Overlay ━━━━━━━ */}
+      <AnimatePresence>
+        {promotionOverlay === 'FAILURE' && promotionResult && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md"
+            onClick={dismissPromotionOverlay}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              transition={{ type: "spring", stiffness: 200 }}
+              className="text-center max-w-sm mx-auto px-6"
+            >
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", delay: 0.2 }}
+                className="mx-auto mb-6"
+              >
+                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center shadow-xl ring-4 ring-white/5">
+                  <Heart size={36} className="text-gray-500" />
+                </div>
+              </motion.div>
+
+              <motion.h2
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 }}
+                className="text-2xl font-bold text-white mb-2"
+              >
+                아쉽게도...
+              </motion.h2>
+
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.7 }}
+                className="text-gray-400 text-sm mb-2"
+              >
+                아직 관계가 변하기엔 이른 것 같습니다
+              </motion.p>
+
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.9 }}
+                className="text-gray-500 text-xs mb-8"
+              >
+                호감도가 다시 임계점에 도달하면 새로운 기회가 찾아옵니다
+              </motion.p>
+
+              <motion.p
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.4 }}
+                transition={{ delay: 1.5 }}
+                className="text-xs text-gray-600"
+              >
+                화면을 터치하여 계속
+              </motion.p>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 
