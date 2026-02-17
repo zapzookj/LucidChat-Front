@@ -240,12 +240,21 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
 
     if (sources.length > 0) {
       const targetVol = mutedRef.current ? 0 : masterRef.current * AMBIENCE_VOLUME_RATIO;
-      const newAudios = sources.map(src => {
+      const newAudios = [];
+
+      // 브라우저가 동일 tick에서 여러 Audio.play()를 silent-fail하는 문제 방지
+      // 첫 번째는 즉시, 이후는 150ms 간격으로 stagger 재생
+      sources.forEach((src, idx) => {
         const a = new Audio(src);
         a.loop = true;
         a.preload = "auto";
-        fadeIn(a, targetVol, 1000);
-        return a;
+        newAudios.push(a);
+
+        if (idx === 0) {
+          fadeIn(a, targetVol, 1000);
+        } else {
+          setTimeout(() => fadeIn(a, targetVol, 1000), idx * 150);
+        }
       });
       ambienceRefs.current = newAudios;
     }

@@ -226,6 +226,14 @@ const splitNarration = (text, maxChars = 140) => {
             profileDescription: userRes.data.profileDescription || "",
             isSecretMode: userRes.data.isSecretMode || false
         });
+        // [Fix] Energy sync - force sync with actual server energy value
+        if (userRes.data.energy !== undefined) {
+            setEnergy(userRes.data.energy);
+        }
+        // [Fix] 에너지 동기화 — 서버의 실제 에너지 값으로 강제 동기화
+        if (userRes.data.energy !== undefined) {
+            setEnergy(userRes.data.energy);
+        }
 
         // [Phase 4.1] 씬 상태 복원 (재접속 시 서버에서 마지막 상태 로드)
         // Note: bgmMode는 여기서 복원하지 않음 — auto-start effect에서 isBgmPlaying과 동시에 세팅해야
@@ -486,7 +494,7 @@ const splitNarration = (text, maxChars = 140) => {
           return;
       }
       // 2. 시크릿 모드 체크
-      if (option.isSecret && !userInfo.isSecretMode) {
+      if (option.type === 'SECRET' && !userInfo.isSecretMode) {
           showToast("시크릿 모드 활성화가 필요합니다.", "info");
           return;
       }
@@ -576,6 +584,16 @@ const splitNarration = (text, maxChars = 140) => {
                 setPromotionOverlay(null);
                 setPromotionProgress(null);
                 setPromotionResult(null);
+                // [Fix] Energy re-sync - restore from server after clear
+                try {
+                    const freshUser = await api.get("/users/me");
+                    if (freshUser.data.energy !== undefined) setEnergy(freshUser.data.energy);
+                } catch (_) { /* ignore energy sync failure */ }
+                // [Fix] 에너지 재동기화 — 서버의 실제 에너지 값으로 복원
+                try {
+                    const freshUser = await api.get("/users/me");
+                    if (freshUser.data.energy !== undefined) setEnergy(freshUser.data.energy);
+                } catch (_) { /* 에너지 동기화 실패 무시 */ }
                 showToast("초기화되었습니다. 새로운 만남을 시작합니다.", "success");
                 closeConfirm();
                 
@@ -744,7 +762,7 @@ const splitNarration = (text, maxChars = 140) => {
                     className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-4"
                 >
                     {eventOptions.map((opt, idx) => {
-                        const isLocked = opt.isSecret && !userInfo.isSecretMode;
+                        const isLocked = opt.type === 'SECRET' && !userInfo.isSecretMode;
                         const isNoEnergy = energy < opt.energyCost;
                         
                         return (
