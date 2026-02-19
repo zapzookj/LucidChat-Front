@@ -5,6 +5,7 @@ import CharacterDisplay from "../components/CharacterDisplay";
 import DialogueBox from "../components/DialogueBox";
 import BackgroundDisplay from "../components/BackgroundDisplay";
 import AudioEngine from "../components/AudioEngine";
+import EndingCredits from "../components/Endingcredits";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
@@ -67,10 +68,16 @@ const ChatPage = () => {
   // 이벤트 선택지 모달 상태
   const [eventOptions, setEventOptions] = useState(null);
 
-  // ━━━ [Phase 5] 관계 승급 이벤트 상태 ━━━
+  // ━━━ [Phase 4.2] 관계 승급 이벤트 상태 ━━━
   const [promotionOverlay, setPromotionOverlay] = useState(null);   // null | 'STARTED' | 'SUCCESS' | 'FAILURE' | 'SUCCESS_PENDING' | 'FAILURE_PENDING'
   const [promotionProgress, setPromotionProgress] = useState(null); // IN_PROGRESS 배너용 { target, displayName, turnsRemaining, moodScore }
   const [promotionResult, setPromotionResult] = useState(null);     // 오버레이에 표시할 이벤트 데이터
+
+  // ━━━ [Phase 4.3] 엔딩 이벤트 상태 ━━━
+  const [endingTrigger, setEndingTrigger] = useState(null);       // { endingType: 'HAPPY' | 'BAD' }
+  const [endingData, setEndingData] = useState(null);             // EndingResponse from backend
+  const [showEndingCredits, setShowEndingCredits] = useState(false); // 엔딩 크레딧 표시 여부
+  const [endingLoading, setEndingLoading] = useState(false);      // 엔딩 생성 로딩
 
   const logsEndRef = useRef(null);
 
@@ -219,6 +226,11 @@ const splitNarration = (text, maxChars = 140) => {
         ]);
 
         setRoomInfo(roomRes.data);
+        // [Phase 4.3] 이미 엔딩에 도달한 채팅방인지 확인
+        // if (info.endingReached && info.endingTitle) {
+        //   // 이미 엔딩을 본 채팅방 — 안내 토스트
+        //   showToast(`엔딩: "${info.endingTitle}" — 초기화하면 다시 시작할 수 있습니다.`, "info");
+        // }
         setAffection(roomRes.data.affectionScore);
         // [Fix] 스테일 클로저 방지 — userRes에서 전체 유저 정보를 세팅
         setUserInfo({
@@ -360,7 +372,7 @@ const splitNarration = (text, maxChars = 140) => {
   }, [showHistory, messages]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  //  [Phase 5] 관계 승급 이벤트 처리
+  //  [Phase 4.2] 관계 승급 이벤트 처리
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   const getRelationColor = (relation) => {
@@ -409,6 +421,61 @@ const splitNarration = (text, maxChars = 140) => {
     }
   };
 
+  // [Phase 4.3] 엔딩 트리거 감지 후 씬 재생 완료 시 엔딩 생성
+  useEffect(() => {
+    if (!endingTrigger) return;
+    // 현재 씬 큐가 모두 소진되고, 타이핑도 끝나면 엔딩 생성
+    if (sceneQueue.length === 0 && !isTyping) {
+      // 약간의 딜레이 (마지막 대사 여운)
+      const t = setTimeout(() => {
+        generateEnding(endingTrigger.endingType);
+      }, 2000);
+      return () => clearTimeout(t);
+    }
+  }, [endingTrigger, sceneQueue, isTyping]);
+
+  // [Phase 4.3] 엔딩 데이터 생성 API 호출
+  const generateEnding = async (endingType) => {
+    setEndingLoading(true);
+    try {
+      const res = await api.post(`/ending/rooms/${roomId}/generate`, { endingType });
+      setEndingData(res.data);
+
+      // 엔딩 BGM 즉시 전환
+      setCurrentBgmMode(endingType === "HAPPY" ? "ENDING_HAPPY" : "ENDING_BAD");
+
+      // 약간의 딜레이 후 크레딧 표시 (BGM 전환 시간 확보)
+      setTimeout(() => {
+        setShowEndingCredits(true);
+        setEndingLoading(false);
+      }, 1500);
+
+    } catch (err) {
+      console.error("Ending generation failed:", err);
+      showToast("엔딩 생성 중 오류가 발생했습니다.", "error");
+      setEndingLoading(false);
+      setEndingTrigger(null);
+    }
+  };
+
+  // [Phase 4.3] 엔딩 씬 변경 콜백 (EndingCredits → 배경/감정 변경)
+  const handleEndingSceneChange = (sceneInfo) => {
+    if (sceneInfo.emotion) setDisplayedEmotion(sceneInfo.emotion);
+    if (sceneInfo.location) setCurrentLocation(sceneInfo.location);
+    if (sceneInfo.time) setCurrentTime(sceneInfo.time);
+    if (sceneInfo.outfit) setCurrentOutfit(sceneInfo.outfit);
+    // BGM은 엔딩 전용 BGM 유지 (씬에서 변경하지 않음)
+  };
+
+  // [Phase 4.3] 엔딩 크레딧 완료 콜백
+  const handleEndingComplete = () => {
+    setShowEndingCredits(false);
+    setEndingTrigger(null);
+    // 엔딩 후 BGM을 일상으로 복원
+    setCurrentBgmMode("TOUCHING");
+    showToast("엔딩을 감상해주셔서 감사합니다.", "success");
+  };
+
   const dismissPromotionOverlay = () => {
     setPromotionOverlay(null);
     setPromotionResult(null);
@@ -426,7 +493,7 @@ const splitNarration = (text, maxChars = 140) => {
   }, [sceneQueue, currentScene, isTyping, promotionOverlay]);
 
   const handleSendMessage = async (text) => {
-    if (text && energy <= 0) {
+    if (text && energy <= 0 && !endingTrigger) {
       showToast("에너지가 부족합니다. 내일 다시 대화해주세요!", "error");
       return;
     }
@@ -442,7 +509,7 @@ const splitNarration = (text, maxChars = 140) => {
       const messagePayload = text || "..."; 
       const res = await api.post(`/chat/rooms/${roomId}/messages`, { roomId, message: messagePayload });
 
-      const { scenes, currentAffection, promotionEvent } = res.data;
+      const { scenes, currentAffection, promotionEvent, endingTrigger: endingTrig } = res.data;
       setAffection(currentAffection);
       
       if (scenes && scenes.length > 0) {
@@ -452,9 +519,14 @@ const splitNarration = (text, maxChars = 140) => {
       const combinedText = scenes.map(s => s.dialogue).join(" ");
       setMessages(prev => [...prev, { role: 'ASSISTANT', cleanContent: combinedText }]);
 
-      // [Phase 5] 승급 이벤트 처리
+      // [Phase 4.2] 승급 이벤트 처리
       if (promotionEvent) {
         handlePromotionEvent(promotionEvent);
+      }
+
+      // [Phase 4.3] 엔딩 트리거 감지
+      if (endingTrig) {
+        setEndingTrigger(endingTrig);
       }
 
     } catch (err) {
@@ -580,10 +652,14 @@ const splitNarration = (text, maxChars = 140) => {
                 setCurrentTime("NIGHT");
                 setCurrentOutfit("MAID");
                 setCurrentBgmMode("DAILY");
-                // [Phase 5] 승급 이벤트 상태 초기화
+                // [Phase 4.2] 승급 이벤트 상태 초기화
                 setPromotionOverlay(null);
                 setPromotionProgress(null);
                 setPromotionResult(null);
+                // [Phase 4.3] 엔딩 상태 초기화
+                setEndingTrigger(null);
+                setEndingData(null);
+                setShowEndingCredits(false);
                 // [Fix] Energy re-sync - restore from server after clear
                 try {
                     const freshUser = await api.get("/users/me");
@@ -1384,6 +1460,42 @@ const splitNarration = (text, maxChars = 140) => {
               </p>
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ━━━━━━━ [Phase 4.3] 엔딩 로딩 오버레이 ━━━━━━━ */}
+      <AnimatePresence>
+        {endingLoading && (
+          <motion.div
+            className="fixed inset-0 z-[9998] bg-black/90 flex flex-col items-center justify-center gap-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="w-12 h-12 border-2 border-rose-400/30 border-t-rose-400 rounded-full"
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
+            />
+            <motion.p
+              className="text-white/50 text-sm tracking-widest"
+              animate={{ opacity: [0.3, 0.8, 0.3] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            >
+              서사의 결말을 엮는 중...
+            </motion.p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ━━━━━━━ [Phase 4.3] 엔딩 크레딧 ━━━━━━━ */}
+      <AnimatePresence>
+        {showEndingCredits && endingData && (
+          <EndingCredits
+            endingData={endingData}
+            onComplete={handleEndingComplete}
+            onSceneChange={handleEndingSceneChange}
+          />
         )}
       </AnimatePresence>
     </div>

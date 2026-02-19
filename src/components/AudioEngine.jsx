@@ -26,6 +26,9 @@ const BGM_MAP = {
   TOUCHING: "/sounds/bgm_touching.mp3",
   TENSE:    "/sounds/bgm_tense.mp3",
   EROTIC:   "/sounds/bgm_erotic.mp3",
+  // [Phase 4] 엔딩 전용 BGM
+  ENDING_HAPPY:  "/sounds/bgm_ending_happy.mp3",
+  ENDING_BAD:    "/sounds/bgm_ending_bad.mp3",
 };
 
 // ─── Ambience 매핑 (location + time → ambience 배열) ───
@@ -188,9 +191,10 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
     if (!newSrc) return;
 
     // [Phase 4.1] 쿨다운 체크 — 60초 이내 재전환 차단
-    // 단, 최초 재생(bgmModeRef.current === null)은 쿨다운 무시
+    // 단, 최초 재생(bgmModeRef.current === null)은 쿨다운 무시, 엔딩 BGM은 쿨다운 무시
+    const isEndingBgm = bgmMode.startsWith("ENDING_");
     const now = Date.now();
-    if (bgmModeRef.current !== null) {
+    if (bgmModeRef.current !== null && !isEndingBgm) {
       const elapsed = now - bgmLastChangedRef.current;
       if (elapsed < BGM_COOLDOWN_MS) {
         console.log(
