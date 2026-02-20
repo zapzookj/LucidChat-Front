@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import CharacterDisplay from "../components/CharacterDisplay";
@@ -7,12 +7,16 @@ import BackgroundDisplay from "../components/BackgroundDisplay";
 import AudioEngine from "../components/AudioEngine";
 import EndingCredits from "../components/Endingcredits";
 import useResourcePreloader from "../hooks/UseResourcePreloader";
+import EasterEggEffects from "../components/EasterEggEffects";
+import AchievementUnlockModal from "../components/AchievementUnlockModal";
+import AchievementGallery from "../components/AchievementGallery";
+import useInvisibleMan from "../hooks/useInvisibleMan";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
   LogOut, User as UserIcon, Gamepad2, Save, Sparkles, Lock, Unlock,
   CheckCircle, AlertTriangle, Info, Zap, Play, SkipForward,
-  Heart, Crown, MapPin, Shirt
+  Heart, Crown, MapPin, Shirt, Award, ChevronRight
 } from "lucide-react";
 
 const ChatPage = () => {
@@ -80,6 +84,11 @@ const ChatPage = () => {
   const [showEndingCredits, setShowEndingCredits] = useState(false); // 엔딩 크레딧 표시 여부
   const [endingLoading, setEndingLoading] = useState(false);      // 엔딩 생성 로딩
 
+  // ─── [Phase 4.4] 이스터에그 & 업적 상태 ───
+  const [easterEggEffect, setEasterEggEffect] = useState(null);    // 현재 활성 시각 효과
+  const [achievementModal, setAchievementModal] = useState(null);   // 업적 획득 모달 데이터
+  const [showAchievements, setShowAchievements] = useState(false);  // 업적 갤러리 표시
+
   const logsEndRef = useRef(null);
 
   // ================= Helper Functions =================
@@ -95,6 +104,33 @@ const ChatPage = () => {
   const closeConfirm = () => {
       setConfirmModal(null);
   };
+
+  // [Phase 4.4] 투명인간 이스터에그 — 10분 방치 감지
+  useInvisibleMan({
+    enabled: !isTyping && !showEndingCredits && introStep === 'none' && !easterEggEffect,
+    onTrigger: (data) => {
+      // 1. 시각 효과 시작
+      setEasterEggEffect("INVISIBLE_MAN");
+      // 2. 고정 대사 표시
+      setCurrentScene(data.scene);
+      setDisplayedEmotion(data.scene.emotion);
+      // 3. 업적 모달은 효과 종료 후
+      if (data.achievement?.isNew) {
+        setTimeout(() => setAchievementModal(data.achievement), 12000);
+      }
+    },
+  });
+
+  // ── Refs: 비동기 효과 ↔ 핸들러 간 데이터 전달용 ──
+  const pendingAchievementRef = useRef(null);       // 효과 종료 후 표시할 업적 데이터
+  const preEasterEggStateRef = useRef(null);        // FOURTH_WALL 롤백용 이전 상태 스냅샷
+
+  const easterEggEffectRef = useRef(null);          // easterEggEffect의 최신값 
+
+  // effectRef를 항상 최신으로 동기화
+  useEffect(() => {
+    easterEggEffectRef.current = easterEggEffect;
+  }, [easterEggEffect]);
 
   // ================= [Fix #15] Progressive Resource Preloading =================
   // 관계 레벨에 따라 해금된 리소스만 단계적으로 프리로딩
@@ -182,11 +218,29 @@ const ChatPage = () => {
       }
   };
 
+  const handleEasterEggEnd = useCallback(() => {
+    const currentEffect = easterEggEffectRef.current;
+
+    // 일시 효과: 즉시 해제
+    if (currentEffect === "FOURTH_WALL" || currentEffect === "MACHINE_REBELLION" || currentEffect === "INVISIBLE_MAN") {
+      setEasterEggEffect(null);
+    }
+
+    // 대기 중인 업적 모달이 있으면 표시
+    if (pendingAchievementRef.current) {
+      // 약간의 딜레이로 효과 페이드아웃과 모달 진입이 겹치지 않게
+      setTimeout(() => {
+        setAchievementModal(pendingAchievementRef.current);
+        pendingAchievementRef.current = null;
+      }, 500);
+    }
+  }, []); // deps 비움 — ref를 통해 최신값 참조하므로 리렌더 불필요
+
   // 길면 여러 씬으로 쪼개는 유틸 (문장/줄 기준 + maxChars)
-const splitNarration = (text, maxChars = 140) => {
-  const cleaned = (text ?? "")
-    .replace(/^\s*\[NARRATION\]\s*/i, "") // [NARRATION] 태그 제거
-    .trim();
+  const splitNarration = (text, maxChars = 140) => {
+    const cleaned = (text ?? "")
+      .replace(/^\s*\[NARRATION\]\s*/i, "") // [NARRATION] 태그 제거
+      .trim();
 
   // 줄바꿈 단락 기준
   const paras = cleaned.split(/\n+/).map(s => s.trim()).filter(Boolean);
@@ -206,7 +260,24 @@ const splitNarration = (text, maxChars = 140) => {
   }
   if (buf) chunks.push(buf.trim());
   return chunks;
-};
+  };
+
+  const handleAchievementModalClose = useCallback(() => {
+    const snapshot = preEasterEggStateRef.current;
+
+    if (snapshot) {
+      // FOURTH_WALL 롤백: 마지막 USER 메시지 + ASSISTANT 응답 제거
+      setMessages(snapshot.messages);
+      setCurrentScene(snapshot.currentScene);
+      setDisplayedEmotion(snapshot.displayedEmotion);
+      setSceneQueue([]);
+      preEasterEggStateRef.current = null;
+
+      console.log("🔄 [EASTER_EGG] FOURTH_WALL conversation reverted");
+    }
+
+    setAchievementModal(null);
+  }, []);
 
   // ================= Init Logic =================
   useEffect(() => {
@@ -555,6 +626,77 @@ const splitNarration = (text, maxChars = 140) => {
       // [Phase 4.3] 엔딩 트리거 감지
       if (endingTrig) {
         setEndingTrigger(endingTrig);
+      }
+
+      // [Phase 4.4] 이스터에그 처리
+      if (res.data.easterEgg) {
+        const egg = res.data.easterEgg;
+        
+        // 시각 효과 시작
+        setEasterEggEffect(egg.trigger);
+        
+        // 업적 모달 예약 (효과 종료 후 표시)
+        if (egg.achievement?.isNew) {
+          // FOURTH_WALL, MACHINE_REBELLION: onEffectEnd에서 처리
+          // STOCKHOLM, DRUNK: 지속 효과이므로 5초 후 모달
+          if (egg.trigger === "STOCKHOLM" || egg.trigger === "DRUNK") {
+            setTimeout(() => {
+              setAchievementModal(egg.achievement);
+            }, 5000);
+          }
+        }
+        
+        // FOURTH_WALL 2단계: revertAfter 플래그 — 업적 후 대화 기록 롤백
+        if (egg.revertAfter) {
+          // 모달 닫힌 후 마지막 메시지 제거 + 이전 씬 복원
+          // achievementModal onClose에서 처리
+        }
+      }
+
+      // [Phase 4.4] 지속형 이스터에그(STOCKHOLM, DRUNK) 해제 — 다음 메시지가 오면 효과 종료
+      if (easterEggEffect === "STOCKHOLM" || easterEggEffect === "DRUNK") {
+        setEasterEggEffect(null);
+      }
+
+      // [Phase 4.4] 이스터에그 응답 처리
+      const easterEgg = res.data.easterEgg;
+      if (easterEgg) {
+        const { trigger, achievement, revertAfter } = easterEgg;
+
+        // FOURTH_WALL: 롤백이 필요하므로 현재 상태 스냅샷 저장
+        // ⚠️ 이 시점에서 messages에는 이미 USER + ASSISTANT 메시지가 추가된 상태
+        //    → 롤백 시 이 두 메시지를 제거해야 함
+        if (revertAfter) {
+          // snapshot은 이번 턴 USER + ASSISTANT 추가 전의 상태
+          // messages 업데이트가 비동기(setState)이므로 현재 messages에서 마지막 2개 제거
+          preEasterEggStateRef.current = {
+            messages: messages, // 클로저 시점의 messages (이번 턴 추가 전)
+            currentScene: currentScene,
+            displayedEmotion: displayedEmotion,
+          };
+        }
+
+        // 시각 효과 시작
+        setEasterEggEffect(trigger);
+
+        // 업적 모달 스케줄링
+        if (achievement?.isNew) {
+          switch (trigger) {
+            case "STOCKHOLM":
+            case "DRUNK":
+              // 지속형: 5초 후 모달 바로 표시 (효과는 계속 유지)
+              setTimeout(() => setAchievementModal(achievement), 5000);
+              break;
+
+            case "FOURTH_WALL":
+            case "MACHINE_REBELLION":
+              // 일시형: pendingRef에 저장 → handleEasterEggEnd에서 표시
+              pendingAchievementRef.current = achievement;
+              break;
+          }
+        }
+
+        console.log(`🥚 [EASTER_EGG] ${trigger} activated | new=${achievement?.isNew}`);
       }
 
     } catch (err) {
@@ -1265,6 +1407,33 @@ const splitNarration = (text, maxChars = 140) => {
         )}
       </AnimatePresence>
 
+      {/* [Phase 4.4] 이스터에그 시각 효과 오버레이 */}
+      <EasterEggEffects
+        activeEffect={easterEggEffect}
+        onEffectEnd={handleEasterEggEnd}
+      />
+
+      {/* [Phase 4.4] 업적 획득 모달 */}
+      <AchievementUnlockModal
+        achievement={achievementModal}
+        onClose={() => setAchievementModal(null)}
+      />
+
+      {/* [Phase 4.4] 업적 갤러리 (설정 위에 오버레이) */}
+      <AnimatePresence>
+        {showAchievements && (
+          <motion.div
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ type: "tween", duration: 0.3, ease: "easeOut" }}
+            className="fixed inset-y-0 right-0 w-full md:w-[420px] bg-black/95 backdrop-blur-2xl z-[55] shadow-2xl border-l border-white/10 flex flex-col"
+          >
+            <AchievementGallery onClose={() => setShowAchievements(false)} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Settings Modal */}
       <AnimatePresence>
         {showSettings && (
@@ -1412,6 +1581,28 @@ const splitNarration = (text, maxChars = 140) => {
                               </div>
                             </div>
                         </div>
+                    </section>
+
+                    <div className="h-px bg-white/10" />
+
+                    {/* 3. Achievements */}
+                    <section>
+                      <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        <Award size={16} className="text-amber-400" /> Achievements
+                      </h3>
+                      <button
+                        onClick={() => setShowAchievements(true)}
+                        className="w-full flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition group"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-2xl">🏆</span>
+                          <div className="text-left">
+                            <p className="text-sm text-amber-200 font-bold">업적 갤러리</p>
+                            <p className="text-xs text-gray-500">수집한 업적과 이스터에그를 확인합니다.</p>
+                          </div>
+                        </div>
+                        <ChevronRight size={16} className="text-white/20 group-hover:text-white/40 transition" />
+                      </button>
                     </section>
                 </div>
 
