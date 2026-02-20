@@ -6,6 +6,7 @@ import DialogueBox from "../components/DialogueBox";
 import BackgroundDisplay from "../components/BackgroundDisplay";
 import AudioEngine from "../components/AudioEngine";
 import EndingCredits from "../components/Endingcredits";
+import useResourcePreloader from "../hooks/UseResourcePreloader";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
@@ -95,17 +96,13 @@ const ChatPage = () => {
       setConfirmModal(null);
   };
 
-  // ================= Image Preloading (Phase 4: outfit-aware) =================
-  useEffect(() => {
-    const outfits = ["maid"];
-    const emotions = ["neutral","joy","sad","angry","shy","surprise","panic","disgust","relax","frightened","flirtatious","heated"];
-    outfits.forEach(outfit => {
-      emotions.forEach(emo => {
-        const img = new Image();
-        img.src = `/characters/${outfit}_${emo}.png`;
-      });
-    });
-  }, []);
+  // ================= [Fix #15] Progressive Resource Preloading =================
+  // 관계 레벨에 따라 해금된 리소스만 단계적으로 프리로딩
+  // (캐릭터 이미지 + 배경 + BGM + 앰비언스 + SFX)
+  const { preloadEndingAssets } = useResourcePreloader(
+    roomInfo?.statusLevel,
+    userInfo.isSecretMode
+  );
 
   // ================= BGM Logic (Phase 4: AudioEngine handles playback) =================
   const toggleBgm = () => {
@@ -422,46 +419,77 @@ const splitNarration = (text, maxChars = 140) => {
   };
 
   // [Phase 4.3] 엔딩 트리거 감지 후 씬 재생 완료 시 엔딩 생성
+  // [Fix #6] endingTrigger 수신 즉시 BGM 전환 + 백그라운드 API 호출
   useEffect(() => {
     if (!endingTrigger) return;
-    // 현재 씬 큐가 모두 소진되고, 타이핑도 끝나면 엔딩 생성
+
+    // 즉시 엔딩 BGM으로 전환 (씬 소진 기다리지 않음)
+    setCurrentBgmMode(endingTrigger.endingType === "HAPPY" ? "ENDING_HAPPY" : "ENDING_BAD");
+
+    // 백그라운드에서 API 호출 시작
+    generateEnding(endingTrigger.endingType);
+  }, [endingTrigger]);
+
+  // [Fix #6] 씬 큐 소진 후 → endingData 준비되면 즉시 크레딧 진입
+  useEffect(() => {
+    if (!endingTrigger || !endingData) return;
     if (sceneQueue.length === 0 && !isTyping) {
-      // 약간의 딜레이 (마지막 대사 여운)
+      // 마지막 대사의 여운을 위한 짧은 딜레이
       const t = setTimeout(() => {
-        generateEnding(endingTrigger.endingType);
+        setShowEndingCredits(true);
+        setEndingLoading(false);
       }, 2000);
       return () => clearTimeout(t);
     }
-  }, [endingTrigger, sceneQueue, isTyping]);
+  }, [endingTrigger, endingData, sceneQueue, isTyping]);
 
-  // [Phase 4.3] 엔딩 데이터 생성 API 호출
-  const generateEnding = async (endingType) => {
+  // [Fix #10] 엔딩 데이터 생성 API 호출 — 자동 재시도 + 수동 재시도 지원
+  const generateEnding = async (endingType, attempt = 1) => {
+    const MAX_RETRIES = 3;
     setEndingLoading(true);
+
     try {
       const res = await api.post(`/ending/rooms/${roomId}/generate`, { endingType });
       setEndingData(res.data);
-
-      // 엔딩 BGM 즉시 전환
-      setCurrentBgmMode(endingType === "HAPPY" ? "ENDING_HAPPY" : "ENDING_BAD");
-
-      // 약간의 딜레이 후 크레딧 표시 (BGM 전환 시간 확보)
-      setTimeout(() => {
-        setShowEndingCredits(true);
-        setEndingLoading(false);
-      }, 1500);
+      // [Fix #6] endingData가 세팅되면 위의 useEffect가 씬 소진 후 크레딧 진입 처리
 
     } catch (err) {
-      console.error("Ending generation failed:", err);
-      showToast("엔딩 생성 중 오류가 발생했습니다.", "error");
+      console.error(`Ending generation failed (attempt ${attempt}/${MAX_RETRIES}):`, err);
+
+      if (attempt < MAX_RETRIES) {
+        // [Fix #10] 지수 백오프 재시도: 2s, 4s, 8s
+        const delay = 2000 * Math.pow(2, attempt - 1);
+        console.log(`🔄 Retrying ending generation in ${delay}ms...`);
+        setTimeout(() => generateEnding(endingType, attempt + 1), delay);
+        return;
+      }
+
+      // 최종 실패 — endingTrigger는 유지 (수동 재시도 가능)
       setEndingLoading(false);
-      setEndingTrigger(null);
+      showToast("엔딩 생성에 실패했습니다. 설정에서 '엔딩 다시 보기'를 시도해 주세요.", "error");
+      // ⚠️ endingTrigger를 null로 리셋하지 않음 → 수동 재시도 가능
+    }
+  };
+
+  // [Fix #10] 엔딩 다시 보기 (설정 메뉴 또는 상단 배너에서 호출)
+  const retryEnding = () => {
+    if (endingTrigger) {
+      setEndingData(null);
+      setShowEndingCredits(false);
+      generateEnding(endingTrigger.endingType);
+    } else if (roomInfo?.endingReached && roomInfo?.endingType) {
+      // 이미 엔딩을 본 적 있는 경우 — roomInfo에서 endingType 복원
+      setEndingTrigger({ endingType: roomInfo.endingType });
+      setCurrentBgmMode(roomInfo.endingType === "HAPPY" ? "ENDING_HAPPY" : "ENDING_BAD");
+      generateEnding(roomInfo.endingType);
     }
   };
 
   // [Phase 4.3] 엔딩 씬 변경 콜백 (EndingCredits → 배경/감정 변경)
   const handleEndingSceneChange = (sceneInfo) => {
     if (sceneInfo.emotion) setDisplayedEmotion(sceneInfo.emotion);
-    if (sceneInfo.location) setCurrentLocation(sceneInfo.location);
+    // [Fix #7] 엔딩 중에는 location을 업데이트하지 않음 (앰비언스 방지)
+    // if (sceneInfo.location) setCurrentLocation(sceneInfo.location);
     if (sceneInfo.time) setCurrentTime(sceneInfo.time);
     if (sceneInfo.outfit) setCurrentOutfit(sceneInfo.outfit);
     // BGM은 엔딩 전용 BGM 유지 (씬에서 변경하지 않음)
@@ -707,7 +735,7 @@ const splitNarration = (text, maxChars = 140) => {
       {/* [Phase 4] Audio Engine (BGM + Ambience + SFX) */}
       <AudioEngine 
         bgmMode={currentBgmMode}
-        location={currentLocation}
+        location={showEndingCredits ? null : currentLocation}
         time={currentTime}
         masterVolume={bgmVolume}
         isMuted={!isBgmPlaying}
@@ -1448,6 +1476,21 @@ const splitNarration = (text, maxChars = 140) => {
               <div ref={logsEndRef} />
             </div>
             <div className="p-6 border-t border-white/10 bg-black/40">
+              {roomInfo?.endingReached && (
+                <button
+                  onClick={retryEnding}
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-purple-500/20 to-rose-500/20
+                            border border-purple-400/30 text-purple-200 text-sm font-medium
+                            hover:from-purple-500/30 hover:to-rose-500/30 transition-all duration-300
+                            flex items-center justify-center gap-2"
+                >
+                  <span>🎬</span>
+                  <span>엔딩 다시 보기</span>
+                  {roomInfo?.endingTitle && (
+                    <span className="text-xs text-white/40 ml-1">"{roomInfo.endingTitle}"</span>
+                  )}
+                </button>
+              )}
               <button 
                 onClick={handleClearHistory}
                 className="w-full py-3 rounded-xl border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition flex items-center justify-center gap-2 font-bold"
@@ -1465,7 +1508,7 @@ const splitNarration = (text, maxChars = 140) => {
 
       {/* ━━━━━━━ [Phase 4.3] 엔딩 로딩 오버레이 ━━━━━━━ */}
       <AnimatePresence>
-        {endingLoading && (
+        {endingLoading && !showEndingCredits && (
           <motion.div
             className="fixed inset-0 z-[9998] bg-black/90 flex flex-col items-center justify-center gap-4"
             initial={{ opacity: 0 }}

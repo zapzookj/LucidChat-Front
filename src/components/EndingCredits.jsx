@@ -19,7 +19,16 @@ import { Heart, Sparkles, MessageSquare, Calendar, Star, Clock } from "lucide-re
 //    endingData     — EndingResponse from backend
 //    onComplete     — 엔딩 완료 콜백
 //    onSceneChange  — 씬 변경 시 (emotion, location 등 전달)
+//
+//  [Fix #13] 에필로그 나레이션 → 대사창 바로 위로 이동, 대사창 확대
+//  [Fix #14] 2-Tap Skip: 1st tap = 현재 플로우 즉시 표시, 2nd tap = 다음 플로우
 // ═══════════════════════════════════════════════════════════════
+
+/** 텍스트 길이에 비례하는 대기 시간 계산 (ms) */
+const calcTextDuration = (text, baseMs = 5000, msPerChar = 120) => {
+  if (!text) return baseMs;
+  return Math.max(baseMs, text.length * msPerChar + 3000);
+};
 
 // ─── 파티클 시스템 ───
 const Particle = ({ type, delay, duration }) => {
@@ -75,27 +84,44 @@ const ParticleField = ({ type, count = 25 }) => (
   </div>
 );
 
-// ─── 타자기 효과 ───
-const TypeWriter = ({ text, speed = 45, onComplete, className = "" }) => {
+// ─── [Fix #14] 타자기 효과 (forceComplete 지원) ───
+const TypeWriter = ({ text, speed = 45, onComplete, forceComplete = false, className = "" }) => {
   const [displayed, setDisplayed] = useState("");
   const [done, setDone] = useState(false);
+  const intervalRef = useRef(null);
 
   useEffect(() => {
     if (!text) { setDone(true); onComplete?.(); return; }
     setDisplayed("");
     setDone(false);
     let i = 0;
-    const timer = setInterval(() => {
+    intervalRef.current = setInterval(() => {
       i++;
       setDisplayed(text.slice(0, i));
       if (i >= text.length) {
-        clearInterval(timer);
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
         setDone(true);
         setTimeout(() => onComplete?.(), 600);
       }
     }, speed);
-    return () => clearInterval(timer);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, [text]);
+
+  // [Fix #14] forceComplete → 즉시 전체 텍스트 표시
+  useEffect(() => {
+    if (forceComplete && text && !done) {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      setDisplayed(text);
+      setDone(true);
+      onComplete?.();
+    }
+  }, [forceComplete]);
 
   return (
     <span className={className}>
@@ -126,18 +152,27 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
   const [epilogueIndex, setEpilogueIndex] = useState(0);
   const [epilogueTypeDone, setEpilogueTypeDone] = useState(false);
   const [memoryIndex, setMemoryIndex] = useState(0);
-  const [showMemories, setShowMemories] = useState(false);
+
+  // ── [Fix #14] 2-Tap Skip 시스템 ──
+  // phaseRevealed === false → 애니메이션/타이머 진행 중 (1st tap: 즉시 표시)
+  // phaseRevealed === true  → 콘텐츠 모두 표시됨 (2nd tap: 다음 플로우)
+  const [phaseRevealed, setPhaseRevealed] = useState(false);
 
   const isHappy = endingData.endingType === "HAPPY";
   const scenes = endingData.epilogueScenes || [];
   const memories = endingData.memories || [];
+
+  // ── 페이즈 전환 시 revealed 상태 초기화 ──
+  useEffect(() => {
+    setPhaseRevealed(false);
+  }, [phase]);
 
   // ── 자동 진행 타이머 ──
 
   // Phase 1: Fade In → Epilogue
   useEffect(() => {
     if (phase === PHASES.FADE_IN) {
-      const t = setTimeout(() => setPhase(PHASES.EPILOGUE), 2500);
+      const t = setTimeout(() => setPhase(PHASES.EPILOGUE), 3000);
       return () => clearTimeout(t);
     }
   }, [phase]);
@@ -156,83 +191,104 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
     }
   }, [phase, epilogueIndex]);
 
-  // 에필로그 자동 다음 씬 (대사 완료 후 2.5초)
+  // 에필로그 자동 다음 씬 (대사 완료 후 5초)
   useEffect(() => {
     if (phase !== PHASES.EPILOGUE || !epilogueTypeDone) return;
 
     const t = setTimeout(() => {
       if (epilogueIndex < scenes.length - 1) {
-        setEpilogueIndex(prev => prev + 1);
+        setEpilogueIndex(i => i + 1);
         setEpilogueTypeDone(false);
       } else {
-        // 에필로그 종료 → 타이틀 카드
         setPhase(PHASES.TITLE_CARD);
       }
-    }, 2500);
+    }, 5000);  // 타자기 완료 후 5초 여운
     return () => clearTimeout(t);
   }, [phase, epilogueTypeDone, epilogueIndex, scenes.length]);
 
-  // 타이틀 카드 → 인용문
+  // 타이틀 카드 → 인용문 (자동 진행)
   useEffect(() => {
     if (phase === PHASES.TITLE_CARD) {
-      const t = setTimeout(() => setPhase(PHASES.QUOTE), 5500);
+      const t = setTimeout(() => {
+        setPhaseRevealed(true);  // 자연스럽게 revealed 처리
+      }, 10000);
       return () => clearTimeout(t);
     }
   }, [phase]);
 
-  // 인용문 → 추억
+  // revealed 후 2초 대기 → 다음 페이즈 자동 이동
+  useEffect(() => {
+    if (!phaseRevealed) return;
+    if (phase === PHASES.EPILOGUE || phase === PHASES.FADE_IN || phase === PHASES.FIN) return;
+
+    const order = Object.values(PHASES);
+    const currentIdx = order.indexOf(phase);
+    if (currentIdx >= order.length - 1) return;
+
+    const t = setTimeout(() => {
+      setPhase(order[currentIdx + 1]);
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [phaseRevealed, phase]);
+
+  // 인용문 자동 revealed
   useEffect(() => {
     if (phase === PHASES.QUOTE) {
-      const t = setTimeout(() => setPhase(PHASES.MEMORIES), 5000);
+      const duration = calcTextDuration(endingData?.characterQuote, 10000, 150);
+      const t = setTimeout(() => setPhaseRevealed(true), duration);
       return () => clearTimeout(t);
     }
-  }, [phase]);
+  }, [phase, endingData?.characterQuote]);
 
   // 추억 자동 스크롤
   useEffect(() => {
     if (phase !== PHASES.MEMORIES) return;
-    setShowMemories(true);
 
-    if (memories.length === 0) {
-      const t = setTimeout(() => setPhase(PHASES.STATS), 3000);
+    const mems = endingData?.memories || [];
+    if (mems.length === 0) {
+      const t = setTimeout(() => setPhaseRevealed(true), 3000);
       return () => clearTimeout(t);
     }
 
-    // 각 추억 0.8초 간격으로 표시
     const timers = [];
-    memories.forEach((_, idx) => {
-      timers.push(setTimeout(() => setMemoryIndex(idx + 1), (idx + 1) * 1200));
+    mems.forEach((_, idx) => {
+      timers.push(setTimeout(() => setMemoryIndex(idx + 1), (idx + 1) * 4000));
     });
-    // 전체 표시 후 3초 대기 → Stats
-    timers.push(setTimeout(() => setPhase(PHASES.STATS), memories.length * 1200 + 3500));
+
+    timers.push(setTimeout(() => setPhaseRevealed(true), mems.length * 4000 + 3000));
 
     return () => timers.forEach(clearTimeout);
-  }, [phase, memories.length]);
+  }, [phase, endingData?.memories]);
 
-  // Stats → Developer
+  // Stats 자동 revealed
   useEffect(() => {
     if (phase === PHASES.STATS) {
-      const t = setTimeout(() => setPhase(PHASES.DEVELOPER), 6000);
+      const t = setTimeout(() => setPhaseRevealed(true), 18000);
       return () => clearTimeout(t);
     }
   }, [phase]);
 
-  // Developer → Fin
+  // Developer 자동 revealed
   useEffect(() => {
     if (phase === PHASES.DEVELOPER) {
-      const t = setTimeout(() => setPhase(PHASES.FIN), 7000);
+      const t = setTimeout(() => setPhaseRevealed(true), 18000);
       return () => clearTimeout(t);
     }
   }, [phase]);
 
-  // ── 스킵 (터치/클릭) ──
+  // ── [Fix #14] 2-Tap Skip 핸들러 ──
   const handleSkip = useCallback(() => {
-    const order = Object.values(PHASES);
-    const currentIdx = order.indexOf(phase);
+    // ─── FADE_IN: 바로 스킵 ───
+    if (phase === PHASES.FADE_IN) {
+      setPhase(PHASES.EPILOGUE);
+      return;
+    }
+
+    // ─── EPILOGUE: 기존 3단계 로직 유지 ───
+    // 1st: 타자기 즉시 완성 → 2nd: 다음 에필로그 씬 → 3rd: 다음 페이즈
     if (phase === PHASES.EPILOGUE) {
-      // 에필로그 중에는 다음 씬으로 빨리감기
       if (!epilogueTypeDone) {
-        setEpilogueTypeDone(true);
+        setEpilogueTypeDone(true);  // 타자기 즉시 완성
       } else if (epilogueIndex < scenes.length - 1) {
         setEpilogueIndex(prev => prev + 1);
         setEpilogueTypeDone(false);
@@ -241,15 +297,31 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
       }
       return;
     }
+
+    // ─── FIN: 닫기 ───
     if (phase === PHASES.FIN) {
       onComplete?.();
       return;
     }
-    // 다른 페이즈에서는 다음 단계로
-    if (currentIdx < order.length - 1) {
-      setPhase(order[currentIdx + 1]);
+
+    // ─── 나머지 페이즈: 2-Tap 시스템 ───
+    if (!phaseRevealed) {
+      // 1st tap: 현재 플로우 콘텐츠 즉시 표시
+      setPhaseRevealed(true);
+
+      // MEMORIES: 모든 메모리 카드 즉시 표시
+      if (phase === PHASES.MEMORIES) {
+        setMemoryIndex(memories.length);
+      }
+    } else {
+      // 2nd tap: 다음 플로우로 이동
+      const order = Object.values(PHASES);
+      const currentIdx = order.indexOf(phase);
+      if (currentIdx < order.length - 1) {
+        setPhase(order[currentIdx + 1]);
+      }
     }
-  }, [phase, epilogueIndex, epilogueTypeDone, scenes.length, onComplete]);
+  }, [phase, epilogueIndex, epilogueTypeDone, scenes.length, memories.length, phaseRevealed, onComplete]);
 
   // ── 스타일 ──
   const themeColor = isHappy ? "rgba(255, 182, 193, 0.15)" : "rgba(100, 120, 140, 0.15)";
@@ -258,6 +330,12 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
   const subtitleColor = isHappy ? "text-rose-300/80" : "text-slate-400/80";
 
   const currentScene = scenes[epilogueIndex];
+
+  // [Fix #14] revealed 상태에서 애니메이션 즉시 완료
+  const revealTransition = (normalDuration, normalDelay = 0) =>
+    phaseRevealed
+      ? { duration: 0.2, delay: 0 }
+      : { duration: normalDuration, delay: normalDelay };
 
   return (
     <div
@@ -299,34 +377,41 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
         )}
 
         {/* ═══ Phase 2: Epilogue Scenes ═══ */}
+        {/* [Fix #13] 나레이션을 대사창 바로 위로 이동 + 대사창 확대 */}
         {phase === PHASES.EPILOGUE && currentScene && (
           <motion.div
             key={`epi-${epilogueIndex}`}
-            className="absolute inset-0 flex flex-col justify-end items-center pb-24 px-6"
+            className="absolute inset-0 flex flex-col justify-end items-center pb-16 sm:pb-24 px-4 sm:px-6"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.8 }}
           >
-            {/* 나레이션 (상단) */}
-            {currentScene.narration && (
-              <motion.div
-                className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[85%] max-w-lg"
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 1 }}
-              >
-                <p className={`text-sm leading-relaxed text-center italic ${subtitleColor}`}
-                   style={{ fontFamily: "'Noto Serif KR', serif", letterSpacing: "0.02em" }}>
-                  {currentScene.narration}
-                </p>
-              </motion.div>
-            )}
+            {/* 나레이션 + 대사 묶음 (하단 정렬) */}
+            <div className="w-full max-w-xl">
 
-            {/* 대사 (하단) */}
-            <div className="w-full max-w-lg">
+              {/* [Fix #13] 나레이션 — 대사창 바로 위에 위치 */}
+              <AnimatePresence mode="wait">
+                {currentScene.narration && (
+                  <motion.div
+                    key={`narr-${epilogueIndex}`}
+                    className="mb-3 sm:mb-4 px-2"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.8 }}
+                  >
+                    <p className={`text-sm leading-relaxed text-center italic ${subtitleColor}`}
+                       style={{ fontFamily: "'Noto Serif KR', serif", letterSpacing: "0.02em" }}>
+                      {currentScene.narration}
+                    </p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* [Fix #13] 대사 (확대된 텍스트 창) */}
               <div
-                className="rounded-2xl px-6 py-5 backdrop-blur-xl border"
+                className="rounded-2xl px-6 py-5 sm:px-8 sm:py-7 backdrop-blur-xl border"
                 style={{
                   background: `linear-gradient(135deg, ${themeColor}, rgba(0,0,0,0.6))`,
                   borderColor: `${accentColor}33`,
@@ -334,16 +419,17 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
                 }}
               >
                 {/* 캐릭터 이름 */}
-                <div className={`text-xs tracking-[0.2em] mb-2 ${subtitleColor}`}
+                <div className={`text-xs tracking-[0.2em] mb-2 sm:mb-3 ${subtitleColor}`}
                      style={{ fontFamily: "'Noto Sans KR', sans-serif" }}>
                   아이리
                 </div>
-                {/* 대사 (타자기) */}
-                <div className={`text-base leading-relaxed ${textColor}`}
-                     style={{ fontFamily: "'Noto Serif KR', serif", minHeight: "3rem" }}>
+                {/* [Fix #13] 대사 (확대: text-base sm:text-lg, minHeight 4.5rem) */}
+                <div className={`text-base sm:text-lg leading-relaxed sm:leading-loose ${textColor}`}
+                     style={{ fontFamily: "'Noto Serif KR', serif", minHeight: "4.5rem" }}>
                   <TypeWriter
                     text={currentScene.dialogue}
                     speed={50}
+                    forceComplete={epilogueTypeDone}
                     onComplete={() => setEpilogueTypeDone(true)}
                   />
                 </div>
@@ -374,14 +460,14 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 1.5 }}
+            transition={revealTransition(1.5)}
           >
             {/* 엔딩 타입 레이블 */}
             <motion.div
               className={`text-xs tracking-[0.4em] uppercase mb-6 ${subtitleColor}`}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5, duration: 1 }}
+              transition={revealTransition(1, 0.5)}
               style={{ fontFamily: "'Noto Sans KR', sans-serif" }}
             >
               {isHappy ? "— HAPPY ENDING —" : "— BAD ENDING —"}
@@ -392,7 +478,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
               className={`text-3xl sm:text-4xl md:text-5xl font-bold text-center leading-tight ${textColor}`}
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 1, duration: 1.5, ease: "easeOut" }}
+              transition={revealTransition(1.5, 1)}
               style={{
                 fontFamily: "'Noto Serif KR', serif",
                 textShadow: `0 0 60px ${accentColor}40, 0 0 120px ${accentColor}20`,
@@ -407,7 +493,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
               className="mt-8 h-px w-32"
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: 128, opacity: 0.5 }}
-              transition={{ delay: 2, duration: 1.5 }}
+              transition={revealTransition(1.5, 2)}
               style={{ background: `linear-gradient(90deg, transparent, ${accentColor}, transparent)` }}
             />
 
@@ -432,13 +518,13 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 1.2 }}
+            transition={revealTransition(1.2)}
           >
             <motion.div
               className="max-w-md text-center"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5, duration: 1.5 }}
+              transition={revealTransition(1.5, 0.5)}
             >
               {/* 인용 부호 */}
               <span className={`text-4xl ${subtitleColor} block mb-4`}
@@ -469,13 +555,14 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 1 }}
+            transition={revealTransition(1)}
           >
             {/* 섹션 타이틀 */}
             <motion.div
               className="text-center mb-8"
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
+              transition={revealTransition(0.6)}
             >
               <Sparkles className={`w-5 h-5 mx-auto mb-3`} style={{ color: accentColor }} />
               <h2 className={`text-lg tracking-[0.15em] ${textColor}`}
@@ -499,7 +586,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
                     }}
                     initial={{ opacity: 0, x: idx % 2 === 0 ? -20 : 20 }}
                     animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.8 }}
+                    transition={revealTransition(0.8)}
                   >
                     <p className={`text-sm leading-relaxed ${subtitleColor}`}
                        style={{ fontFamily: "'Noto Sans KR', sans-serif" }}>
@@ -528,7 +615,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 1 }}
+            transition={revealTransition(1)}
           >
             <motion.div className="w-full max-w-xs space-y-5">
               {/* 타이틀 */}
@@ -536,7 +623,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
                 className={`text-center text-sm tracking-[0.15em] mb-6 ${subtitleColor}`}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                transition={{ delay: 0.3 }}
+                transition={revealTransition(0.6, 0.3)}
               >
                 PLAY RECORD
               </motion.h3>
@@ -554,7 +641,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
                   className="flex items-center gap-4"
                   initial={{ opacity: 0, x: -15 }}
                   animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.5 + idx * 0.4, duration: 0.6 }}
+                  transition={revealTransition(0.6, 0.5 + idx * 0.4)}
                 >
                   <stat.icon className="w-4 h-4 flex-shrink-0" style={{ color: `${accentColor}99` }} />
                   <span className={`text-xs tracking-wider flex-1 ${subtitleColor}`}
@@ -579,13 +666,13 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 1.2 }}
+            transition={revealTransition(1.2)}
           >
             <motion.div
               className="max-w-sm text-center space-y-4"
               initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5, duration: 1.2 }}
+              transition={revealTransition(1.2, 0.5)}
             >
               <p className={`text-xs tracking-[0.2em] uppercase ${subtitleColor}`}>
                 From the Developer
