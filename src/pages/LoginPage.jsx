@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Lock, User, Mail, Smile } from "lucide-react";
 
 const LoginPage = () => {
-  const [isLoginMode, setIsLoginMode] = useState(true); // 탭 전환 상태
+  const [isLoginMode, setIsLoginMode] = useState(true);
   const { login, signup } = useAuth();
   const navigate = useNavigate();
   
@@ -23,24 +23,21 @@ const LoginPage = () => {
     
     try {
       if (isLoginMode) {
-        // 로그인 시도
         const success = await login(formData.username, formData.password);
+        // [Phase 4.5] 로비로 이동 (기존: 바로 채팅방)
         if (success) navigate("/");
         else setError("아이디 또는 비밀번호를 확인해주세요.");
       } else {
-        // 회원가입 시도
         const success = await signup(formData.username, formData.password, formData.nickname, formData.email);
         if (success) navigate("/");
       }
     } catch (err) {
-      // 백엔드 에러 메시지 처리
       const msg = err.response?.data?.message || "오류가 발생했습니다.";
       setError(msg);
     }
   };
 
   const handleGoogleLogin = () => {
-    // 백엔드의 구글 OAuth 시작 엔드포인트로 이동
     window.location.href = "http://localhost:8080/oauth2/authorization/google";
   };
 
@@ -103,7 +100,7 @@ const LoginPage = () => {
             />
           </div>
 
-          {/* 회원가입 전용 필드 (애니메이션과 함께 등장) */}
+          {/* 회원가입 전용 필드 */}
           <div className={`space-y-4 overflow-hidden transition-all duration-500 ${isLoginMode ? 'max-h-0 opacity-0' : 'max-h-40 opacity-100'}`}>
             <div className="relative group">
               <Smile className="absolute left-4 top-3.5 text-white/50 group-focus-within:text-pink-400 transition" size={20} />
@@ -146,7 +143,7 @@ const LoginPage = () => {
            <div className="h-px bg-white/10 flex-1" />
         </div>
 
-        {/* 구글 로그인 버튼 */}
+        {/* 구글 로그인 */}
         <button
           onClick={handleGoogleLogin}
           className="mt-6 w-full bg-white text-gray-800 font-bold py-3.5 rounded-xl transition shadow-lg hover:bg-gray-100 flex items-center justify-center gap-3 transform hover:scale-[1.02] active:scale-95"

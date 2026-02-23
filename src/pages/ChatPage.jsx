@@ -12,6 +12,7 @@ import AchievementUnlockModal from "../components/AchievementUnlockModal";
 import AchievementGallery from "../components/AchievementGallery";
 import useInvisibleMan from "../hooks/useInvisibleMan";
 import { motion, AnimatePresence } from "framer-motion";
+import { useParams, useNavigate } from "react-router-dom";
 import { 
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
   LogOut, User as UserIcon, Gamepad2, Save, Sparkles, Lock, Unlock,
@@ -21,7 +22,8 @@ import {
 
 const ChatPage = () => {
   const { user, logout } = useAuth();
-  const roomId = localStorage.getItem("roomId");
+  const { roomId } = useParams();
+  const navigate = useNavigate();
   
   const [roomInfo, setRoomInfo] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -1433,6 +1435,14 @@ const ChatPage = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* <button
+        onClick={() => navigate("/")}
+        className="absolute top-4 left-4 p-2 rounded-full bg-white/10 hover:bg-white/20 transition backdrop-blur-sm border border-white/10"
+        title="로비로 돌아가기"
+      >
+        <ChevronLeft size={18} className="text-white" />
+      </button> */}
 
       {/* Settings Modal */}
       <AnimatePresence>
