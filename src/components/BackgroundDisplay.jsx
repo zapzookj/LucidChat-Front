@@ -3,22 +3,20 @@ import { useState, useEffect, useRef } from "react";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4] BackgroundDisplay — 동적 배경 전환 엔진
-//
-//  • location + time 조합 → 배경 이미지 매핑
-//  • 듀얼 레이어 크로스페이드 (뚝 끊김 방지)
-//  • 배경 전환 시 부드러운 1.2s 디졸브
+//  [Phase 5] 멀티캐릭터 지원:
+//    • characterSlug prop → 캐릭터 전용 기본 배경
+//    • 스토리 모드 장소 배경은 공유 에셋 (변경 없음)
+//    • 자유(샌드박스) 모드 기본 배경: /backgrounds/characters/{slug}/bg_default.png
 // ═══════════════════════════════════════════════════════════════
 
-// ─── 배경 이미지 매핑 테이블 ───
-// key: "{LOCATION}_{TIME}" → value: 파일명
+// ─── 공유 배경 이미지 매핑 테이블 (스토리 모드 장소) ───
 const BG_MAP = {
-  // 저택 내부 (밤/낮)
   LIVINGROOM_DAY:   "bg_livingroom_day.png",
   LIVINGROOM_NIGHT: "bg_livingroom_night.png",
   BALCONY_DAY:      "bg_balcony_day.png",
   BALCONY_NIGHT:    "bg_balcony_night.png",
   STUDY_DAY:        "bg_study.png",
-  STUDY_NIGHT:      "bg_study.png",         // 서재는 1장
+  STUDY_NIGHT:      "bg_study.png",
   BATHROOM_DAY:     "bg_bathroom_day.png",
   BATHROOM_NIGHT:   "bg_bathroom_night.png",
   GARDEN_DAY:       "bg_garden_day.png",
@@ -29,30 +27,45 @@ const BG_MAP = {
   BEDROOM_NIGHT:    "bg_bedroom_night.png",
   ENTRANCE_DAY:     "bg_entrance_day.png",
   ENTRANCE_NIGHT:   "bg_entrance_night.png",
-
-  // 저택 외부
+  FOREST_DAY:       "bg_forest_day.png",
+  FOREST_NIGHT:     "bg_forest_night.png",
   BEACH_DAY:        "bg_beach_day.png",
   BEACH_NIGHT:      "bg_beach_night.png",
   BEACH_SUNSET:     "bg_beach_sunset.png",
   DOWNTOWN_DAY:     "bg_downtown_day.png",
   DOWNTOWN_NIGHT:   "bg_downtown_night.png",
   BAR_NIGHT:        "bg_bar_night.png",
-  BAR_DAY:          "bg_bar_night.png",     // 바는 1장 (항상 밤 분위기)
+  BAR_DAY:          "bg_bar_night.png",
 };
 
-// 기본 배경 (초기 상태 — 현관 밤)
-const DEFAULT_BG = "bg_entrance_night.png";
+/**
+ * [Phase 5] characterSlug에 따른 기본 배경 이미지 경로
+ * 캐릭터 전용 기본 배경이 있으면 사용, 없으면 공유 배경 폴백
+ */
+function getDefaultBg(characterSlug) {
+  if (characterSlug) {
+    return `/backgrounds/characters/${characterSlug}/bg_default.png`;
+  }
+  return "/backgrounds/bg_entrance_night.png";
+}
 
 /**
  * location + time → 배경 파일명 resolve
+ * [Phase 5] location이 없을 때는 캐릭터별 기본 배경 사용
  */
-function resolveBackground(location, time) {
-  if (!location) return null; // null이면 변경 없음
+function resolveBackground(location, time, characterSlug) {
+  if (!location) return null;
 
-  const t = time || "NIGHT"; // time 미지정 시 NIGHT 기본값
+  const t = time || "NIGHT";
   const key = `${location}_${t}`;
 
-  return BG_MAP[key] || BG_MAP[`${location}_NIGHT`] || BG_MAP[`${location}_DAY`] || DEFAULT_BG;
+  const matched = BG_MAP[key] || BG_MAP[`${location}_NIGHT`] || BG_MAP[`${location}_DAY`];
+  if (matched) {
+    return `/backgrounds/${matched}`;
+  }
+
+  // 매핑에 없는 location → 캐릭터별 기본 배경 폴백
+  return getDefaultBg(characterSlug);
 }
 
 /**
@@ -70,19 +83,30 @@ function getTimeOverlay(time) {
   }
 }
 
-const BackgroundDisplay = ({ location, time }) => {
-  const [currentBg, setCurrentBg] = useState(DEFAULT_BG);
-  const [bgKey, setBgKey] = useState(0); // AnimatePresence key
-  const prevBgRef = useRef(DEFAULT_BG);
+const BackgroundDisplay = ({ location, time, characterSlug }) => {
+  const defaultBg = getDefaultBg(characterSlug);
+  const [currentBg, setCurrentBg] = useState(defaultBg);
+  const [bgKey, setBgKey] = useState(0);
+  const prevBgRef = useRef(defaultBg);
+
+  // [Phase 5] characterSlug 변경 시 기본 배경 갱신
+  useEffect(() => {
+    const newDefault = getDefaultBg(characterSlug);
+    if (!location && newDefault !== prevBgRef.current) {
+      prevBgRef.current = newDefault;
+      setCurrentBg(newDefault);
+      setBgKey(prev => prev + 1);
+    }
+  }, [characterSlug]);
 
   useEffect(() => {
-    const newBg = resolveBackground(location, time);
+    const newBg = resolveBackground(location, time, characterSlug);
     if (newBg && newBg !== prevBgRef.current) {
       prevBgRef.current = newBg;
       setCurrentBg(newBg);
       setBgKey(prev => prev + 1);
     }
-  }, [location, time]);
+  }, [location, time, characterSlug]);
 
   const overlayClass = getTimeOverlay(time);
 
@@ -92,7 +116,7 @@ const BackgroundDisplay = ({ location, time }) => {
       <AnimatePresence mode="sync">
         <motion.img
           key={bgKey}
-          src={`/backgrounds/${currentBg}`}
+          src={currentBg}
           alt="Background"
           className="absolute inset-0 w-full h-full object-cover z-0"
           initial={{ opacity: 0 }}
@@ -101,7 +125,8 @@ const BackgroundDisplay = ({ location, time }) => {
           transition={{ duration: 1.2, ease: "easeInOut" }}
           onError={(e) => {
             console.error(`배경 이미지 로드 실패: ${currentBg}`);
-            e.target.src = `/backgrounds/${DEFAULT_BG}`;
+            // 캐릭터별 기본 배경 실패 시 공유 폴백
+            e.target.src = "/backgrounds/bg_entrance_night.png";
           }}
         />
       </AnimatePresence>
@@ -116,5 +141,5 @@ const BackgroundDisplay = ({ location, time }) => {
   );
 };
 
-export { resolveBackground };
+export { resolveBackground, getDefaultBg };
 export default BackgroundDisplay;

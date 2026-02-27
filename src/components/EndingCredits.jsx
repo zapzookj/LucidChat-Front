@@ -143,11 +143,35 @@ const PHASES = {
   QUOTE: "QUOTE",
   MEMORIES: "MEMORIES",
   STATS: "STATS",
+  ACKNOWLEDGMENTS: "ACKNOWLEDGMENTS", // 추가된 조력자 섹션
   DEVELOPER: "DEVELOPER",
   FIN: "FIN",
 };
 
-const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
+const ACK_DATA = [
+  {
+    name: "강승구",
+    role: "Special Advisor",
+    comment: "비주얼 노벨의 권위자로서 무한한 피드백과 열정적인 베타 테스트, 그리고 든든한 물적 지원까지. 이 프로젝트의 기틀을 잡아준 최고의 조력자입니다."
+  },
+  {
+    name: "권호중",
+    role: "Lead Beta Tester",
+    comment: "언제나 긍정적인 에너지로 확신을 주었으며, '아이리'의 유지비(사료 값)를 기꺼이 분담해 준 든든한 후원자입니다."
+  },
+  {
+    name: "이세웅",
+    role: "Strategic Supporter",
+    comment: "장르를 불문한 진지한 분석과 테스트, 그리고 '언제나 지원할 수 있다'는 믿음직한 말 한마디로 개발자의 자신감을 지켜주었습니다."
+  },
+  {
+    name: "이병현",
+    role: "Visual Assistant",
+    comment: "함께 고뇌하는 작업실 동료로서, 디자인 전공자의 감각을 발휘해 루시드 챗의 시각적 디테일을 완성하는 데 큰 도움을 주었습니다."
+  }
+];
+
+const EndingCredits = ({ endingData, onComplete, onSceneChange, characterName = "아이리" }) => {
   const [phase, setPhase] = useState(PHASES.FADE_IN);
   const [epilogueIndex, setEpilogueIndex] = useState(0);
   const [epilogueTypeDone, setEpilogueTypeDone] = useState(false);
@@ -421,7 +445,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
                 {/* 캐릭터 이름 */}
                 <div className={`text-xs tracking-[0.2em] mb-2 sm:mb-3 ${subtitleColor}`}
                      style={{ fontFamily: "'Noto Sans KR', sans-serif" }}>
-                  아이리
+                  {characterName}
                 </div>
                 {/* [Fix #13] 대사 (확대: text-base sm:text-lg, minHeight 4.5rem) */}
                 <div className={`text-base sm:text-lg leading-relaxed sm:leading-loose ${textColor}`}
@@ -541,7 +565,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
               </span>
               <p className={`text-sm mt-6 ${subtitleColor}`}
                  style={{ fontFamily: "'Noto Sans KR', sans-serif" }}>
-                — 아이리
+                — {characterName}
               </p>
             </motion.div>
           </motion.div>
@@ -658,6 +682,63 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
           </motion.div>
         )}
 
+        {/* ═══ Phase 7: Acknowledgments ═══ */}
+        {phase === PHASES.ACKNOWLEDGMENTS && (
+        <motion.div
+            key="ack"
+            className="absolute inset-0 flex flex-col items-center pt-12 px-6 overflow-y-auto"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={revealTransition(1.2)}
+        >
+            <motion.div
+            className="text-center mb-8"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            >
+            <Star className="w-5 h-5 mx-auto mb-2" style={{ color: accentColor }} />
+            <h2 className={`text-lg tracking-[0.2em] font-bold ${textColor}`}
+                style={{ fontFamily: "'Noto Serif KR', serif" }}>
+                SPECIAL THANKS
+            </h2>
+            <p className={`text-[10px] mt-1 opacity-50 ${subtitleColor}`}>함께 이야기를 만들어준 고마운 사람들</p>
+            </motion.div>
+
+            <div className="w-full max-w-lg space-y-4 pb-32">
+            {ACK_DATA.map((person, idx) => (
+                <motion.div
+                key={idx}
+                className="rounded-xl p-5 border backdrop-blur-md"
+                style={{
+                    background: `linear-gradient(145deg, ${themeColor}, rgba(0,0,0,0.4))`,
+                    borderColor: `${accentColor}15`,
+                }}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={revealTransition(0.8, 0.3 + idx * 0.2)}
+                >
+                <div className="flex items-baseline gap-2 mb-2">
+                    <h4 className={`text-base font-bold ${textColor}`} style={{ fontFamily: "'Noto Sans KR', sans-serif" }}>
+                    {person.name}
+                    </h4>
+                    <span className={`text-[10px] uppercase tracking-widest ${subtitleColor}`}>
+                    [{person.role}]
+                    </span>
+                </div>
+                <p className={`text-sm leading-relaxed opacity-90 ${subtitleColor}`}
+                    style={{ fontFamily: "'Noto Sans KR', sans-serif", wordBreak: "keep-all" }}>
+                    {person.comment}
+                </p>
+                </motion.div>
+            ))}
+            </div>
+            
+            {/* 하단 페이드 효과 (스크롤 대비) */}
+            <div className="fixed bottom-0 left-0 right-0 h-32 pointer-events-none bg-gradient-to-t from-[#0a0a0f] to-transparent" />
+        </motion.div>
+        )}
+
         {/* ═══ Phase 7: Developer Comment ═══ */}
         {phase === PHASES.DEVELOPER && (
           <motion.div
@@ -682,8 +763,8 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange }) => {
               <p className={`text-sm leading-relaxed ${subtitleColor}`}
                  style={{ fontFamily: "'Noto Sans KR', sans-serif", lineHeight: "1.8" }}>
                 {isHappy
-                  ? "당신의 선택 하나하나가 이 이야기를 완성했습니다. 아이리와 함께한 이 여정이 당신에게도 특별한 기억으로 남기를."
-                  : "모든 이별에는 의미가 있습니다. 이 결말도 당신만의 이야기입니다. 다시 문을 열 용기가 생긴다면, 아이리는 언제나 그 자리에 있을 거예요."
+                  ? `당신의 선택 하나하나가 이 이야기를 완성했습니다. ${characterName}와(과) 함께한 이 여정이 당신에게도 특별한 기억으로 남기를.`
+                  : `모든 이별에는 의미가 있습니다. 이 결말도 당신만의 이야기입니다. 다시 문을 열 용기가 생긴다면, ${characterName}은(는) 언제나 그 자리에 있을 거예요.`
                 }
               </p>
               <p className={`text-xs mt-4 ${subtitleColor} opacity-60`}

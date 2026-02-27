@@ -34,9 +34,10 @@ const ChatPage = () => {
   const [displayedEmotion, setDisplayedEmotion] = useState("NEUTRAL");
   
   // [Phase 4] 씬 디렉션 상태
-  const [currentLocation, setCurrentLocation] = useState("ENTRANCE");
+  // [Phase 5] 초기값은 roomInfo 로드 후 캐릭터별 기본값으로 세팅
+  const [currentLocation, setCurrentLocation] = useState(null);
   const [currentTime, setCurrentTime] = useState("NIGHT");
-  const [currentOutfit, setCurrentOutfit] = useState("MAID");
+  const [currentOutfit, setCurrentOutfit] = useState(null);
   const [currentBgmMode, setCurrentBgmMode] = useState(null);
   
   // [상태 정보]
@@ -110,6 +111,7 @@ const ChatPage = () => {
   // [Phase 4.4] 투명인간 이스터에그 — 10분 방치 감지
   useInvisibleMan({
     enabled: !isTyping && !showEndingCredits && introStep === 'none' && !easterEggEffect,
+    characterName: roomInfo?.characterName,
     onTrigger: (data) => {
       // 1. 시각 효과 시작
       setEasterEggEffect("INVISIBLE_MAN");
@@ -139,7 +141,8 @@ const ChatPage = () => {
   // (캐릭터 이미지 + 배경 + BGM + 앰비언스 + SFX)
   const { preloadEndingAssets } = useResourcePreloader(
     roomInfo?.statusLevel,
-    userInfo.isSecretMode
+    userInfo.isSecretMode,
+    roomInfo?.characterSlug
   );
 
   // ================= BGM Logic (Phase 4: AudioEngine handles playback) =================
@@ -318,17 +321,18 @@ const ChatPage = () => {
         }
 
         // [Phase 4.1] 씬 상태 복원 (재접속 시 서버에서 마지막 상태 로드)
+        // [Phase 5] 캐릭터별 기본값 사용 — roomInfo.defaultLocation/defaultOutfit 폴백
         // Note: bgmMode는 여기서 복원하지 않음 — auto-start effect에서 isBgmPlaying과 동시에 세팅해야
         // 브라우저 Autoplay Policy 문제를 방지할 수 있음
-        if (roomRes.data.currentLocation) setCurrentLocation(roomRes.data.currentLocation);
-        if (roomRes.data.currentOutfit) setCurrentOutfit(roomRes.data.currentOutfit);
+        setCurrentLocation(roomRes.data.currentLocation || roomRes.data.defaultLocation || "ENTRANCE");
+        setCurrentOutfit(roomRes.data.currentOutfit || roomRes.data.defaultOutfit || "MAID");
         if (roomRes.data.currentTimeOfDay) setCurrentTime(roomRes.data.currentTimeOfDay);
 
         const logs = logsRes.data?.content || [];
 
         if (logs.length === 0) {
             // [Case A] 신규 유저 -> 인트로 시퀀스 시작
-            await startIntroSequence(roomId);
+            await startIntroSequence(roomId, roomRes.data);
         } else {
             // [Case B] 기존 유저 -> 마지막 상태 복원
             const sortedLogs = logs.reverse();
@@ -357,7 +361,7 @@ const ChatPage = () => {
     init();
   }, [roomId]);
 
-  const startIntroSequence = async (roomId) => {
+  const startIntroSequence = async (roomId, roomData) => {
       setIntroStep('door'); // 1. 영상 재생 시작
       
       try {
@@ -390,12 +394,18 @@ const ChatPage = () => {
             });
           }
           
-          // (2) 첫인사 씬
+          // (2) 첫인사 씬 — [Phase 5] roomData에서 직접 캐릭터 이름 참조 (stale closure 방지)
           const greetingLog = newLogs.find(l => l.role === 'ASSISTANT');
           if (greetingLog) {
+              const charName = roomData?.characterName || "캐릭터";
+
+              const narrationMap = {
+                  "연화": "연화가 흥미롭다는 눈빛으로 당신을 바라봅니다.",
+                  "아이리": "아이리가 숙여 인사하며 부드럽게 미소짓는다."
+              };
               queue.push({
                   dialogue: greetingLog.cleanContent,
-                  narration: "메이드 아이리가 고개를 숙여 인사하며 부드럽게 미소짓는다.",
+                  narration: narrationMap[charName] || `${charName}가 고개를 숙여 인사하며 부드럽게 미소짓는다.`,
                   emotion: greetingLog.emotionTag,
                   isEvent: false,
                   sceneType: "NORMAL"
@@ -703,7 +713,13 @@ const ChatPage = () => {
 
     } catch (err) {
       console.error(err);
-      setCurrentScene({ dialogue: `잠시만요.. ${roomInfo?.characterName || '그녀'}가 잠깐 바쁜 일이 있어서...`, emotion: "SAD", narration: "잠시 후 다시 시도해주세요." });
+      const narrationMap = {
+                  "연화": "음.. 잠깐 생각에 잠겨버렸구나.. 뭐라고 했느냐?",
+                  "아이리": "잠시만요.. 아이리가 잠깐 바쁜 일이 있어서..."
+              };
+      setCurrentScene({ 
+        dialogue: narrationMap[roomInfo?.characterName] || "잠시 후 다시 시도해주세요.", emotion: "SAD", narration: "잠시 후 다시 시도해주세요." 
+      });
       setDisplayedEmotion("SAD");
     } finally {
       setIsTyping(false);
@@ -846,7 +862,7 @@ const ChatPage = () => {
                 closeConfirm();
                 
                 // 초기화 후 인트로 다시 시작
-                startIntroSequence(roomId);
+                startIntroSequence(roomId, roomInfo);
 
             } catch (err) {
                 showToast("오류가 발생했습니다.", "error");
@@ -874,7 +890,7 @@ const ChatPage = () => {
     <div className="relative w-full h-screen font-sans overflow-hidden bg-gray-900">
       
       {/* [Phase 4] Dynamic Background */}
-      <BackgroundDisplay location={currentLocation} time={currentTime} />
+      <BackgroundDisplay location={currentLocation} time={currentTime} characterSlug={roomInfo?.characterSlug} />
 
       {/* [Phase 4] Audio Engine (BGM + Ambience + SFX) */}
       <AudioEngine 
@@ -883,6 +899,7 @@ const ChatPage = () => {
         time={currentTime}
         masterVolume={bgmVolume}
         isMuted={!isBgmPlaying}
+        characterSlug={roomInfo?.characterSlug}
       />
 
       {/* ================= Intro Cinematic Overlay ================= */}
@@ -898,9 +915,21 @@ const ChatPage = () => {
                       autoPlay playsInline 
                       onEnded={handleIntroVideoEnd} 
                       onClick={handleIntroVideoEnd}
+                      onError={(e) => {
+                        // [Phase 5] 캐릭터별 비디오 404 → 레거시 경로 폴백 → 그래도 실패 시 스킵
+                        const legacy = "/videos/intro_door.mp4";
+                        if (!e.target.src.endsWith(legacy)) {
+                          console.warn("🎬 [Intro] Character video not found, trying legacy path");
+                          e.target.src = legacy;
+                        } else {
+                          console.warn("🎬 [Intro] Legacy video also missing, skipping intro");
+                          handleIntroVideoEnd();
+                        }
+                      }}
                       className="w-full h-full object-cover"
                   >
-                      <source src="/videos/intro_door.mp4" type="video/mp4" />
+                      {/* [Phase 5] 캐릭터별 인트로 비디오: /videos/characters/{slug}/intro.mp4 */}
+                      <source src={`/videos/characters/${roomInfo?.characterSlug || "airi"}/intro.mp4`} type="video/mp4" />
                   </video>
                   <div className="absolute bottom-10 w-full text-center animate-pulse">
                       <span className="text-white/30 text-xs tracking-widest cursor-pointer">CLICK TO SKIP</span>
@@ -910,7 +939,7 @@ const ChatPage = () => {
       </AnimatePresence>
 
 
-      <CharacterDisplay emotion={displayedEmotion} outfit={currentOutfit} />
+      <CharacterDisplay emotion={displayedEmotion} outfit={currentOutfit} characterSlug={roomInfo?.characterSlug} defaultOutfit={roomInfo?.defaultOutfit} />
 
       {/* ━━━ [Phase 5] Promotion IN_PROGRESS Banner ━━━ */}
       <AnimatePresence>
@@ -1225,7 +1254,7 @@ const ChatPage = () => {
                 transition={{ delay: 1.0 }}
                 className="text-gray-400 text-sm mb-8"
               >
-                아이리와의 관계가 깊어졌습니다
+                {roomInfo?.characterName || "캐릭터"}와의 관계가 깊어졌습니다
               </motion.p>
 
               {/* 해금 카드 */}
@@ -1739,6 +1768,7 @@ const ChatPage = () => {
             endingData={endingData}
             onComplete={handleEndingComplete}
             onSceneChange={handleEndingSceneChange}
+            characterName={roomInfo?.characterName}
           />
         )}
       </AnimatePresence>

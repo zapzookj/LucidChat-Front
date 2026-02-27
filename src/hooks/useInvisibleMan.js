@@ -19,11 +19,18 @@ const IDLE_THRESHOLD_MS = 10 * 60 * 1000; // 10분
 /**
  * @param {Object} options
  * @param {boolean} options.enabled - 감지 활성화 여부
+ * @param {string} options.characterName - 캐릭터 이름 (동적 나레이션용)
  * @param {function} options.onTrigger - 트리거 시 콜백 (achievement 정보 전달)
  */
-export default function useInvisibleMan({ enabled = true, onTrigger }) {
+export default function useInvisibleMan({ enabled = true, characterName = "캐릭터", onTrigger }) {
   const timerRef = useRef(null);
   const triggeredRef = useRef(false);
+  const characterNameRef = useRef(characterName);
+
+  // characterName 변경 시 ref 동기화
+  useEffect(() => {
+    characterNameRef.current = characterName;
+  }, [characterName]);
 
   const resetTimer = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -33,6 +40,7 @@ export default function useInvisibleMan({ enabled = true, onTrigger }) {
       if (triggeredRef.current) return;
       triggeredRef.current = true;
 
+      const name = characterNameRef.current;
       console.log("👁️ [INVISIBLE_MAN] 10분 방치 감지 — 이스터에그 트리거");
 
       try {
@@ -44,9 +52,9 @@ export default function useInvisibleMan({ enabled = true, onTrigger }) {
           onTrigger?.({
             trigger: "INVISIBLE_MAN",
             achievement: res.data,
-            // 투명인간용 고정 대사 (서버 응답 없이 프론트에서 직접 표시)
+            // [Phase 5] 캐릭터 이름 동적 참조
             scene: {
-              narration: "아이리가 가까이 조용히 다가온다. 그녀의 눈동자가 당신을 빤히 올려다본다.",
+              narration: `${name}가 가까이 조용히 다가온다. 그 눈동자가 당신을 빤히 올려다본다.`,
               dialogue: "...주무시나..? 속눈썹 되게 기네..",
               emotion: "RELAX",
             },
@@ -59,7 +67,7 @@ export default function useInvisibleMan({ enabled = true, onTrigger }) {
           trigger: "INVISIBLE_MAN",
           achievement: null,
           scene: {
-            narration: "아이리가 화면 가까이 조용히 다가온다. 그녀의 눈동자가 당신을 빤히 올려다본다.",
+            narration: `${name}가 화면 가까이 조용히 다가온다. 그 눈동자가 당신을 빤히 올려다본다.`,
             dialogue: "...주무시나..? 속눈썹 되게 기네..",
             emotion: "RELAX",
           },

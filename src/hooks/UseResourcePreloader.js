@@ -2,19 +2,12 @@ import { useEffect, useRef, useCallback } from "react";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4 Fix #15] useResourcePreloader — 단계적 리소스 프리로딩
-//
-//  관계 레벨(STRANGER → ACQUAINTANCE → FRIEND → LOVER)에 따라
-//  해금된 리소스만 점진적으로 프리로딩.
-//  Secret Mode일 경우 모든 티어를 한 번에 로딩.
-//
-//  리소스 경로는 BackgroundDisplay.jsx, AudioEngine.jsx,
-//  CharacterDisplay.jsx, RelationStatusPolicy.java와 정확히 일치.
-//
-//  사용법 (ChatPage.jsx):
-//    const { preloadEndingAssets } = useResourcePreloader(
-//      roomInfo?.statusLevel,
-//      userInfo.isSecretMode
-//    );
+//  [Phase 5] 멀티캐릭터 지원:
+//    • characterSlug param → 캐릭터별 이미지/BGM 경로
+//    • /characters/{slug}/{outfit}_{emotion}.png
+//    • /sounds/characters/{slug}/bgm_daily.mp3
+//    • /backgrounds/characters/{slug}/bg_default.png
+//    • 공유 에셋 경로는 변경 없음
 // ═══════════════════════════════════════════════════════════════
 
 const ALL_EMOTIONS = [
@@ -23,12 +16,9 @@ const ALL_EMOTIONS = [
 ];
 
 // ── 관계 레벨별 해금 리소스 매핑 ──
-// RelationStatusPolicy.java의 getAllowedLocations/getAllowedOutfits 기준
 const RESOURCE_TIERS = {
-  // ─── STRANGER: 저택 내부 8곳 + MAID 복장 + 코어 BGM/앰비언스 ───
   STRANGER: {
     outfits: ["maid"],
-    // BackgroundDisplay.jsx BG_MAP 기준 — 저택 내부 전체
     backgrounds: [
       "/backgrounds/bg_entrance_day.png",
       "/backgrounds/bg_entrance_night.png",
@@ -36,7 +26,7 @@ const RESOURCE_TIERS = {
       "/backgrounds/bg_livingroom_night.png",
       "/backgrounds/bg_balcony_day.png",
       "/backgrounds/bg_balcony_night.png",
-      "/backgrounds/bg_study.png",              // 서재는 1장 (day/night 공용)
+      "/backgrounds/bg_study.png",
       "/backgrounds/bg_bathroom_day.png",
       "/backgrounds/bg_bathroom_night.png",
       "/backgrounds/bg_garden_day.png",
@@ -46,29 +36,25 @@ const RESOURCE_TIERS = {
       "/backgrounds/bg_bedroom_day.png",
       "/backgrounds/bg_bedroom_night.png",
     ],
-    // AudioEngine.jsx BGM_MAP 기준 — 초반 자주 사용되는 BGM
     bgm: [
-      "/sounds/bgm_daily.mp3",
+      // [Phase 5] DAILY BGM은 캐릭터별로 별도 로딩 (아래 preloadTier 참조)
       "/sounds/bgm_romantic.mp3",
       "/sounds/bgm_touching.mp3",
       "/sounds/bgm_tense.mp3",
       "/sounds/bgm_lobby.mp3",
     ],
-    // AudioEngine.jsx AMBIENCE_MAP 기준 — 저택 내부 장소
     ambience: [
-      "/sounds/amb_birds.mp3",       // GARDEN_DAY, BALCONY_DAY
-      "/sounds/amb_crickets.mp3",    // GARDEN_NIGHT, BALCONY_NIGHT
-      "/sounds/amb_owl.mp3",         // GARDEN_NIGHT, BALCONY_NIGHT
-      "/sounds/amb_kitchen.mp3",     // KITCHEN
-      "/sounds/amb_bathroom.mp3",    // BATHROOM
+      "/sounds/amb_birds.mp3",
+      "/sounds/amb_crickets.mp3",
+      "/sounds/amb_owl.mp3",
+      "/sounds/amb_kitchen.mp3",
+      "/sounds/amb_bathroom.mp3",
     ],
-    // AudioEngine.jsx SFX_MAP 기준
     sfx: [
-      "/sounds/sfx_door_open.mp3",   // 대부분의 실내 전환
+      "/sounds/sfx_door_open.mp3",
     ],
   },
 
-  // ─── ACQUAINTANCE: DOWNTOWN + DATE/PAJAMA 복장 ───
   ACQUAINTANCE: {
     outfits: ["date", "pajama"],
     backgrounds: [
@@ -79,12 +65,11 @@ const RESOURCE_TIERS = {
       "/sounds/bgm_exciting.mp3",
     ],
     ambience: [
-      "/sounds/amb_street.mp3",     // DOWNTOWN
+      "/sounds/amb_street.mp3",
     ],
     sfx: [],
   },
 
-  // ─── FRIEND: BEACH + SWIMWEAR 복장 ───
   FRIEND: {
     outfits: ["swimwear"],
     backgrounds: [
@@ -94,14 +79,13 @@ const RESOURCE_TIERS = {
     ],
     bgm: [],
     ambience: [
-      "/sounds/amb_beach.mp3",      // BEACH
+      "/sounds/amb_beach.mp3",
     ],
     sfx: [
-      "/sounds/sfx_seagull.mp3",    // BEACH 전환 시
+      "/sounds/sfx_seagull.mp3",
     ],
   },
 
-  // ─── LOVER: BAR + NEGLIGEE 복장 + EROTIC BGM ───
   LOVER: {
     outfits: ["negligee"],
     backgrounds: [
@@ -111,19 +95,17 @@ const RESOURCE_TIERS = {
       "/sounds/bgm_erotic.mp3",
     ],
     ambience: [
-      "/sounds/amb_bar.mp3",        // BAR
+      "/sounds/amb_bar.mp3",
     ],
     sfx: [],
   },
 };
 
-// 관계 레벨 순서 (누적 로딩)
 const RELATION_ORDER = ["STRANGER", "ACQUAINTANCE", "FRIEND", "LOVER"];
 
 
 // ── 프리로딩 유틸 ──
 
-/** 이미지 프리로딩 — new Image()로 브라우저 캐시에 적재 */
 function preloadImage(src) {
   return new Promise((resolve) => {
     const img = new Image();
@@ -133,13 +115,12 @@ function preloadImage(src) {
   });
 }
 
-/** 오디오 프리로딩 — preload="auto"로 전체 파일 캐싱 */
 function preloadAudio(src) {
   return new Promise((resolve) => {
     const audio = new Audio();
     audio.preload = "auto";
     audio.oncanplaythrough = () => {
-      audio.src = "";   // 메모리 해제 (캐시는 유지됨)
+      audio.src = "";
       resolve(true);
     };
     audio.onerror = () => resolve(false);
@@ -147,10 +128,6 @@ function preloadAudio(src) {
   });
 }
 
-/**
- * 배치 프리로딩 — concurrency 제한으로 네트워크 과부하 방지
- * 이미지 4개, 오디오 2개씩 동시 로딩
- */
 async function preloadBatch(items, loader, concurrency = 3) {
   const queue = [...items];
   let loaded = 0;
@@ -175,59 +152,79 @@ async function preloadBatch(items, loader, concurrency = 3) {
 
 // ═══════════════════════════════════════════════════════════════
 //  Hook
+//  [Phase 5] characterSlug 파라미터 추가
 // ═══════════════════════════════════════════════════════════════
 
 /**
- * @param {string} statusLevel - 현재 관계 레벨 ("STRANGER" | "ACQUAINTANCE" | "FRIEND" | "LOVER")
- * @param {boolean} isSecretMode - 시크릿 모드 (전체 리소스 즉시 해금)
+ * @param {string} statusLevel - 현재 관계 레벨
+ * @param {boolean} isSecretMode - 시크릿 모드
+ * @param {string} characterSlug - 캐릭터 slug (에셋 경로 prefix)
  * @returns {{ preloadEndingAssets: () => void }}
  */
-export default function useResourcePreloader(statusLevel, isSecretMode = false) {
+export default function useResourcePreloader(statusLevel, isSecretMode = false, characterSlug = "airi") {
   const loadedTiersRef = useRef(new Set());
+  const slugRef = useRef(characterSlug);
+
+  // slug 변경 시 ref 갱신 + 기존 캐시 무효화
+  useEffect(() => {
+    if (slugRef.current !== characterSlug) {
+      slugRef.current = characterSlug;
+      loadedTiersRef.current.clear(); // 캐릭터 변경 시 리프리로딩
+    }
+  }, [characterSlug]);
 
   const preloadTier = useCallback(async (tierName) => {
-    if (loadedTiersRef.current.has(tierName)) return;
-    loadedTiersRef.current.add(tierName);
+    const cacheKey = `${slugRef.current}_${tierName}`;
+    if (loadedTiersRef.current.has(cacheKey)) return;
+    loadedTiersRef.current.add(cacheKey);
 
     const tier = RESOURCE_TIERS[tierName];
     if (!tier) return;
 
     const startTime = performance.now();
+    const slug = slugRef.current;
 
-    // 1) 캐릭터 이미지 (복장 × 12감정) — 우선 로딩
+    // 1) 캐릭터 이미지 (복장 × 12감정) — slug 기반 경로
     const charImages = tier.outfits.flatMap((outfit) =>
-      ALL_EMOTIONS.map((emo) => `/characters/${outfit}_${emo}.png`)
+      ALL_EMOTIONS.map((emo) => `/characters/${slug}/${outfit}_${emo}.png`)
     );
     await preloadBatch(charImages, preloadImage, 4);
 
-    // 2) 배경 이미지
+    // 2) 캐릭터 전용 기본 배경 (STRANGER 티어에서 1회)
+    if (tierName === "STRANGER") {
+      const charBg = `/backgrounds/characters/${slug}/bg_default.png`;
+      await preloadImage(charBg);
+    }
+
+    // 3) 공유 배경 이미지
     await preloadBatch(tier.backgrounds, preloadImage, 3);
 
-    // 3) 오디오 (BGM → 앰비언스 → SFX)
+    // 4) 오디오 (캐릭터별 DAILY BGM + 공유 BGM + 앰비언스 + SFX)
     const allAudio = [...tier.bgm, ...tier.ambience, ...tier.sfx];
+    if (tierName === "STRANGER") {
+      // 캐릭터 전용 DAILY BGM
+      allAudio.unshift(`/sounds/characters/${slug}/bgm_daily.mp3`);
+    }
     await preloadBatch(allAudio, preloadAudio, 2);
 
     const elapsed = Math.round(performance.now() - startTime);
-    const total = charImages.length + tier.backgrounds.length + allAudio.length;
+    const total = charImages.length + tier.backgrounds.length + allAudio.length + (tierName === "STRANGER" ? 1 : 0);
     console.log(
-      `🎨 [Preloader] Tier ${tierName}: ${total} assets loaded in ${elapsed}ms`
+      `🎨 [Preloader] ${slug}/${tierName}: ${total} assets loaded in ${elapsed}ms`
     );
   }, []);
 
-  // ── 관계 레벨 변경 시 해당 티어까지 누적 로딩 ──
   useEffect(() => {
     if (!statusLevel) return;
 
     const loadTiers = async () => {
       if (isSecretMode) {
-        // 시크릿 모드: 모든 티어 순차 로딩
         for (const tier of RELATION_ORDER) {
           await preloadTier(tier);
         }
         return;
       }
 
-      // 일반 모드: 현재 관계 레벨까지 누적 로딩
       const currentIdx = RELATION_ORDER.indexOf(statusLevel);
       const targetIdx = currentIdx >= 0 ? currentIdx : 0;
 
@@ -236,18 +233,17 @@ export default function useResourcePreloader(statusLevel, isSecretMode = false) 
       }
     };
 
-    // requestIdleCallback으로 초기 렌더링 차단 방지
     if (typeof requestIdleCallback !== "undefined") {
       requestIdleCallback(() => loadTiers(), { timeout: 3000 });
     } else {
       setTimeout(loadTiers, 500);
     }
-  }, [statusLevel, isSecretMode, preloadTier]);
+  }, [statusLevel, isSecretMode, characterSlug, preloadTier]);
 
-  // ── 엔딩 리소스 선제 로딩 (호감도 높을 때 호출) ──
   const preloadEndingAssets = useCallback(() => {
-    if (loadedTiersRef.current.has("_ENDING")) return;
-    loadedTiersRef.current.add("_ENDING");
+    const cacheKey = `${slugRef.current}_ENDING`;
+    if (loadedTiersRef.current.has(cacheKey)) return;
+    loadedTiersRef.current.add(cacheKey);
 
     console.log("🎨 [Preloader] Pre-loading ending BGM assets");
     preloadAudio("/sounds/bgm_ending_happy.mp3");

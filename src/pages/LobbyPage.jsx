@@ -53,8 +53,9 @@ const isNightTime = () => { const h = new Date().getHours(); return h >= 19 || h
 
 // ── [Fix #3] 캐릭터 카드 — 호버 효과 개선 ──
 const CharacterCard = ({ character, isActive, onClick, onHover }) => {
-  // [Fix #1] 기본 이미지 fallback
-  const imgSrc = character.thumbnailUrl || character.defaultImageUrl || "/characters/maid_neutral.png";
+  // [Phase 5] slug 기반 이미지 fallback
+  const slug = character.slug || "airi";
+  const imgSrc = character.thumbnailUrl || character.defaultImageUrl || `/characters/${slug}/maid_neutral.png`;
 
   return (
     <motion.div
@@ -123,7 +124,8 @@ const CharacterCard = ({ character, isActive, onClick, onHover }) => {
 
 // ── 모드 선택 오버레이 ──
 const ModeSelectOverlay = ({ character, onSelect, onClose }) => {
-  const imgSrc = character.thumbnailUrl || character.defaultImageUrl || "/characters/maid_neutral.png";
+  const slug = character.slug || "airi";
+  const imgSrc = character.thumbnailUrl || character.defaultImageUrl || `/characters/${slug}/maid_neutral.png`;
 
   return (
     <motion.div
@@ -483,7 +485,7 @@ const LobbyPage = () => {
   const displayNickname = userInfo?.nickname ?? user?.nickname ?? "";
 
   // [Fix #8] 시간대별 배경 이미지
-  const lobbyBg = isNightTime() ? "/backgrounds/bg_lobby_night.jpg" : "/backgrounds/bg_lobby_day.jpg";
+  const lobbyBg = isNightTime() ? "/backgrounds/bg_lobby_night.png" : "/backgrounds/bg_lobby_day.png";
 
   return (
     <div className="relative w-full h-full overflow-hidden select-none">

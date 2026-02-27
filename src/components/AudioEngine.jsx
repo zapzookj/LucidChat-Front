@@ -3,36 +3,38 @@ import { useEffect, useRef, useCallback } from "react";
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4] AudioEngine — 동적 청각 엔진
 //  [Phase 4.1] BGM 관성 시스템 — 쿨다운 방어선 추가
-//  [Phase 4.3] 엔딩 BGM 추가 + 쿨다운 바이패스 (#6)
-//
-//  3-Layer Audio System:
-//    L1. BGM       — 감정 테마별 루프 (크로스페이드 + 60초 쿨다운)
-//    L2. Ambience  — 장소별 환경음 루프 (페이드 전환)
-//    L3. SFX       — 장소 전환 시 1회 효과음
-//
-//  Props:
-//    bgmMode     — BGM 모드 string | null
-//    location    — Location enum string | null (null이면 앰비언스 페이드아웃)
-//    time        — "DAY" | "NIGHT" | "SUNSET" | null
-//    masterVolume — 0~1 (설정에서 조절)
-//    isMuted      — boolean (BGM 토글)
+//  [Phase 4.3] 엔딩 BGM 추가 + 쿨다운 바이패스
+//  [Phase 5]   멀티캐릭터 지원:
+//    • characterSlug prop → 캐릭터 전용 DAILY BGM
+//    • /sounds/characters/{slug}/bgm_daily.mp3
+//    • 나머지 BGM/Ambience/SFX는 공유 에셋 (변경 없음)
 // ═══════════════════════════════════════════════════════════════
 
-// ─── BGM 매핑 (7 + 2 엔딩) ───
-const BGM_MAP = {
+// ─── 공유 BGM 매핑 ───
+const SHARED_BGM = {
   LOBBY:        "/sounds/bgm_lobby.mp3",
-  DAILY:        "/sounds/bgm_daily.mp3",
   ROMANTIC:     "/sounds/bgm_romantic.mp3",
   EXCITING:     "/sounds/bgm_exciting.mp3",
   TOUCHING:     "/sounds/bgm_touching.mp3",
   TENSE:        "/sounds/bgm_tense.mp3",
   EROTIC:       "/sounds/bgm_erotic.mp3",
-  // [Phase 4.3] 엔딩 전용 BGM
   ENDING_HAPPY: "/sounds/bgm_ending_happy.mp3",
   ENDING_BAD:   "/sounds/bgm_ending_bad.mp3",
 };
 
-// ─── Ambience 매핑 (location + time → ambience 배열) ───
+/**
+ * [Phase 5] bgmMode + characterSlug → BGM 파일 경로
+ * DAILY만 캐릭터별, 나머지는 공유
+ */
+function resolveBgmSrc(bgmMode, characterSlug) {
+  if (bgmMode === "DAILY") {
+    const slug = characterSlug || "airi";
+    return `/sounds/characters/${slug}/bgm_daily.mp3`;
+  }
+  return SHARED_BGM[bgmMode] || null;
+}
+
+// ─── Ambience 매핑 (변경 없음) ───
 const AMBIENCE_MAP = {
   BEACH:      ["/sounds/amb_beach.mp3"],
   KITCHEN:    ["/sounds/amb_kitchen.mp3"],
@@ -46,7 +48,7 @@ const AMBIENCE_MAP = {
   BALCONY_NIGHT:  ["/sounds/amb_crickets.mp3", "/sounds/amb_owl.mp3"],
 };
 
-// ─── SFX 매핑 (장소 전환 시 1회 재생) ───
+// ─── SFX 매핑 (변경 없음) ───
 const SFX_MAP = {
   BAR:       "/sounds/sfx_door_open.mp3",
   BEDROOM:   "/sounds/sfx_door_open.mp3",
@@ -63,13 +65,8 @@ const BGM_VOLUME_RATIO = 0.45;
 const AMBIENCE_VOLUME_RATIO = 0.25;
 const SFX_VOLUME_RATIO = 0.6;
 const FADE_DURATION = 1500;
+const BGM_COOLDOWN_MS = 60_000;
 
-// [Phase 4.1] BGM 쿨다운 — LLM이 프롬프트를 무시해도 프론트에서 방어
-const BGM_COOLDOWN_MS = 60_000; // 60초 이내 BGM 재전환 차단
-
-/**
- * Audio를 부드럽게 페이드 아웃 후 정지
- */
 function fadeOut(audio, duration = FADE_DURATION) {
   if (!audio || audio.paused) return Promise.resolve();
 
@@ -93,9 +90,6 @@ function fadeOut(audio, duration = FADE_DURATION) {
   });
 }
 
-/**
- * Audio를 부드럽게 페이드 인
- */
 function fadeIn(audio, targetVolume, duration = FADE_DURATION) {
   if (!audio) return;
 
@@ -117,7 +111,7 @@ function fadeIn(audio, targetVolume, duration = FADE_DURATION) {
 }
 
 
-const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = false }) => {
+const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = false, characterSlug }) => {
   // ── Refs ──
   const bgmRef = useRef(null);
   const bgmModeRef = useRef(null);
@@ -126,15 +120,18 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
   const prevLocationRef = useRef(null);
   const masterRef = useRef(masterVolume);
   const mutedRef = useRef(isMuted);
-
-  // [Phase 4.1] BGM 쿨다운 ref
   const bgmLastChangedRef = useRef(0);
+  const characterSlugRef = useRef(characterSlug);
 
-  // masterVolume / isMuted 동기화 + [Phase 4.1] Autoplay Policy 복구
+  // [Phase 5] characterSlug 변경 시 ref 동기화
+  useEffect(() => {
+    characterSlugRef.current = characterSlug;
+  }, [characterSlug]);
+
+  // masterVolume / isMuted 동기화
   useEffect(() => {
     masterRef.current = masterVolume;
 
-    // BGM: 볼륨 세팅 + unmute 시 paused 상태면 재생 재시도
     if (bgmRef.current) {
       const vol = isMuted ? 0 : masterVolume * BGM_VOLUME_RATIO;
       bgmRef.current.volume = vol;
@@ -143,7 +140,6 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
       }
     }
 
-    // Ambience 볼륨 동기화
     ambienceRefs.current.forEach(a => {
       if (a) {
         a.volume = isMuted ? 0 : masterVolume * AMBIENCE_VOLUME_RATIO;
@@ -151,7 +147,6 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
     });
   }, [masterVolume, isMuted]);
 
-  // isMuted 변경 시 즉시 볼륨 적용
   useEffect(() => {
     mutedRef.current = isMuted;
     if (bgmRef.current) {
@@ -164,7 +159,7 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
     });
   }, [isMuted]);
 
-  // [Phase 4.1] Autoplay Policy 복구 — 첫 유저 인터랙션 시 재생 재시도
+  // Autoplay Policy 복구
   useEffect(() => {
     const resumeAudio = () => {
       if (bgmRef.current && bgmRef.current.paused && !mutedRef.current) {
@@ -189,17 +184,15 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
   }, []);
 
   // ── L1: BGM 전환 (쿨다운 방어선 포함) ──
+  // [Phase 5] characterSlug를 resolveBgmSrc에 전달
   useEffect(() => {
     if (!bgmMode || bgmMode === bgmModeRef.current) return;
 
-    const newSrc = BGM_MAP[bgmMode];
+    const newSrc = resolveBgmSrc(bgmMode, characterSlugRef.current);
     if (!newSrc) return;
 
-    // [Phase 4.3] 엔딩 BGM은 쿨다운 무시
     const isEndingBgm = bgmMode.startsWith("ENDING_");
 
-    // [Phase 4.1] 쿨다운 체크 — 60초 이내 재전환 차단
-    // 단, 최초 재생(bgmModeRef.current === null)과 엔딩 BGM은 쿨다운 무시
     const now = Date.now();
     if (bgmModeRef.current !== null && !isEndingBgm) {
       const elapsed = now - bgmLastChangedRef.current;
@@ -211,8 +204,7 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
       }
     }
 
-    // 쿨다운 통과 → 전환 허용
-    console.log(`🎵 [AudioEngine] BGM switching: ${bgmModeRef.current} → ${bgmMode}`);
+    console.log(`🎵 [AudioEngine] BGM switching: ${bgmModeRef.current} → ${bgmMode} (slug=${characterSlugRef.current})`);
     bgmModeRef.current = bgmMode;
     bgmLastChangedRef.current = now;
 
@@ -234,10 +226,8 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
   }, [bgmMode]);
 
   // ── L2: Ambience 전환 ──
-  // [Phase 4.3] location이 null이면 앰비언스 페이드아웃 (#7 — 엔딩 시 환경음 제거)
   useEffect(() => {
     if (!location) {
-      // location이 null → 모든 앰비언스 페이드아웃
       if (ambienceRefs.current.length > 0) {
         ambienceRefs.current.forEach(a => fadeOut(a, 800));
         ambienceRefs.current = [];
@@ -306,4 +296,5 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
   return null;
 };
 
+export { resolveBgmSrc };
 export default AudioEngine;

@@ -3,6 +3,7 @@ import { useEffect, useRef, useMemo } from "react";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4] Enhanced Character Display — "The Soul"
+//  [Phase 5] 멀티캐릭터 리팩토링 — characterSlug 기반 에셋 경로
 //
 //  5-Layer Animation System:
 //    L1. Glow/Aura    — 감정별 컬러 오라 (배경)
@@ -11,9 +12,10 @@ import { useEffect, useRef, useMemo } from "react";
 //    L4. Image Swap    — AnimatePresence 기반 표정 교체
 //    L5. Particles     — 감정별 이모션 파티클
 //
-//  [Phase 4 추가] outfit prop → 이미지 경로 동적 결정
-//    /characters/{outfit}_{emotion}.png
-//    Ex: maid_neutral.png, pajama_shy.png, swimwear_heated.png
+//  [Phase 5] 에셋 경로 규칙:
+//    /characters/{characterSlug}/{outfit}_{emotion}.png
+//    Ex: /characters/airi/maid_neutral.png
+//        /characters/yeonhwa/hanbok_shy.png
 // ═══════════════════════════════════════════════════════════════
 
 const EMOTION_LIST = [
@@ -22,12 +24,14 @@ const EMOTION_LIST = [
 ];
 
 /**
- * outfit + emotion → 이미지 파일 경로
+ * characterSlug + outfit + emotion → 이미지 파일 경로
+ * [Phase 5] slug 기반 디렉토리 구조
  */
-function resolveCharacterImage(outfit, emotion) {
+function resolveCharacterImage(characterSlug, outfit, emotion) {
+  const slug = characterSlug || "airi"; // 하위 호환 폴백
   const o = (outfit || "MAID").toLowerCase();
   const e = (emotion || "NEUTRAL").toLowerCase();
-  return `/characters/${o}_${e}.png`;
+  return `/characters/${slug}/${o}_${e}.png`;
 }
 
 // ─────────────────────────────────────────────────
@@ -243,10 +247,11 @@ const GlowLayer = ({ config }) => (
 
 // ═══════════════════════════════════════════════════════════════
 //  CharacterDisplay — 메인 컴포넌트
+//  [Phase 5] characterSlug prop 추가 → 캐릭터별 이미지 경로
 // ═══════════════════════════════════════════════════════════════
 
-const CharacterDisplay = ({ emotion = "NEUTRAL", outfit = "MAID" }) => {
-  const imagePath = resolveCharacterImage(outfit, emotion);
+const CharacterDisplay = ({ emotion = "NEUTRAL", outfit = "MAID", characterSlug = "airi" }) => {
+  const imagePath = resolveCharacterImage(characterSlug, outfit, emotion);
   const config = EMOTION_ANIM[emotion] || EMOTION_ANIM.NEUTRAL;
   const idleControls = useAnimation();
   const prevEmotionRef = useRef(emotion);
@@ -297,9 +302,9 @@ const CharacterDisplay = ({ emotion = "NEUTRAL", outfit = "MAID" }) => {
           {/* L4: 캐릭터 이미지 */}
           <AnimatePresence mode="popLayout">
             <motion.img
-              key={`${outfit}_${emotion}`}
+              key={`${characterSlug}_${outfit}_${emotion}`}
               src={imagePath}
-              alt={`${outfit} ${emotion}`}
+              alt={`${characterSlug} ${outfit} ${emotion}`}
               initial={{ opacity: 0, scale: 1.02 }}
               animate={{ opacity: 1, scale: 1.05 }}
               exit={{ opacity: 0, scale: 1.02 }}
@@ -313,10 +318,12 @@ const CharacterDisplay = ({ emotion = "NEUTRAL", outfit = "MAID" }) => {
                 `,
               }}
               onError={(e) => {
-                // 복장 이미지 없으면 기본 메이드로 fallback
-                const fallback = resolveCharacterImage("MAID", emotion);
-                if (e.target.src !== window.location.origin + fallback) {
-                  e.target.src = fallback;
+                // [Phase 5] 복장 이미지 없으면 캐릭터 기본 복장으로 fallback
+                const defaultOutfitFallback = resolveCharacterImage(characterSlug, outfit, "NEUTRAL");
+                const ultimateFallback = resolveCharacterImage(characterSlug, "MAID", emotion);
+                if (e.target.src !== window.location.origin + defaultOutfitFallback &&
+                    e.target.src !== window.location.origin + ultimateFallback) {
+                  e.target.src = ultimateFallback;
                 } else {
                   e.target.style.display = "none";
                   console.error(`이미지 로드 실패: ${imagePath}`);
