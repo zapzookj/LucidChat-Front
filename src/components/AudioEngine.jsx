@@ -65,7 +65,7 @@ const BGM_VOLUME_RATIO = 0.45;
 const AMBIENCE_VOLUME_RATIO = 0.25;
 const SFX_VOLUME_RATIO = 0.6;
 const FADE_DURATION = 1500;
-const BGM_COOLDOWN_MS = 60_000;
+const BGM_COOLDOWN_MS = 30_000;
 
 function fadeOut(audio, duration = FADE_DURATION) {
   if (!audio || audio.paused) return Promise.resolve();

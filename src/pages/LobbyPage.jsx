@@ -552,7 +552,7 @@ const LobbyPage = () => {
               <img
                 src="/logo.png"
                 alt="Lucid Chat"
-                className="h-12 sm:h-16 drop-shadow-[0_0_24px_rgba(255,255,255,0.15)] object-contain"
+                className="h-28 sm:h-40 md:h-48 drop-shadow-[0_0_40px_rgba(255,255,255,0.25)] object-contain"
                 onError={(e) => { e.target.style.display = "none"; if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = "block"; }}
               />
               <p className="text-white/25 text-xs sm:text-sm tracking-[0.3em] uppercase text-center hidden">Lucid Station</p>

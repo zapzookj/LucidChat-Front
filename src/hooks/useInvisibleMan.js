@@ -49,12 +49,25 @@ export default function useInvisibleMan({ enabled = true, characterName = "캐�
         const res = await api.post(`/achievements/rooms/${roomId}/unlock`, { code: "INVISIBLE_MAN" });
         
         if (res.data) {
+            const narrationMap = {
+                  "연화": "연화가 흥미롭다는 눈빛으로 당신을 바라봅니다.",
+                  "아이리": "아이리가 숙여 인사하며 부드럽게 미소짓는다.",
+                  "백루나": "루나가 머뭇거리며 말합니다.",
+                  "서태리": "태리가 귀찮다는 듯이 인사합니다."
+              };
+            const dialogueMap = {
+                  "연화": "...주무시나..? 속눈썹 되게 기네..",
+                  "아이리": "...주무시나..? 속눈썹 되게 기네..",
+                  "백루나": "...주무시나..? 속눈썹 되게 기네..",
+                  "서태리": "...주무시나..? 속눈썹 되게 기네.."
+            };
           onTrigger?.({
             trigger: "INVISIBLE_MAN",
             achievement: res.data,
             // [Phase 5] 캐릭터 이름 동적 참조
+            
             scene: {
-              narration: `${name}가 가까이 조용히 다가온다. 그 눈동자가 당신을 빤히 올려다본다.`,
+              narration: narrationMap[name] || `${name}가 가까이 조용히 다가온다. 그 눈동자가 당신을 빤히 올려다본다.`,
               dialogue: "...주무시나..? 속눈썹 되게 기네..",
               emotion: "RELAX",
             },

@@ -17,7 +17,7 @@ import {
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
   LogOut, User as UserIcon, Gamepad2, Save, Sparkles, Lock, Unlock,
   CheckCircle, AlertTriangle, Info, Zap, Play, SkipForward,
-  Heart, Crown, MapPin, Shirt, Award, ChevronRight
+  Heart, Crown, MapPin, Shirt, Award, ChevronRight, ChevronLeft
 } from "lucide-react";
 
 const ChatPage = () => {
@@ -27,6 +27,7 @@ const ChatPage = () => {
   
   const [roomInfo, setRoomInfo] = useState(null);
   const [messages, setMessages] = useState([]);
+  const initCalledRef = useRef(null); // [Phase 5 Fix] StrictMode 중복 init 방지 (roomId 기반)
   
   // [컷신 상태]
   const [sceneQueue, setSceneQueue] = useState([]);
@@ -53,6 +54,12 @@ const ChatPage = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isBgmPlaying, setIsBgmPlaying] = useState(false);
+
+  // [Phase 4 Fix] 히스토리 무한 스크롤 상태
+  const [historyPage, setHistoryPage] = useState(1);       // 다음 로드할 페이지 (page 0은 init에서 로드)
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const historyScrollRef = useRef(null);
 
   // [유저 설정 상태]
   const [userInfo, setUserInfo] = useState({ 
@@ -288,6 +295,10 @@ const ChatPage = () => {
   useEffect(() => {
     const init = async () => {
       if(!roomId) return;
+      // [Phase 5 Fix] StrictMode 중복 init 방지
+      if (initCalledRef.current === roomId) return;
+      initCalledRef.current = roomId;
+
       setIsLoading(true); 
 
       try {
@@ -299,23 +310,13 @@ const ChatPage = () => {
         ]);
 
         setRoomInfo(roomRes.data);
-        // [Phase 4.3] 이미 엔딩에 도달한 채팅방인지 확인
-        // if (info.endingReached && info.endingTitle) {
-        //   // 이미 엔딩을 본 채팅방 — 안내 토스트
-        //   showToast(`엔딩: "${info.endingTitle}" — 초기화하면 다시 시작할 수 있습니다.`, "info");
-        // }
         setAffection(roomRes.data.affectionScore);
-        // [Fix] 스테일 클로저 방지 — userRes에서 전체 유저 정보를 세팅
         setUserInfo({
             nickname: userRes.data.nickname || "",
             profileDescription: userRes.data.profileDescription || "",
             isSecretMode: userRes.data.isSecretMode || false
         });
         // [Fix] Energy sync - force sync with actual server energy value
-        if (userRes.data.energy !== undefined) {
-            setEnergy(userRes.data.energy);
-        }
-        // [Fix] 에너지 동기화 — 서버의 실제 에너지 값으로 강제 동기화
         if (userRes.data.energy !== undefined) {
             setEnergy(userRes.data.energy);
         }
@@ -329,6 +330,10 @@ const ChatPage = () => {
         if (roomRes.data.currentTimeOfDay) setCurrentTime(roomRes.data.currentTimeOfDay);
 
         const logs = logsRes.data?.content || [];
+
+        // [Phase 4 Fix] 히스토리 페이지네이션 초기화
+        setHistoryPage(1);
+        setHasMoreHistory(logs.length >= 50);
 
         if (logs.length === 0) {
             // [Case A] 신규 유저 -> 인트로 시퀀스 시작
@@ -398,10 +403,11 @@ const ChatPage = () => {
           const greetingLog = newLogs.find(l => l.role === 'ASSISTANT');
           if (greetingLog) {
               const charName = roomData?.characterName || "캐릭터";
-
               const narrationMap = {
                   "연화": "연화가 흥미롭다는 눈빛으로 당신을 바라봅니다.",
-                  "아이리": "아이리가 숙여 인사하며 부드럽게 미소짓는다."
+                  "아이리": "아이리가 숙여 인사하며 부드럽게 미소짓는다.",
+                  "백루나": "루나가 머뭇거리며 말합니다.",
+                  "서태리": "태리가 귀찮다는 듯이 인사합니다."
               };
               queue.push({
                   dialogue: greetingLog.cleanContent,
@@ -715,7 +721,9 @@ const ChatPage = () => {
       console.error(err);
       const narrationMap = {
                   "연화": "음.. 잠깐 생각에 잠겨버렸구나.. 뭐라고 했느냐?",
-                  "아이리": "잠시만요.. 아이리가 잠깐 바쁜 일이 있어서..."
+                  "아이리": "잠시만요.. 아이리가 잠깐 바쁜 일이 있어서...",
+                  "백루나": "음.. ㄴ,네?! 아, 죄송해요.. 잠깐 멍때려버렸어요.. 헤헤..",
+                  "서태리": "..."
               };
       setCurrentScene({ 
         dialogue: narrationMap[roomInfo?.characterName] || "잠시 후 다시 시도해주세요.", emotion: "SAD", narration: "잠시 후 다시 시도해주세요." 
@@ -835,10 +843,14 @@ const ChatPage = () => {
                 await api.delete(`/chat/rooms/${roomId}`);
                 setMessages([]);
                 setAffection(0);
-                // [Phase 4] 씬 디렉션 초기화
-                setCurrentLocation("ENTRANCE");
+                // [Fix #16] 씬 상태 초기화 — 이전 대사가 인트로 후 잔존하는 버그 방지
+                setCurrentScene(null);
+                setSceneQueue([]);
+                setDisplayedEmotion("NEUTRAL");
+                // [Phase 5] 캐릭터별 기본값으로 씬 디렉션 초기화
+                setCurrentLocation(roomInfo?.defaultLocation || "ENTRANCE");
                 setCurrentTime("NIGHT");
-                setCurrentOutfit("MAID");
+                setCurrentOutfit(roomInfo?.defaultOutfit || "MAID");
                 setCurrentBgmMode("DAILY");
                 // [Phase 4.2] 승급 이벤트 상태 초기화
                 setPromotionOverlay(null);
@@ -848,19 +860,19 @@ const ChatPage = () => {
                 setEndingTrigger(null);
                 setEndingData(null);
                 setShowEndingCredits(false);
+                // [Phase 4 Fix] 히스토리 페이지네이션 초기화
+                setHistoryPage(1);
+                setHasMoreHistory(false);
                 // [Fix] Energy re-sync - restore from server after clear
                 try {
                     const freshUser = await api.get("/users/me");
                     if (freshUser.data.energy !== undefined) setEnergy(freshUser.data.energy);
                 } catch (_) { /* ignore energy sync failure */ }
-                // [Fix] 에너지 재동기화 — 서버의 실제 에너지 값으로 복원
-                try {
-                    const freshUser = await api.get("/users/me");
-                    if (freshUser.data.energy !== undefined) setEnergy(freshUser.data.energy);
-                } catch (_) { /* 에너지 동기화 실패 무시 */ }
                 showToast("초기화되었습니다. 새로운 만남을 시작합니다.", "success");
                 closeConfirm();
                 
+                // [Phase 5 Fix] initCalledRef 리셋하여 인트로 재실행 허용
+                initCalledRef.current = null;
                 // 초기화 후 인트로 다시 시작
                 startIntroSequence(roomId, roomInfo);
 
@@ -883,6 +895,39 @@ const ChatPage = () => {
           'info'
       );
   };
+
+  // ━━━ [Phase 4 Fix] 히스토리 무한 스크롤 핸들러 ━━━
+  const handleHistoryScroll = useCallback(async (e) => {
+    const container = e.target;
+    // 상단 50px 이내에 도달하면 다음 페이지 로드
+    if (container.scrollTop > 50 || !hasMoreHistory || historyLoading) return;
+
+    setHistoryLoading(true);
+    const prevScrollHeight = container.scrollHeight;
+
+    try {
+      const res = await api.get(`/chat/rooms/${roomId}/logs?page=${historyPage}&size=50`);
+      const olderLogs = (res.data?.content || []).reverse();
+
+      if (olderLogs.length === 0) {
+        setHasMoreHistory(false);
+      } else {
+        setMessages(prev => [...olderLogs, ...prev]);
+        setHistoryPage(prev => prev + 1);
+        setHasMoreHistory(olderLogs.length >= 50);
+
+        // 스크롤 위치 보정: 새로 추가된 높이만큼 아래로 밀어서 시각적 위치 유지
+        requestAnimationFrame(() => {
+          const newScrollHeight = container.scrollHeight;
+          container.scrollTop = newScrollHeight - prevScrollHeight;
+        });
+      }
+    } catch (err) {
+      console.error("Failed to load more history:", err);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [roomId, historyPage, hasMoreHistory, historyLoading]);
 
   if (isLoading || !roomInfo) return <div className="h-full flex items-center justify-center bg-gray-900 text-white/30 animate-pulse">Loading Lucid Chat...</div>;
 
@@ -949,7 +994,7 @@ const ChatPage = () => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -30 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="absolute top-6 left-6 z-40"
+            className="absolute top-6 left-[5.5rem] sm:left-[7.5rem] z-40"
           >
             <div className={`flex items-center gap-3 px-4 py-2.5 rounded-xl backdrop-blur-xl border bg-black/60 shadow-lg ${
               getRelationColor(promotionProgress.target).border
@@ -1465,13 +1510,15 @@ const ChatPage = () => {
         )}
       </AnimatePresence>
 
-      {/* <button
+      {/* [Phase 4 Fix] 로비 복귀 버튼 */}
+      <button
         onClick={() => navigate("/")}
-        className="absolute top-4 left-4 p-2 rounded-full bg-white/10 hover:bg-white/20 transition backdrop-blur-sm border border-white/10"
+        className="absolute top-6 left-6 z-50 flex items-center gap-2 px-4 py-2.5 rounded-full bg-black/40 backdrop-blur-md hover:bg-white/15 transition border border-white/10 shadow-lg group"
         title="로비로 돌아가기"
       >
-        <ChevronLeft size={18} className="text-white" />
-      </button> */}
+        <ChevronLeft size={18} className="text-white/70 group-hover:text-white transition" />
+        <span className="text-xs text-white/50 group-hover:text-white/80 transition hidden sm:inline">Lobby</span>
+      </button>
 
       {/* Settings Modal */}
       <AnimatePresence>
@@ -1678,11 +1725,34 @@ const ChatPage = () => {
               </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
+            <div
+              ref={historyScrollRef}
+              onScroll={handleHistoryScroll}
+              className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar"
+            >
+              {/* [Phase 4 Fix] 과거 기록 로딩 인디케이터 */}
+              {historyLoading && (
+                <div className="flex justify-center py-4">
+                  <div className="flex items-center gap-2 text-white/30 text-xs">
+                    <motion.div
+                      className="w-4 h-4 border-2 border-white/20 border-t-indigo-400 rounded-full"
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
+                    />
+                    이전 기록 불러오는 중...
+                  </div>
+                </div>
+              )}
+              {!hasMoreHistory && messages.length > 0 && (
+                <div className="text-center text-white/15 text-xs py-3 select-none">
+                  ─── 첫 번째 기록 ───
+                </div>
+              )}
+
               {messages.length === 0 ? <div className="text-center text-white/30 py-10">기록이 없습니다.</div> : messages.map((msg, idx) => {
                 if (msg.role === 'SYSTEM') {
                     return (
-                        <div key={idx} className="flex justify-center my-6">
+                        <div key={`h-${idx}`} className="flex justify-center my-6">
                             <div className="bg-gradient-to-r from-indigo-900/40 to-purple-900/40 border border-indigo-500/20 text-indigo-200 text-xs px-5 py-2.5 rounded-full backdrop-blur-sm shadow-lg flex items-center gap-2 max-w-[90%] text-center leading-relaxed">
                                 <Sparkles size={14} className="text-yellow-300 shrink-0" />
                                 <span>{msg.cleanContent}</span>
@@ -1693,7 +1763,7 @@ const ChatPage = () => {
 
                 const isMe = msg.role === 'USER';
                 return (
-                  <div key={idx} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                  <div key={`h-${idx}`} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                     <span className={`text-xs mb-1 px-2 ${isMe ? 'text-pink-400' : 'text-indigo-400'}`}>{isMe ? '나' : roomInfo.characterName}</span>
                     <div className={`px-5 py-3 rounded-2xl max-w-[85%] text-sm leading-relaxed shadow-sm ${
                       isMe ? 'bg-pink-600 text-white rounded-tr-sm' : 'bg-[#2a2a35] text-gray-100 rounded-tl-sm border border-white/5'
