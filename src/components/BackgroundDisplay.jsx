@@ -3,69 +3,33 @@ import { useState, useEffect, useRef } from "react";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4] BackgroundDisplay — 동적 배경 전환 엔진
-//  [Phase 5] 멀티캐릭터 지원:
-//    • characterSlug prop → 캐릭터 전용 기본 배경
-//    • 스토리 모드 장소 배경은 공유 에셋 (변경 없음)
-//    • 자유(샌드박스) 모드 기본 배경: /backgrounds/characters/{slug}/bg_default.png
+//  [Phase 4 Fix] 캐릭터별 독립 세계관:
+//    • 모든 배경이 캐릭터 전용: /backgrounds/{slug}/bg_{location}_{time}.png
+//    • 공유 배경 없음 (각 캐릭터가 자신만의 배경 에셋 보유)
+//    • 자유(샌드박스) 모드 기본 배경: /backgrounds/{slug}/bg_default.png
 // ═══════════════════════════════════════════════════════════════
 
-// ─── 공유 배경 이미지 매핑 테이블 (스토리 모드 장소) ───
-const BG_MAP = {
-  LIVINGROOM_DAY:   "bg_livingroom_day.png",
-  LIVINGROOM_NIGHT: "bg_livingroom_night.png",
-  BALCONY_DAY:      "bg_balcony_day.png",
-  BALCONY_NIGHT:    "bg_balcony_night.png",
-  STUDY_DAY:        "bg_study.png",
-  STUDY_NIGHT:      "bg_study.png",
-  BATHROOM_DAY:     "bg_bathroom_day.png",
-  BATHROOM_NIGHT:   "bg_bathroom_night.png",
-  GARDEN_DAY:       "bg_garden_day.png",
-  GARDEN_NIGHT:     "bg_garden_night.png",
-  KITCHEN_DAY:      "bg_kitchen_day.png",
-  KITCHEN_NIGHT:    "bg_kitchen_night.png",
-  BEDROOM_DAY:      "bg_bedroom_day.png",
-  BEDROOM_NIGHT:    "bg_bedroom_night.png",
-  ENTRANCE_DAY:     "bg_entrance_day.png",
-  ENTRANCE_NIGHT:   "bg_entrance_night.png",
-  FOREST_DAY:       "bg_forest_day.png",
-  FOREST_NIGHT:     "bg_forest_night.png",
-  BEACH_DAY:        "bg_beach_day.png",
-  BEACH_NIGHT:      "bg_beach_night.png",
-  BEACH_SUNSET:     "bg_beach_sunset.png",
-  DOWNTOWN_DAY:     "bg_downtown_day.png",
-  DOWNTOWN_NIGHT:   "bg_downtown_night.png",
-  BAR_NIGHT:        "bg_bar_night.png",
-  BAR_DAY:          "bg_bar_night.png",
-};
-
 /**
- * [Phase 5] characterSlug에 따른 기본 배경 이미지 경로
- * 캐릭터 전용 기본 배경이 있으면 사용, 없으면 공유 배경 폴백
+ * [Phase 4 Fix] characterSlug + location + time → 캐릭터 전용 배경 파일 경로
+ * 규칙: /backgrounds/{slug}/bg_{location}_{time}.png
  */
-function getDefaultBg(characterSlug) {
-  if (characterSlug) {
-    return `/backgrounds/characters/${characterSlug}/bg_default.png`;
-  }
-  return "/backgrounds/bg_entrance_night.png";
+function resolveBackground(location, time, characterSlug) {
+  const slug = characterSlug || "airi";
+
+  if (!location) return null;
+
+  const t = (time || "NIGHT").toLowerCase();
+  const loc = location.toLowerCase();
+
+  return `/backgrounds/${slug}/bg_${loc}_${t}.png`;
 }
 
 /**
- * location + time → 배경 파일명 resolve
- * [Phase 5] location이 없을 때는 캐릭터별 기본 배경 사용
+ * characterSlug에 따른 기본 배경 이미지 경로
  */
-function resolveBackground(location, time, characterSlug) {
-  if (!location) return null;
-
-  const t = time || "NIGHT";
-  const key = `${location}_${t}`;
-
-  const matched = BG_MAP[key] || BG_MAP[`${location}_NIGHT`] || BG_MAP[`${location}_DAY`];
-  if (matched) {
-    return `/backgrounds/${matched}`;
-  }
-
-  // 매핑에 없는 location → 캐릭터별 기본 배경 폴백
-  return getDefaultBg(characterSlug);
+function getDefaultBg(characterSlug) {
+  const slug = characterSlug || "airi";
+  return `/backgrounds/${slug}/bg_default.png`;
 }
 
 /**
@@ -125,8 +89,11 @@ const BackgroundDisplay = ({ location, time, characterSlug }) => {
           transition={{ duration: 1.2, ease: "easeInOut" }}
           onError={(e) => {
             console.error(`배경 이미지 로드 실패: ${currentBg}`);
-            // 캐릭터별 기본 배경 실패 시 공유 폴백
-            e.target.src = "/backgrounds/bg_entrance_night.png";
+            // 캐릭터별 기본 배경으로 폴백
+            const fallback = getDefaultBg(characterSlug);
+            if (e.target.src !== window.location.origin + fallback) {
+              e.target.src = fallback;
+            }
           }}
         />
       </AnimatePresence>

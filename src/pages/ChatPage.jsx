@@ -143,13 +143,14 @@ const ChatPage = () => {
     easterEggEffectRef.current = easterEggEffect;
   }, [easterEggEffect]);
 
-  // ================= [Fix #15] Progressive Resource Preloading =================
-  // 관계 레벨에 따라 해금된 리소스만 단계적으로 프리로딩
-  // (캐릭터 이미지 + 배경 + BGM + 앰비언스 + SFX)
+  // ================= [Phase 4 Fix] Progressive Resource Preloading =================
+  // 캐릭터별 독립 세계관 — 서버에서 받은 허용 복장/장소 기반 프리로딩
   const { preloadEndingAssets } = useResourcePreloader(
     roomInfo?.statusLevel,
     userInfo.isSecretMode,
-    roomInfo?.characterSlug
+    roomInfo?.characterSlug,
+    roomInfo?.availableOutfits || [],
+    roomInfo?.availableLocations || []
   );
 
   // ================= BGM Logic (Phase 4: AudioEngine handles playback) =================
@@ -438,15 +439,31 @@ const ChatPage = () => {
   }, [user]);
 
   // [Phase 4] 씬 전환 시 감정 + 디렉션 업데이트
+  // [Phase 4 Fix] 캐릭터별 독립 세계관 — 허용 목록 기반 프론트 가드
   useEffect(() => {
     if (!currentScene) return;
     if (currentScene.emotion) {
       setDisplayedEmotion(currentScene.emotion);
     }
     // null이 아닌 값만 업데이트 (null = 이전 상태 유지)
-    if (currentScene.location) setCurrentLocation(currentScene.location);
+    // 프론트 가드: 서버에서 제공한 허용 목록에 포함된 값만 적용
+    if (currentScene.location) {
+      const allowedLocs = roomInfo?.availableLocations || [];
+      if (allowedLocs.length === 0 || allowedLocs.includes(currentScene.location)) {
+        setCurrentLocation(currentScene.location);
+      } else {
+        console.warn(`🛡️ [Guard] Location "${currentScene.location}" not in allowed list for ${roomInfo?.characterSlug}, ignoring`);
+      }
+    }
     if (currentScene.time) setCurrentTime(currentScene.time);
-    if (currentScene.outfit) setCurrentOutfit(currentScene.outfit);
+    if (currentScene.outfit) {
+      const allowedOutfits = roomInfo?.availableOutfits || [];
+      if (allowedOutfits.length === 0 || allowedOutfits.includes(currentScene.outfit)) {
+        setCurrentOutfit(currentScene.outfit);
+      } else {
+        console.warn(`🛡️ [Guard] Outfit "${currentScene.outfit}" not in allowed list for ${roomInfo?.characterSlug}, ignoring`);
+      }
+    }
     if (currentScene.bgmMode) setCurrentBgmMode(currentScene.bgmMode);
   }, [currentScene]);
 
@@ -720,7 +737,7 @@ const ChatPage = () => {
     } catch (err) {
       console.error(err);
       const narrationMap = {
-                  "연화": "음.. 잠깐 생각에 잠겨버렸구나.. 뭐라고 했느냐?",
+                  "연화": "음.. 잠깐 생각에 잠겨버렸네요.. 뭐라고 하셨나요?",
                   "아이리": "잠시만요.. 아이리가 잠깐 바쁜 일이 있어서...",
                   "백루나": "음.. ㄴ,네?! 아, 죄송해요.. 잠깐 멍때려버렸어요.. 헤헤..",
                   "서태리": "..."
