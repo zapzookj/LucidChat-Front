@@ -6,9 +6,10 @@ import api from "../api/axios";
 import {
   Zap, User, Settings, Sparkles, ChevronLeft, ChevronRight,
   Clock, Heart, BookOpen, Compass, Archive, Play, X, Star,
-  LogOut, Volume2, VolumeX
+  LogOut, Volume2, VolumeX, Gem
 } from "lucide-react";
 import AchievementGallery from "../components/AchievementGallery";
+import LucidStore from "../components/LucidStore";
 
 // ═══════════════════════════════════════════════════════════════
 //  Lucid Station — 자각몽의 정거장
@@ -195,7 +196,7 @@ const ModeSelectOverlay = ({ character, onSelect, onClose }) => {
               </div>
               <p className="text-sm text-white/50 leading-relaxed">정해진 운명의 서사를 따라갑니다. 깊은 감정의 교류와 여러 결말이 당신을 기다립니다.</p>
               <div className="flex items-center gap-1.5 mt-4 text-amber-400/80">
-                <Zap size={14} /><span className="text-xs font-semibold">대화 당 에너지 2 소모</span>
+                <Zap size={14} /><span className="text-xs font-semibold">대화 당 에너지 2 소모 (부스트 시 10)</span>
               </div>
               {!character.storyAvailable && <p className="text-xs text-white/30 mt-2 italic">아직 준비 중인 모드입니다</p>}
             </div>
@@ -219,7 +220,7 @@ const ModeSelectOverlay = ({ character, onSelect, onClose }) => {
               </div>
               <p className="text-sm text-white/50 leading-relaxed">가벼운 일상과 예측 불가능한 대화를 즐깁니다. 어떤 제약도, 정해진 결말도 없습니다.</p>
               <div className="flex items-center gap-1.5 mt-4 text-cyan-400/80">
-                <Zap size={14} /><span className="text-xs font-semibold">대화 당 에너지 1 소모</span>
+                <Zap size={14} /><span className="text-xs font-semibold">대화 당 에너지 1 소모 (부스트 시 5)</span>
               </div>
             </div>
           </motion.button>
@@ -336,6 +337,7 @@ const SettingsModal = ({ onClose, onLogout, bgmMuted, onToggleBgm }) => (
       exit={{ scale: 0.92, opacity: 0, y: 12 }}
       transition={{ type: "spring", stiffness: 300, damping: 28 }}
     >
+        
       <div className="flex items-center justify-between mb-5">
         <h3 className="text-base font-bold text-white tracking-wide">설정</h3>
         <button onClick={onClose} className="text-white/40 hover:text-white transition-colors duration-200"><X size={16} /></button>
@@ -383,6 +385,8 @@ const LobbyPage = () => {
   const [loading, setLoading] = useState(false);
   const [entering, setEntering] = useState(false);
   const [bgmMuted, setBgmMuted] = useState(false);
+  const [showStore, setShowStore] = useState(false);
+  const [storeInitialTab, setStoreInitialTab] = useState("energy");
 
   const bgmRef = useRef(null);
 
@@ -527,6 +531,18 @@ const LobbyPage = () => {
           <div className="hidden sm:flex items-center gap-1.5 text-white/60 text-sm">
             <User size={14} /><span>{displayNickname}</span>
           </div>
+          {/* 💎 Lucid Store 버튼 */}
+        <button
+        onClick={() => {
+            playSfx("/sounds/sfx_button_click.wav", 0.25);
+            setStoreInitialTab("energy"); // 기본 탭
+            setShowStore(true);
+        }}
+        onMouseEnter={() => playSfx("/sounds/sfx_button_hover.ogg", 0.15)}
+        className="w-8 h-8 flex items-center justify-center rounded-full bg-black/20 backdrop-blur-md border border-white/10 text-amber-400/70 hover:text-amber-300 hover:bg-black/40 transition-colors duration-200"
+        >
+        <Gem size={14} />
+        </button>
           {/* [Fix #6] 설정 모달 열기 */}
           <button
             onClick={() => { playSfx("/sounds/sfx_button_click.wav", 0.25); setShowSettings(true); }}
@@ -663,6 +679,18 @@ const LobbyPage = () => {
       <AnimatePresence>{selectedCharacter && <ModeSelectOverlay character={selectedCharacter} onSelect={handleModeSelect} onClose={() => setSelectedCharacter(null)} />}</AnimatePresence>
       <AnimatePresence>{view === "continue" && <ContinuePanel rooms={rooms} onSelect={handleContinue} onClose={() => setView("hub")} />}</AnimatePresence>
       <AnimatePresence>{showAchievements && <AchievementGallery onClose={() => setShowAchievements(false)} />}</AnimatePresence>
+      {/* 💎 Lucid Store Overlay */}
+      <LucidStore
+      isOpen={showStore}
+      onClose={() => setShowStore(false)}
+      initialTab={storeInitialTab}
+      userInfo={userInfo}
+      characters={characters}
+      onPaymentComplete={() => {
+      setShowStore(false);
+      fetchUserInfo(); // 결제 후 에너지 갱신
+      }}
+      />
       <AnimatePresence>{showSettings && <SettingsModal onClose={() => setShowSettings(false)} onLogout={handleLogout} bgmMuted={bgmMuted} onToggleBgm={() => setBgmMuted((m) => !m)} />}</AnimatePresence>
     </div>
   );

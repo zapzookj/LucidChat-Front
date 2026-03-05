@@ -12,12 +12,15 @@ import AchievementUnlockModal from "../components/AchievementUnlockModal";
 import AchievementGallery from "../components/AchievementGallery";
 import useInvisibleMan from "../hooks/useInvisibleMan";
 import { motion, AnimatePresence } from "framer-motion";
+import LucidStore from "../components/LucidStore";
+import SecretModeFlow from "../components/SecretModeFlow";
+import BoostToggle from "../components/BoostToggle";
 import { useParams, useNavigate } from "react-router-dom";
 import { 
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
   LogOut, User as UserIcon, Gamepad2, Save, Sparkles, Lock, Unlock,
   CheckCircle, AlertTriangle, Info, Zap, Play, SkipForward,
-  Heart, Crown, MapPin, Shirt, Award, ChevronRight, ChevronLeft
+  Heart, Crown, MapPin, Shirt, Award, ChevronRight, ChevronLeft, Gem, Rocket, ShoppingBag
 } from "lucide-react";
 
 const ChatPage = () => {
@@ -98,6 +101,15 @@ const ChatPage = () => {
   const [easterEggEffect, setEasterEggEffect] = useState(null);    // 현재 활성 시각 효과
   const [achievementModal, setAchievementModal] = useState(null);   // 업적 획득 모달 데이터
   const [showAchievements, setShowAchievements] = useState(false);  // 업적 갤러리 표시
+
+  // ─── [Phase 5 BM] 상점, 시크릿 플로우, 부스트 ───
+  const [showStore, setShowStore] = useState(false);
+  const [storeInitialTab, setStoreInitialTab] = useState("energy");
+  const [showSecretFlow, setShowSecretFlow] = useState(false);
+  const [boostMode, setBoostMode] = useState(false);
+  const [isSubscriber, setIsSubscriber] = useState(false);
+  const [freeEnergyMax, setFreeEnergyMax] = useState(30);
+  const [characters, setCharacters] = useState([]);
 
   const logsEndRef = useRef(null);
 
@@ -181,8 +193,14 @@ const ChatPage = () => {
         setUserInfo({
           nickname: res.data.nickname || "",
           profileDescription: res.data.profileDescription || "",
-          isSecretMode: res.data.isSecretMode || false
+          isSecretMode: res.data.isSecretMode || false,
+          isAdultVerified: res.data.isAdultVerified || false,
+          subscriptionTier: res.data.subscriptionTier || null,
         });
+
+        setBoostMode(res.data.boostMode || false);
+        setIsSubscriber(!!res.data.subscriptionTier);
+        setFreeEnergyMax(res.data.freeEnergyMax || 30);
       } catch (err) {
         console.error("Failed to fetch user info", err);
       }
@@ -304,11 +322,14 @@ const ChatPage = () => {
 
       try {
         // 1. 기본 정보 병렬 로드
-        const [roomRes, userRes, logsRes] = await Promise.all([
-            api.get(`/chat/rooms/${roomId}`),
-            api.get("/users/me"),
-            api.get(`/chat/rooms/${roomId}/logs?page=0&size=50`)
+        const [roomRes, userRes, logsRes, charsRes] = await Promise.all([
+          api.get(`/chat/rooms/${roomId}`),
+          api.get("/users/me"),
+          api.get(`/chat/rooms/${roomId}/logs?page=0&size=50`),
+          api.get("/lobby/characters").catch(() => ({ data: [] })),
         ]);
+
+        setCharacters(charsRes.data || []);
 
         setRoomInfo(roomRes.data);
         setAffection(roomRes.data.affectionScore);
@@ -628,11 +649,14 @@ const ChatPage = () => {
 
   const handleSendMessage = async (text) => {
     if (text && energy <= 0 && !endingTrigger) {
-      showToast("에너지가 부족합니다. 내일 다시 대화해주세요!", "error");
+      showToast("에너지가 부족합니다. 충전하거나 자연 회복을 기다려주세요!", "error");
       return;
     }
     if (text) {
-        setEnergy(prev => Math.max(0, prev - 1));
+        const baseCost = roomInfo?.chatMode === "STORY" ? 2 : 1;
+        const cost = boostMode && !isSubscriber ? baseCost * 5 : baseCost;
+
+        setEnergy(prev => Math.max(0, prev - cost));
         setMessages(prev => [...prev, { role: 'USER', cleanContent: text }]);
     }
 
@@ -1047,6 +1071,30 @@ const ChatPage = () => {
 
       {/* Top Buttons */}
       <div className="absolute top-6 right-6 z-50 flex items-center gap-3">
+        {/* 💎 상점 */}
+        <button
+          onClick={() => {
+            setStoreInitialTab("energy");
+            setShowStore(true);
+          }}
+          className="p-3 rounded-full bg-black/40 backdrop-blur-md text-amber-400/70 hover:text-amber-300 hover:bg-black/60 transition border border-white/10 shadow-lg"
+          title="루시드 부띠끄"
+        >
+          <Gem size={20} />
+        </button>
+
+        {/* 🚀 Boost Toggle */}
+        <BoostToggle
+          boostMode={boostMode}
+          isSubscriber={isSubscriber}
+          onToggle={(v) => setBoostMode(v)}
+          onOpenStore={() => {
+            setStoreInitialTab("pass");
+            setShowStore(true);
+          }}
+          compact
+        />
+
         <button 
             onClick={toggleBgm}
             className={`p-3 rounded-full backdrop-blur-md transition shadow-lg border ${
@@ -1087,7 +1135,15 @@ const ChatPage = () => {
         onNextScene={handleNextScene} 
         hasNextScene={sceneQueue.length > 0} 
         nickname={user?.nickname || "사용자"}
-        onTriggerEvent={handleTriggerEvent} 
+        onTriggerEvent={handleTriggerEvent}
+        boostMode={boostMode}
+        isSubscriber={isSubscriber}
+        freeEnergyMax={freeEnergyMax}
+        chatMode={roomInfo?.chatMode || "SANDBOX"}
+        onOpenStore={(tab) => {
+          setStoreInitialTab(tab || "energy");
+          setShowStore(true);
+        }}
       />
 
       {/* ================= Event Selection Modal (3-Branch) ================= */}
@@ -1623,37 +1679,67 @@ const ChatPage = () => {
                         </h3>
                         <div className="space-y-6">
                             {/* Secret Mode Toggle */}
+                            {/* 🚀 Boost Mode Toggle */}
+                            <BoostToggle
+                              boostMode={boostMode}
+                              isSubscriber={isSubscriber}
+                              onToggle={(v) => setBoostMode(v)}
+                              onOpenStore={() => {
+                                setShowSettings(false);
+                                setStoreInitialTab("pass");
+                                setShowStore(true);
+                              }}
+                            />
+
+                            {/* Secret Mode Toggle (Phase 5 Flow 연동) */}
                             <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 relative group">
-                                <div className="flex flex-col">
-                                    <span className={`text-sm font-bold flex items-center gap-2 ${userInfo.isSecretMode ? 'text-red-400' : 'text-gray-300'}`}>
-                                        Secret Mode (NSFW)
-                                        {userInfo.isSecretMode && <span className="text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30">ON</span>}
+                              <div className="flex flex-col">
+                                <span className={`text-sm font-bold flex items-center gap-2 ${userInfo.isSecretMode ? 'text-red-400' : 'text-gray-300'}`}>
+                                  Secret Mode (NSFW)
+                                  {userInfo.isSecretMode && (
+                                    <span className="text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30">
+                                      ON
                                     </span>
-                                    <span className="text-xs text-gray-500 mt-1">대화의 모든 리미트를 해제합니다.</span>
-                                </div>
+                                  )}
+                                </span>
+                                <span className="text-xs text-gray-500 mt-1">
+                                  대화의 모든 리미트를 해제합니다.
+                                </span>
+                              </div>
 
-                                <button 
-                                    onClick={toggleSecretMode}
-                                    className={`w-12 h-7 rounded-full transition-colors duration-300 relative ${userInfo.isSecretMode ? 'bg-red-600' : 'bg-gray-700'}`}
-                                >
-                                    <div className={`w-5 h-5 bg-white rounded-full shadow-md absolute top-1 left-1 transition-transform duration-300 ${userInfo.isSecretMode ? 'translate-x-5' : 'translate-x-0'}`} />
-                                </button>
+                              <button
+                                onClick={() => {
+                                  if (userInfo.isSecretMode) {
+                                    toggleSecretMode();
+                                  } else {
+                                    setShowSecretFlow(true);
+                                  }
+                                }}
+                                className={`w-12 h-7 rounded-full transition-colors duration-300 relative ${userInfo.isSecretMode ? 'bg-red-600' : 'bg-gray-700'}`}
+                              >
+                                <div
+                                  className={`w-5 h-5 bg-white rounded-full shadow-md absolute top-1 left-1 transition-transform duration-300 ${
+                                    userInfo.isSecretMode ? 'translate-x-5' : 'translate-x-0'
+                                  }`}
+                                />
+                              </button>
 
-                                {/* Tooltip */}
-                                <div className="absolute right-0 bottom-full mb-3 w-64 bg-black/95 border border-red-500/30 p-4 rounded-xl text-xs text-gray-300
-                                opacity-0 group-hover:opacity-100 transition-opacity duration-200
-                                pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
-                                   <p className="font-bold text-red-400 mb-2 text-sm flex items-center gap-2">
-                                     <Lock size={14} /> Secret Mode란?
-                                   </p>
-                                   <p className="leading-relaxed text-gray-400 mb-2">
-                                     캐릭터의 윤리적 제약을 해제하고 <span className="text-red-300 font-bold">자유로운 대화</span>가 가능해집니다.
-                                   </p>
-                                   <ul className="list-disc list-inside space-y-1 text-gray-500">
-                                     <li>호감도가 더 쉽게 오릅니다.</li>
-                                     <li><span className="text-indigo-300">My Persona</span> 설정이 해금됩니다.</li>
-                                   </ul>
-                                </div>
+                              {/* Tooltip */}
+                              <div className="absolute right-0 bottom-full mb-3 w-64 bg-black/95 border border-red-500/30 p-4 rounded-xl text-xs text-gray-300
+                                  opacity-0 group-hover:opacity-100 transition-opacity duration-200
+                                  pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
+                                <p className="font-bold text-red-400 mb-2 text-sm flex items-center gap-2">
+                                  <Lock size={14} /> Secret Mode란?
+                                </p>
+                                <p className="leading-relaxed text-gray-400 mb-2">
+                                  캐릭터의 윤리적 제약을 해제하고 <span className="text-red-300 font-bold">자유로운 대화</span>가 가능해집니다.
+                                </p>
+                                <ul className="list-disc list-inside space-y-1 text-gray-500">
+                                  <li>호감도가 더 쉽게 오릅니다.</li>
+                                  <li><span className="text-indigo-300">My Persona</span> 설정이 해금됩니다.</li>
+                                  <li>성인 인증 + 해금권 구매 필요</li>
+                                </ul>
+                              </div>
                             </div>
 
                             {/* BGM Volume */}
@@ -1822,6 +1908,58 @@ const ChatPage = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ═══ [Phase 5 BM] Lucid Store ═══ */}
+      <LucidStore
+        isOpen={showStore}
+        onClose={() => setShowStore(false)}
+        initialTab={storeInitialTab}
+        userInfo={{
+          ...userInfo,
+          freeEnergy: energy,
+          paidEnergy: 0,
+          subscriptionTier: userInfo.subscriptionTier,
+        }}
+        characters={characters}
+        currentCharacterId={roomInfo?.characterId}
+        onPaymentComplete={() => {
+          setShowStore(false);
+
+          api.get("/users/me").then(res => {
+            if (res.data.energy !== undefined)
+              setEnergy(res.data.energy);
+
+            setBoostMode(res.data.boostMode || false);
+            setIsSubscriber(!!res.data.subscriptionTier);
+            setFreeEnergyMax(res.data.freeEnergyMax || 30);
+
+            setUserInfo(prev => ({
+              ...prev,
+              isAdultVerified: res.data.isAdultVerified || false,
+              subscriptionTier: res.data.subscriptionTier || null,
+            }));
+          });
+
+          showToast("결제가 완료되었습니다!", "success");
+        }}
+      />
+
+      {/* ═══ [Phase 5 BM] Secret Mode Flow ═══ */}
+      <SecretModeFlow
+        isOpen={showSecretFlow}
+        onClose={() => setShowSecretFlow(false)}
+        onGranted={() => {
+          toggleSecretMode();
+          showToast("시크릿 모드가 활성화되었습니다!", "success");
+        }}
+        onOpenStore={(tab) => {
+          setShowSecretFlow(false);
+          setStoreInitialTab(tab || "secret");
+          setShowStore(true);
+        }}
+        userInfo={userInfo}
+        characterId={roomInfo?.characterId}
+      />
 
       {/* ━━━━━━━ [Phase 4.3] 엔딩 로딩 오버레이 ━━━━━━━ */}
       <AnimatePresence>
