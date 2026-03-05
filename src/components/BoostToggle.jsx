@@ -73,14 +73,14 @@ const BoostToggle = ({ boostMode, isSubscriber, onToggle, onOpenStore, compact =
           )}
         </button>
 
-        {/* Compact confirm tooltip */}
+        {/* Compact confirm tooltip — positioned BELOW */}
         <AnimatePresence>
           {showConfirm && (
             <motion.div
-              initial={{ opacity: 0, y: 5, scale: 0.95 }}
+              initial={{ opacity: 0, y: -5, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 5, scale: 0.95 }}
-              className="absolute bottom-full left-0 mb-2 w-56 bg-black/95 border border-cyan-500/20 rounded-xl p-3 shadow-2xl backdrop-blur-xl z-50"
+              exit={{ opacity: 0, y: -5, scale: 0.95 }}
+              className="absolute top-full right-0 mt-2 w-56 bg-black/95 border border-cyan-500/20 rounded-xl p-3 shadow-2xl backdrop-blur-xl z-50"
             >
               <p className="text-white text-xs font-medium mb-1.5">부스트 모드를 켤까요?</p>
               <p className="text-white/40 text-[10px] leading-relaxed mb-3">

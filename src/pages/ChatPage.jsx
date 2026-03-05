@@ -14,6 +14,7 @@ import useInvisibleMan from "../hooks/useInvisibleMan";
 import { motion, AnimatePresence } from "framer-motion";
 import LucidStore from "../components/LucidStore";
 import SecretModeFlow from "../components/SecretModeFlow";
+import AdultVerificationModal from "../components/AdultVerificationModal";
 import BoostToggle from "../components/BoostToggle";
 import { useParams, useNavigate } from "react-router-dom";
 import { 
@@ -106,6 +107,7 @@ const ChatPage = () => {
   const [showStore, setShowStore] = useState(false);
   const [storeInitialTab, setStoreInitialTab] = useState("energy");
   const [showSecretFlow, setShowSecretFlow] = useState(false);
+  const [showAdultVerifyFromStore, setShowAdultVerifyFromStore] = useState(false);
   const [boostMode, setBoostMode] = useState(false);
   const [isSubscriber, setIsSubscriber] = useState(false);
   const [freeEnergyMax, setFreeEnergyMax] = useState(30);
@@ -1635,34 +1637,47 @@ const ChatPage = () => {
                             
                             <div className="relative">
                                 <label className="block text-xs text-gray-500 mb-1 flex justify-between">
-                                    My Persona (Secret Mode Only)
-                                    {!userInfo.isSecretMode && <Lock size={12} className="text-gray-500"/>}
+                                    My Persona
+                                    {isSubscriber
+                                      ? <Crown size={12} className="text-indigo-400"/>
+                                      : <Lock size={12} className="text-gray-500"/>
+                                    }
                                 </label>
                                 <textarea 
                                     value={userInfo.profileDescription}
                                     onChange={(e) => setUserInfo({...userInfo, profileDescription: e.target.value})}
-                                    disabled={!userInfo.isSecretMode} 
+                                    disabled={!isSubscriber} 
                                     className={`w-full h-32 bg-white/5 border rounded-lg px-4 py-3 text-white outline-none resize-none transition custom-scrollbar leading-relaxed
-                                        ${userInfo.isSecretMode 
-                                            ? 'border-red-500/30 focus:border-red-500/60 bg-red-900/5' 
+                                        ${isSubscriber 
+                                            ? 'border-indigo-500/30 focus:border-indigo-500/60 bg-indigo-900/5' 
                                             : 'border-white/10 opacity-50 cursor-not-allowed grayscale'
                                         }`}
                                     placeholder={
-                                        userInfo.isSecretMode 
+                                        isSubscriber 
                                         ? "캐릭터에게 보여질 나의 설정, 외모, 성격 등을 자유롭게 적어주세요.\n(예: 나는 키 188cm에 몸무게 88kg, 그리고 골격근량 48kg, 체지방 8%를 유지하고 있으며...)" 
-                                        : "🔒 시크릿 모드를 활성화하면 페르소나를 설정할 수 있습니다."
+                                        : "🔒 루시드 패스를 구독하면 페르소나를 설정할 수 있습니다."
                                     }
                                 />
+                                {!isSubscriber && (
+                                  <button
+                                    onClick={() => {
+                                      setShowSettings(false);
+                                      setStoreInitialTab("pass");
+                                      setShowStore(true);
+                                    }}
+                                    className="mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-indigo-600/10 border border-indigo-500/20 text-indigo-300 text-xs font-medium hover:bg-indigo-600/20 transition"
+                                  >
+                                    <Crown size={12} />
+                                    루시드 패스로 해금하기
+                                  </button>
+                                )}
                             </div>
 
                             <button 
                                 onClick={handleUpdateProfile}
                                 disabled={isSavingProfile}
-                                className={`w-full py-3 rounded-lg font-bold transition flex items-center justify-center gap-2 disabled:opacity-50
-                                    ${userInfo.isSecretMode 
-                                        ? 'bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-500 hover:to-pink-500 text-white shadow-lg shadow-red-900/20' 
-                                        : 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                                    }`}
+                                className="w-full py-3 rounded-lg font-bold transition flex items-center justify-center gap-2 disabled:opacity-50
+                                    bg-indigo-600 hover:bg-indigo-500 text-white"
                             >
                                 <Save size={18} />
                                 {isSavingProfile ? "Saving..." : "Save Profile Info"}
@@ -1736,7 +1751,7 @@ const ChatPage = () => {
                                 </p>
                                 <ul className="list-disc list-inside space-y-1 text-gray-500">
                                   <li>호감도가 더 쉽게 오릅니다.</li>
-                                  <li><span className="text-indigo-300">My Persona</span> 설정이 해금됩니다.</li>
+                                  <li>캐릭터의 윤리적 제약이 해제됩니다.</li>
                                   <li>성인 인증 + 해금권 구매 필요</li>
                                 </ul>
                               </div>
@@ -1922,6 +1937,10 @@ const ChatPage = () => {
         }}
         characters={characters}
         currentCharacterId={roomInfo?.characterId}
+        onRequestAdultVerify={() => {
+          setShowStore(false);
+          setShowAdultVerifyFromStore(true);
+        }}
         onPaymentComplete={() => {
           setShowStore(false);
 
@@ -1959,6 +1978,22 @@ const ChatPage = () => {
         }}
         userInfo={userInfo}
         characterId={roomInfo?.characterId}
+      />
+
+      {/* ═══ [Phase 5 Fix] 상점에서 유도된 성인인증 모달 ═══ */}
+      <AdultVerificationModal
+        isOpen={showAdultVerifyFromStore}
+        onClose={() => setShowAdultVerifyFromStore(false)}
+        onVerified={() => {
+          setShowAdultVerifyFromStore(false);
+          // 인증 완료 → userInfo 갱신 후 상점 재오픈 (시크릿 탭)
+          api.get("/users/me").then(res => {
+            setUserInfo(prev => ({ ...prev, isAdultVerified: res.data.isAdultVerified || false }));
+            setStoreInitialTab("secret");
+            setShowStore(true);
+            showToast("성인 인증이 완료되었습니다!", "success");
+          });
+        }}
       />
 
       {/* ━━━━━━━ [Phase 4.3] 엔딩 로딩 오버레이 ━━━━━━━ */}

@@ -68,6 +68,7 @@ const PASS_PRODUCTS = [
       "에너지 부스트 모드 무제한 (Pro 모델 대화)",
       "에너지 회복 속도 2배 (10분→5분)",
       "최대 에너지 보유량 증가 (30→100)",
+      "My Persona 설정 해금 (나만의 캐릭터 설정)",
     ],
   },
   {
@@ -83,18 +84,32 @@ const PASS_PRODUCTS = [
 
 const formatPrice = (n) => n.toLocaleString("ko-KR") + "원";
 
-/* ── Conic gradient border animation for BEST card ── */
-const ConicBorderCard = ({ children, className = "" }) => (
-  <div className={`relative p-[2px] rounded-2xl overflow-hidden ${className}`}>
+/* ── Elegant shimmer border for BEST card ── */
+const PremiumCard = ({ children, className = "" }) => (
+  <div className={`relative group/premium ${className}`}>
+    {/* Ambient glow — soft breathing aura */}
     <motion.div
-      className="absolute inset-0 rounded-2xl"
+      className="absolute -inset-[1px] rounded-2xl opacity-60 pointer-events-none"
       style={{
-        background: "conic-gradient(from 0deg, #a855f7, #ec4899, #f59e0b, #22d3ee, #a855f7)",
+        background: "linear-gradient(135deg, rgba(168,85,247,0.4), rgba(236,72,153,0.3), rgba(168,85,247,0.4))",
+        filter: "blur(12px)",
       }}
-      animate={{ rotate: 360 }}
-      transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+      animate={{ opacity: [0.35, 0.6, 0.35] }}
+      transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
     />
-    <div className="relative rounded-[14px] overflow-hidden bg-slate-900">
+    {/* Border layer */}
+    <div
+      className="absolute inset-0 rounded-2xl pointer-events-none"
+      style={{
+        background: "linear-gradient(135deg, rgba(168,85,247,0.5), rgba(236,72,153,0.4), rgba(245,158,11,0.3), rgba(168,85,247,0.5))",
+        padding: "1px",
+        WebkitMask: "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
+        WebkitMaskComposite: "xor",
+        maskComposite: "exclude",
+      }}
+    />
+    {/* Content */}
+    <div className="relative rounded-2xl overflow-hidden bg-slate-900/95">
       {children}
     </div>
   </div>
@@ -108,6 +123,7 @@ const LucidStore = ({
   characters = [],
   currentCharacterId = null,
   onPaymentComplete,
+  onRequestAdultVerify,
 }) => {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedCharId, setSelectedCharId] = useState(currentCharacterId);
@@ -203,7 +219,7 @@ const LucidStore = ({
       >
         {/* Backdrop */}
         <motion.div
-          className="absolute inset-0 bg-black/70 backdrop-blur-lg"
+          className="absolute inset-0 bg-black/70 backdrop-blur-sm"
           onClick={onClose}
         />
 
@@ -308,19 +324,20 @@ const LucidStore = ({
                   exit={{ opacity: 0 }}
                   className="flex flex-col items-center justify-center py-12"
                 >
-                  {/* Confetti particles */}
+                  {/* Confetti particles (optimized) */}
                   <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                    {[...Array(24)].map((_, i) => (
+                    {[...Array(12)].map((_, i) => (
                       <motion.div
                         key={i}
                         className={`absolute w-2 h-2 rounded-full ${
                           ["bg-purple-400", "bg-pink-400", "bg-amber-400", "bg-cyan-400", "bg-white"][i % 5]
                         }`}
+                        style={{ willChange: "transform, opacity" }}
                         initial={{
                           x: "50%", y: "40%", opacity: 0, scale: 0,
                         }}
                         animate={{
-                          x: `${20 + Math.random() * 60}%`,
+                          x: `${15 + Math.random() * 70}%`,
                           y: `${Math.random() * 100}%`,
                           opacity: [0, 1, 0],
                           scale: [0, 1.5, 0],
@@ -392,25 +409,23 @@ const LucidStore = ({
                 key="energy"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="grid grid-cols-1 sm:grid-cols-3 gap-4"
+                className="grid grid-cols-1 sm:grid-cols-3 gap-5"
               >
                 {ENERGY_PRODUCTS.map((p) => {
                   const Icon = p.icon;
                   const colorMap = {
-                    amber: { border: "border-amber-500/30", text: "text-amber-400", bg: "from-amber-900/30 to-amber-900/10", glow: "shadow-amber-500/10" },
-                    pink: { border: "border-pink-500/30", text: "text-pink-400", bg: "from-pink-900/30 to-pink-900/10", glow: "shadow-pink-500/10" },
-                    purple: { border: "border-purple-500/30", text: "text-purple-400", bg: "from-purple-900/30 to-purple-900/10", glow: "shadow-purple-500/10" },
+                    amber: { border: "border-amber-500/20", hoverBorder: "hover:border-amber-400/50", text: "text-amber-400", bg: "from-amber-900/30 to-amber-900/10", glow: "hover:shadow-amber-500/10" },
+                    pink: { border: "border-pink-500/20", hoverBorder: "hover:border-pink-400/50", text: "text-pink-400", bg: "from-pink-900/30 to-pink-900/10", glow: "hover:shadow-pink-500/10" },
+                    purple: { border: "border-purple-500/20", hoverBorder: "hover:border-purple-400/50", text: "text-purple-400", bg: "from-purple-900/30 to-purple-900/10", glow: "hover:shadow-purple-500/10" },
                   };
                   const c = colorMap[p.color];
 
-                  const CardInner = (
-                    <motion.button
+                  const CardContent = (
+                    <button
                       onClick={() => handlePurchase(p)}
                       className={`relative w-full h-full text-left p-5 flex flex-col justify-between ${
-                        p.badge ? "" : `rounded-2xl border ${c.border} bg-gradient-to-b ${c.bg} hover:border-opacity-60 shadow-lg ${c.glow}`
-                      } transition-all duration-300 group`}
-                      whileHover={{ scale: 1.03, y: -4 }}
-                      whileTap={{ scale: 0.98 }}
+                        p.badge ? "rounded-2xl" : `rounded-2xl border ${c.border} ${c.hoverBorder} bg-gradient-to-b ${c.bg} shadow-lg ${c.glow}`
+                      } transition-all duration-300 group hover:-translate-y-1`}
                     >
                       {p.badge && (
                         <div className="absolute -top-0 right-4 z-10">
@@ -440,13 +455,13 @@ const LucidStore = ({
                           <span className="text-[10px] text-white/25">{p.perUnit}</span>
                         </div>
                       </div>
-                    </motion.button>
+                    </button>
                   );
 
                   return p.badge ? (
-                    <ConicBorderCard key={p.type}>{CardInner}</ConicBorderCard>
+                    <PremiumCard key={p.type}>{CardContent}</PremiumCard>
                   ) : (
-                    <div key={p.type}>{CardInner}</div>
+                    <div key={p.type}>{CardContent}</div>
                   );
                 })}
               </motion.div>
@@ -489,30 +504,55 @@ const LucidStore = ({
                   </div>
                 )}
 
-                {/* Adult warning */}
-                <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/5 border border-red-500/10">
-                  <Shield size={14} className="text-red-400 flex-shrink-0" />
-                  <span className="text-xs text-red-300/70">시크릿 상품은 성인 인증 완료 후 구매할 수 있습니다.</span>
-                </div>
+                {/* Adult verification status banner */}
+                {!userInfo?.isAdultVerified ? (
+                  <button
+                    onClick={() => onRequestAdultVerify?.()}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/5 border border-red-500/15 hover:bg-red-500/10 hover:border-red-500/25 transition-all group"
+                  >
+                    <Shield size={16} className="text-red-400 flex-shrink-0" />
+                    <span className="text-xs text-red-300/80 text-left flex-1">성인 인증을 완료하면 시크릿 상품을 구매할 수 있습니다.</span>
+                    <span className="text-[10px] text-red-400/60 font-bold group-hover:text-red-400 transition whitespace-nowrap">
+                      인증하기 →
+                    </span>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+                    <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />
+                    <span className="text-xs text-emerald-300/70">성인 인증 완료</span>
+                  </div>
+                )}
 
                 {/* Product cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {SECRET_PRODUCTS.map((p) => {
                     const Icon = p.icon;
                     const isPermanent = p.type === "SECRET_UNLOCK_PERMANENT";
+                    const isVerified = !!userInfo?.isAdultVerified;
                     return (
-                      <motion.button
+                      <button
                         key={p.type}
-                        onClick={() => handlePurchase(p)}
-                        disabled={!userInfo?.isAdultVerified}
-                        className={`relative text-left p-5 rounded-2xl border transition-all duration-300 group ${
+                        onClick={() => {
+                          if (!isVerified) {
+                            onRequestAdultVerify?.();
+                          } else {
+                            handlePurchase(p);
+                          }
+                        }}
+                        className={`relative text-left p-5 rounded-2xl border transition-all duration-300 group hover:-translate-y-0.5 ${
                           isPermanent
-                            ? "border-amber-500/30 bg-gradient-to-b from-amber-900/20 to-amber-950/30 hover:border-amber-400/50 shadow-lg shadow-amber-500/5"
-                            : "border-indigo-500/30 bg-gradient-to-b from-indigo-900/20 to-indigo-950/30 hover:border-indigo-400/50"
-                        } ${!userInfo?.isAdultVerified ? "opacity-50 cursor-not-allowed" : ""}`}
-                        whileHover={userInfo?.isAdultVerified ? { scale: 1.02, y: -2 } : {}}
-                        whileTap={userInfo?.isAdultVerified ? { scale: 0.98 } : {}}
+                            ? "border-amber-500/20 bg-gradient-to-b from-amber-900/20 to-amber-950/30 hover:border-amber-400/40 shadow-lg shadow-amber-500/5"
+                            : "border-indigo-500/20 bg-gradient-to-b from-indigo-900/20 to-indigo-950/30 hover:border-indigo-400/40"
+                        }`}
                       >
+                        {/* 미인증 시 잠금 뱃지 */}
+                        {!isVerified && (
+                          <div className="absolute top-3 right-3 flex items-center gap-1 bg-white/5 border border-white/10 px-2 py-1 rounded-lg">
+                            <Lock size={10} className="text-white/40" />
+                            <span className="text-[9px] text-white/40">인증 필요</span>
+                          </div>
+                        )}
+
                         <div className={`text-[10px] font-bold uppercase tracking-widest mb-3 ${
                           isPermanent ? "text-amber-400/70" : "text-indigo-400/70"
                         }`}>
@@ -535,10 +575,10 @@ const LucidStore = ({
                           <div className={`flex items-center gap-1 text-xs font-medium ${
                             isPermanent ? "text-amber-400" : "text-indigo-400"
                           }`}>
-                            구매하기 <ArrowRight size={12} />
+                            {isVerified ? "구매하기" : "인증 후 구매"} <ArrowRight size={12} />
                           </div>
                         </div>
-                      </motion.button>
+                      </button>
                     );
                   })}
                 </div>
@@ -556,17 +596,18 @@ const LucidStore = ({
                 {PASS_PRODUCTS.map((p) => {
                   const isPremium = p.type === "LUCID_MIDNIGHT_PASS";
                   const isCurrentTier = userInfo?.subscriptionTier === p.type;
+                  const needsAdult = p.adultOnly && !userInfo?.isAdultVerified;
 
                   const PassCard = (
-                    <motion.button
-                      onClick={() => !isCurrentTier && handlePurchase(p)}
-                      disabled={isCurrentTier || (p.adultOnly && !userInfo?.isAdultVerified)}
+                    <button
+                      onClick={() => {
+                        if (isCurrentTier) return;
+                        if (needsAdult) { onRequestAdultVerify?.(); return; }
+                        handlePurchase(p);
+                      }}
                       className={`relative w-full text-left p-6 transition-all duration-300 ${
-                        isPremium ? "" : "rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-900/20 via-slate-900/50 to-indigo-950/20 hover:border-indigo-400/40"
-                      } ${isCurrentTier ? "ring-2 ring-emerald-500/50" : ""} ${
-                        p.adultOnly && !userInfo?.isAdultVerified ? "opacity-50 cursor-not-allowed" : ""
-                      }`}
-                      whileHover={!isCurrentTier ? { scale: 1.01 } : {}}
+                        isPremium ? "rounded-2xl" : "rounded-2xl border border-indigo-500/20 bg-gradient-to-br from-indigo-900/20 via-slate-900/50 to-indigo-950/20 hover:border-indigo-400/40"
+                      } ${isCurrentTier ? "ring-2 ring-emerald-500/50" : ""}`}
                     >
                       {isCurrentTier && (
                         <div className="absolute top-4 right-4 flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold px-3 py-1 rounded-full">
@@ -600,9 +641,11 @@ const LucidStore = ({
                       </ul>
 
                       {p.adultOnly && (
-                        <div className="flex items-center gap-1.5 mb-4 text-[10px] text-red-400/60">
-                          <Lock size={10} />
-                          성인 인증 필요
+                        <div className={`flex items-center gap-1.5 mb-4 text-[10px] ${
+                          needsAdult ? "text-red-400/60" : "text-emerald-400/60"
+                        }`}>
+                          {needsAdult ? <Lock size={10} /> : <CheckCircle size={10} />}
+                          {needsAdult ? "성인 인증 필요" : "성인 인증 완료"}
                         </div>
                       )}
 
@@ -617,11 +660,11 @@ const LucidStore = ({
                               ? "bg-gradient-to-r from-rose-600 to-pink-600 text-white"
                               : "bg-indigo-600 text-white"
                           }`}>
-                            구독하기 <ChevronRight size={14} />
+                            {needsAdult ? "인증 후 구독" : "구독하기"} <ChevronRight size={14} />
                           </div>
                         )}
                       </div>
-                    </motion.button>
+                    </button>
                   );
 
                   return isPremium ? (
