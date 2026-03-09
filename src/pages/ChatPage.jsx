@@ -187,6 +187,14 @@ const ChatPage = () => {
     localStorage.setItem("bgmVolume", String(bgmVolume));
   }, [bgmVolume]);
 
+  useEffect(() => {
+    const handler = (e) => {
+      showToast(`요청이 너무 빠릅니다. ${e.detail.retryAfter}초 후 다시 시도해주세요.`, 'warning');
+    };
+    window.addEventListener('rate-limited', handler);
+    return () => window.removeEventListener('rate-limited', handler);
+  }, []);
+
   // ================= User Info Logic =================
   useEffect(() => {
     const fetchUserInfo = async () => {
@@ -761,17 +769,32 @@ const ChatPage = () => {
       }
 
     } catch (err) {
-      console.error(err);
-      const narrationMap = {
-                  "연화": "음.. 잠깐 생각에 잠겨버렸네요.. 뭐라고 하셨나요?",
-                  "아이리": "잠시만요.. 아이리가 잠깐 바쁜 일이 있어서...",
-                  "백루나": "음.. ㄴ,네?! 아, 죄송해요.. 잠깐 멍때려버렸어요.. 헤헤..",
-                  "서태리": "..."
-              };
-      setCurrentScene({ 
-        dialogue: narrationMap[roomInfo?.characterName] || "잠시 후 다시 시도해주세요.", emotion: "SAD", narration: "잠시 후 다시 시도해주세요." 
-      });
-      setDisplayedEmotion("SAD");
+      const status = err.response?.status;
+      const data = err.response?.data;
+      
+      if (status === 400 && data?.errorCode === "CONTENT_BLOCKED") {
+          // 콘텐츠 필터 차단 — 유저 친화적 메시지 표시
+          showToast(data.message || "부적절한 내용이 포함되어 있습니다.", "warning");
+          // 에너지는 차감되지 않았으므로 별도 처리 불필요
+      } else if (status === 402) {
+          // 에너지 부족
+          showToast("에너지가 부족합니다.", "error");
+      } else if (status === 429) {
+          // Rate limit
+          showToast("요청이 너무 빠릅니다.", "warning");
+      } else {
+          const narrationMap = {
+                    "연화": "음.. 잠깐 생각에 잠겨버렸네요.. 뭐라고 하셨나요?",
+                    "아이리": "잠시만요.. 아이리가 잠깐 바쁜 일이 있어서...",
+                    "백루나": "음.. ㄴ,네?! 아, 죄송해요.. 잠깐 멍때려버렸어요.. 헤헤..",
+                    "서태리": "..."
+                };
+          setCurrentScene({ 
+            dialogue: narrationMap[roomInfo?.characterName] || "잠시 후 다시 시도해주세요.", emotion: "SAD", narration: "잠시 후 다시 시도해주세요." 
+          });
+          setDisplayedEmotion("SAD");
+          showToast("오류가 발생했습니다.", "error");
+      }
     } finally {
       setIsTyping(false);
     }
