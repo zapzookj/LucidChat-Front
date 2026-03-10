@@ -126,6 +126,8 @@ const ChatPage = () => {
   const [currentBpm, setCurrentBpm] = useState(65);
   const [dynamicRelationTag, setDynamicRelationTag] = useState(null);
   const [characterThought, setCharacterThought] = useState(null);
+  const [showStatusPanel, setShowStatusPanel] = useState(false);   // 상태창 오픈 상태
+  const [latestStatChanges, setLatestStatChanges] = useState(null); // 스탯 변화 팝업용
 
   const logsEndRef = useRef(null);
 
@@ -357,18 +359,10 @@ const ChatPage = () => {
 
         setRoomInfo(roomRes.data);
         // [Phase 5.5] 상태창 데이터 복원
-        if (roomRes.data.stats) {
-          setCharacterStats(roomRes.data.stats);
-        }
-        if (roomRes.data.bpm !== undefined) {
-          setCurrentBpm(roomRes.data.bpm);
-        }
-        if (roomRes.data.dynamicRelationTag) {
-          setDynamicRelationTag(roomRes.data.dynamicRelationTag);
-        }
-        if (roomRes.data.characterThought) {
-          setCharacterThought(roomRes.data.characterThought);
-        }
+        if (roomRes.data.stats) setCharacterStats(roomRes.data.stats);
+        if (roomRes.data.bpm !== undefined) setCurrentBpm(roomRes.data.bpm);
+        if (roomRes.data.dynamicRelationTag) setDynamicRelationTag(roomRes.data.dynamicRelationTag);
+        if (roomRes.data.characterThought) setCharacterThought(roomRes.data.characterThought);
         setAffection(roomRes.data.affectionScore);
         setUserInfo({
             nickname: userRes.data.nickname || "",
@@ -708,20 +702,30 @@ const ChatPage = () => {
               stats: newStats, bpm: newBpm, dynamicRelationTag: newRelTag, characterThought: newThought
       } = res.data;
       setAffection(currentAffection);
-      // [Phase 5.5] 상태창 업데이트
+      // [Phase 5.5-P] 상태창 업데이트
       if (newStats) {
+        // 스탯 변화 팝업용: 이전 값과 비교하여 변화분 추출
+        const changes = [];
+        Object.keys(newStats).forEach(key => {
+          const oldVal = characterStats[key] || 0;
+          const newVal = newStats[key];
+          if (newVal !== null && newVal !== undefined && newVal !== oldVal) {
+            changes.push({ key, value: newVal - oldVal });
+          }
+        });
+        if (changes.length > 0) {
+          setLatestStatChanges(changes);
+          // 팝업 표시 후 초기화 (3초 후)
+          setTimeout(() => setLatestStatChanges(null), 3500);
+        }
         setCharacterStats(newStats);
       }
-      if (newBpm !== undefined) {
-        setCurrentBpm(newBpm);
-      }
-      if (newRelTag) {
-        setDynamicRelationTag(newRelTag);
-      }
+      if (newBpm !== undefined) setCurrentBpm(newBpm);
+      if (newRelTag) setDynamicRelationTag(newRelTag);
       if (newThought !== undefined && newThought !== null) {
         setCharacterThought(newThought);
       }
-      
+
       if (scenes && scenes.length > 0) {
         setSceneQueue(scenes); 
       }
@@ -858,6 +862,19 @@ const ChatPage = () => {
     }
     } finally {
       setIsTyping(false);
+      // [Phase 5.5-P] 비동기 생성된 캐릭터 생각 폴링 (3초 후)
+      setTimeout(async () => {
+        try {
+          const freshRoom = await api.get(`/chat/rooms/${roomId}`);
+          if (freshRoom.data.characterThought && freshRoom.data.characterThought !== characterThought) {
+            setCharacterThought(freshRoom.data.characterThought);
+          }
+          // BPM/스탯도 최신화 (비동기 변경이 있을 수 있음)
+          if (freshRoom.data.stats) setCharacterStats(freshRoom.data.stats);
+          if (freshRoom.data.bpm !== undefined) setCurrentBpm(freshRoom.data.bpm);
+          if (freshRoom.data.dynamicRelationTag) setDynamicRelationTag(freshRoom.data.dynamicRelationTag);
+        } catch (_) { /* 실패해도 무시 — 다음 턴에 자연스럽게 갱신 */ }
+      }, 3000);
     }
   };
 
@@ -915,6 +932,7 @@ const ChatPage = () => {
           if (evtStats) setCharacterStats(evtStats);
           if (evtBpm !== undefined) setCurrentBpm(evtBpm);
           if (evtRelTag) setDynamicRelationTag(evtRelTag);
+          if (evtThought) setCharacterThought(evtThought);
           // 큐구성: [이벤트 나레이션] -> [캐릭터 반응1] -> [반응2]...
           const newQueue = [];
           
@@ -1074,6 +1092,8 @@ const ChatPage = () => {
                 setCurrentBpm(65);
                 setDynamicRelationTag("낯선 사람");
                 setCharacterThought(null);
+                setShowStatusPanel(false);
+                setLatestStatChanges(null);
                 setShowEndingCredits(false);
                 // [Phase 4 Fix] 히스토리 페이지네이션 초기화
                 setHistoryPage(1);
@@ -1201,11 +1221,12 @@ const ChatPage = () => {
 
       <CharacterDisplay emotion={displayedEmotion} outfit={currentOutfit} characterSlug={roomInfo?.characterSlug} defaultOutfit={roomInfo?.defaultOutfit} />
 
-       {/* ═══ [Phase 5.5] Biometric Status Panel ═══ */}
+       {/* ═══ [Phase 5.5-P] Biometric Status Panel (좌측 전체 활용) ═══ */}
       <BiometricStatusPanel
+        isOpen={showStatusPanel}
+        onClose={() => setShowStatusPanel(false)}
         stats={characterStats}
         bpm={currentBpm}
-        affectionScore={affection}
         dynamicRelationTag={dynamicRelationTag}
         characterThought={characterThought}
         characterName={roomInfo?.characterName || "캐릭터"}
@@ -1311,15 +1332,15 @@ const ChatPage = () => {
         </button>
       </div>
 
-      <DialogueBox 
+      <DialogueBox
         characterName={roomInfo.characterName}
-        scene={currentScene} 
+        scene={currentScene}
         onSend={handleSendMessage}
         isTyping={isTyping}
         affection={affection}
         energy={energy}
-        onNextScene={handleNextScene} 
-        hasNextScene={sceneQueue.length > 0} 
+        onNextScene={handleNextScene}
+        hasNextScene={sceneQueue.length > 0}
         nickname={user?.nickname || "사용자"}
         onTriggerEvent={handleTriggerEvent}
         boostMode={boostMode}
@@ -1330,6 +1351,10 @@ const ChatPage = () => {
           setStoreInitialTab(tab || "energy");
           setShowStore(true);
         }}
+        // ── [Phase 5.5-P] 새 props ──
+        bpm={currentBpm}
+        onOpenStatusPanel={() => setShowStatusPanel(true)}
+        statChanges={latestStatChanges}
       />
 
       {/* ================= Event Selection Modal (3-Branch) ================= */}

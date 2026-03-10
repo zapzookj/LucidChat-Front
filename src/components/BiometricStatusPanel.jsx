@@ -1,28 +1,21 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Heart, ChevronRight, Eye, EyeOff, Brain } from "lucide-react";
+import { Heart, EyeOff, Brain, X } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════
-//  [Phase 5.5] Biometric Status Panel — 입체적 상태창
+//  [Phase 5.5-v3] Biometric Status Panel
 //
-//  2-State UI:
-//    1. Minimal HUD: 심장 아이콘(BPM 펄스) + 미니 호감도 바
-//    2. Expanded Panel: Glassmorphism 패널
-//       - 5각 레이더 차트 (SVG)
-//       - 스탯 수치 리스트
-//       - 동적 관계 태그
-//       - 캐릭터의 생각
-//       - 시크릿 모드: 추가 3개 스탯 바
+//  4개 섹션:
+//    1. BPM (심장 애니메이션 + 수치 + 게이지바)
+//    2. 캐릭터의 마음 (동적 관계 태그)
+//    3. 5각 레이더 차트 + 스탯 상세 바
+//    4. 캐릭터의 유저에 대한 생각
 //
-//  Props:
-//    stats: { intimacy, affection, dependency, playfulness, trust, lust?, corruption?, obsession? }
-//    bpm: number (60~180)
-//    affectionScore: number (-100~100)  // 기존 호감도 (엔딩용)
-//    dynamicRelationTag: string
-//    characterThought: string | null
-//    characterName: string
-//    statusLevel: string (STRANGER|ACQUAINTANCE|FRIEND|LOVER|ENEMY)
-//    isSecretMode: boolean
+//  피드백 반영:
+//    - 배경 딤(어둡게) 제거
+//    - 스크롤바 비표시
+//    - 투명도 높게 유지
+//    - 외부 의존성 없음 (자립형)
 // ═══════════════════════════════════════════════════════════════════
 
 // ── 스탯 메타데이터 ──
@@ -51,409 +44,314 @@ const RELATION_THEME = {
 
 
 // ═══════════════════════════════════════════════════════════════════
-//  SVG Radar Chart — 5각 스파이더 차트
+//  SVG Radar Chart (패딩 확대, 텍스트 잘림 완전 해소)
 // ═══════════════════════════════════════════════════════════════════
 
-const RadarChart = ({ stats, size = 160 }) => {
+const RadarChart = ({ stats, size = 230 }) => {
   const cx = size / 2;
   const cy = size / 2;
-  const maxR = size / 2 - 16;
+  const maxR = size / 2 - 38;
   const axes = NORMAL_STATS;
   const levels = [20, 40, 60, 80, 100];
 
-  // 각도 계산 (꼭대기부터 시계 방향)
   const getPoint = (index, value) => {
     const angle = (Math.PI * 2 * index) / axes.length - Math.PI / 2;
-    const r = (value / 100) * maxR;
+    const v = Math.max(0, Math.min(100, value));
+    const r = (v / 100) * maxR;
     return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
   };
 
-  // 그리드 경로
   const gridPaths = levels.map(level => {
-    const points = axes.map((_, i) => getPoint(i, level));
-    return points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ") + " Z";
+    const pts = axes.map((_, i) => getPoint(i, level));
+    return pts.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ") + " Z";
   });
 
-  // 데이터 경로
   const dataPoints = axes.map((axis, i) => getPoint(i, stats[axis.key] || 0));
   const dataPath = dataPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ") + " Z";
 
-  // 축 라벨 위치
-  const labelPoints = axes.map((_, i) => getPoint(i, 118));
+  const labelPoints = axes.map((_, i) => {
+    const angle = (Math.PI * 2 * i) / axes.length - Math.PI / 2;
+    const r = maxR * 1.35;
+    return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+  });
 
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="drop-shadow-lg">
       <defs>
-        <radialGradient id="radarGlow" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#f472b6" stopOpacity="0.35" />
-          <stop offset="60%" stopColor="#a78bfa" stopOpacity="0.15" />
-          <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.05" />
+        <radialGradient id="rGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#f472b6" stopOpacity="0.3" />
+          <stop offset="60%" stopColor="#a78bfa" stopOpacity="0.1" />
+          <stop offset="100%" stopColor="#60a5fa" stopOpacity="0.02" />
         </radialGradient>
-        <filter id="glow">
-          <feGaussianBlur stdDeviation="2" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-      </defs>
-
-      {/* 그리드 */}
-      {gridPaths.map((path, i) => (
-        <path key={i} d={path} fill="none" stroke="rgba(255,255,255,0.08)"
-              strokeWidth={i === levels.length - 1 ? 1 : 0.5} />
-      ))}
-
-      {/* 축 선 */}
-      {axes.map((_, i) => {
-        const p = getPoint(i, 100);
-        return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="rgba(255,255,255,0.06)" strokeWidth={0.5} />;
-      })}
-
-      {/* 데이터 영역 (애니메이션은 framer-motion으로) */}
-      <motion.path
-        d={dataPath}
-        fill="url(#radarGlow)"
-        stroke="url(#radarStroke)"
-        strokeWidth={1.5}
-        filter="url(#glow)"
-        initial={{ opacity: 0, scale: 0.5 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.6, ease: "easeOut" }}
-        style={{ transformOrigin: `${cx}px ${cy}px` }}
-      />
-
-      {/* 데이터 포인트 라인 그라디언트 */}
-      <defs>
-        <linearGradient id="radarStroke" x1="0%" y1="0%" x2="100%" y2="100%">
+        <linearGradient id="rStroke" x1="0%" y1="0%" x2="100%" y2="100%">
           <stop offset="0%" stopColor="#60a5fa" />
           <stop offset="50%" stopColor="#f472b6" />
           <stop offset="100%" stopColor="#a78bfa" />
         </linearGradient>
+        <filter id="glow"><feGaussianBlur stdDeviation="2.5" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
       </defs>
 
-      {/* 데이터 포인트 꼭짓점 */}
+      {gridPaths.map((path, i) => (
+        <path key={i} d={path} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={i === 4 ? 1 : 0.5} />
+      ))}
+      {axes.map((_, i) => {
+        const p = getPoint(i, 100);
+        return <line key={i} x1={cx} y1={cy} x2={p.x} y2={p.y} stroke="rgba(255,255,255,0.04)" strokeWidth={0.5} />;
+      })}
+
+      <motion.path d={dataPath} fill="url(#rGlow)" stroke="url(#rStroke)" strokeWidth={1.5} filter="url(#glow)"
+        initial={{ opacity: 0, scale: 0.5 }} animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.6, ease: "easeOut" }} style={{ transformOrigin: `${cx}px ${cy}px` }} />
+
       {dataPoints.map((p, i) => (
-        <motion.circle
-          key={i}
-          cx={p.x} cy={p.y} r={3}
-          fill={axes[i].color}
-          stroke="rgba(255,255,255,0.5)"
-          strokeWidth={1}
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ delay: 0.1 * i, type: "spring", stiffness: 300 }}
-          style={{ filter: `drop-shadow(0 0 4px ${axes[i].color})` }}
-        />
+        <motion.circle key={i} cx={p.x} cy={p.y} r={3.5} fill={axes[i].color} stroke="rgba(255,255,255,0.5)" strokeWidth={1}
+          initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.08 * i, type: "spring", stiffness: 300 }}
+          style={{ filter: `drop-shadow(0 0 5px ${axes[i].color})` }} />
       ))}
 
-      {/* 축 라벨 */}
-      {axes.map((axis, i) => {
-        const lp = labelPoints[i];
-        return (
-          <text
-            key={i} x={lp.x} y={lp.y}
-            textAnchor="middle" dominantBaseline="central"
-            className="fill-white/50 select-none pointer-events-none"
-            style={{ fontSize: "9px", fontWeight: 500 }}
-          >
-            {axis.label}
-          </text>
-        );
-      })}
+      {axes.map((axis, i) => (
+        <text key={i} x={labelPoints[i].x} y={labelPoints[i].y} textAnchor="middle" dominantBaseline="central"
+          className="fill-white/50 select-none pointer-events-none" style={{ fontSize: "11px", fontWeight: 600 }}>
+          {axis.label}
+        </text>
+      ))}
     </svg>
   );
 };
 
 
 // ═══════════════════════════════════════════════════════════════════
-//  미니 스탯 바 (시크릿 모드 전용)
+//  심장 펄스 (BPM 동기, 자립형)
 // ═══════════════════════════════════════════════════════════════════
 
-const SecretStatBar = ({ stat, value }) => (
-  <div className="flex items-center gap-2">
-    <span className="text-xs w-4 text-center">{stat.icon}</span>
-    <span className="text-[10px] text-white/40 w-10 shrink-0">{stat.label}</span>
-    <div className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
-      <motion.div
-        className="h-full rounded-full"
-        style={{ background: `linear-gradient(90deg, ${stat.color}66, ${stat.color})` }}
-        initial={{ width: 0 }}
-        animate={{ width: `${value}%` }}
-        transition={{ duration: 0.8, ease: "easeOut" }}
-      />
-    </div>
-    <span className="text-[10px] text-white/30 w-6 text-right tabular-nums">{value}</span>
-  </div>
-);
-
-
-// ═══════════════════════════════════════════════════════════════════
-//  Heart Pulse Component — BPM 동기 심장 애니메이션
-// ═══════════════════════════════════════════════════════════════════
-
-const HeartPulse = ({ bpm, size = 22, className = "" }) => {
-  const interval = 60 / Math.max(bpm, 60); // 초 단위 (BPM → 1박 간격)
-
-  // BPM에 따른 색상 변화
-  const heartColor = useMemo(() => {
-    if (bpm >= 140) return "#ff2d55";
-    if (bpm >= 110) return "#ff6b9d";
-    if (bpm >= 85)  return "#f472b6";
-    return "#f9a8d4";
-  }, [bpm]);
-
+const HeartPulse = ({ bpm, size = 18 }) => {
+  const interval = 60 / Math.max(bpm, 60);
+  const c = bpm >= 140 ? "#ff2d55" : bpm >= 110 ? "#ff6b9d" : bpm >= 85 ? "#f472b6" : "#f9a8d4";
   return (
-    <motion.div
-      className={`relative ${className}`}
-      animate={{
-        scale: [1, 1.25, 1, 1.1, 1],
-      }}
-      transition={{
-        duration: interval,
-        repeat: Infinity,
-        ease: "easeInOut",
-        times: [0, 0.15, 0.35, 0.5, 1],
-      }}
-    >
-      <Heart
-        size={size}
-        fill={heartColor}
-        color={heartColor}
-        style={{ filter: `drop-shadow(0 0 ${bpm > 100 ? 8 : 4}px ${heartColor}80)` }}
-      />
+    <motion.div animate={{ scale: [1, 1.25, 1, 1.1, 1] }}
+      transition={{ duration: interval, repeat: Infinity, ease: "easeInOut", times: [0, 0.15, 0.35, 0.5, 1] }}>
+      <Heart size={size} fill={c} color={c} style={{ filter: `drop-shadow(0 0 ${bpm > 100 ? 8 : 4}px ${c}80)` }} />
     </motion.div>
   );
 };
 
 
 // ═══════════════════════════════════════════════════════════════════
-//  Main Component
+//  메인 패널
 // ═══════════════════════════════════════════════════════════════════
 
 const BiometricStatusPanel = ({
+  isOpen,
+  onClose,
   stats,
   bpm = 65,
-  affectionScore = 0,
   dynamicRelationTag,
   characterThought,
   characterName = "캐릭터",
   statusLevel = "STRANGER",
   isSecretMode = false,
 }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
   const panelRef = useRef(null);
   const theme = RELATION_THEME[statusLevel] || RELATION_THEME.STRANGER;
 
-  // 패널 외부 클릭 시 닫기
-  useEffect(() => {
-    if (!isExpanded) return;
-    const handler = (e) => {
-      if (panelRef.current && !panelRef.current.contains(e.target)) {
-        setIsExpanded(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [isExpanded]);
-
-  // 안전한 스탯 기본값
   const safeStats = {
-    intimacy: stats?.intimacy ?? 0,
-    affection: stats?.affection ?? 0,
-    dependency: stats?.dependency ?? 0,
-    playfulness: stats?.playfulness ?? 0,
-    trust: stats?.trust ?? 0,
-    lust: stats?.lust ?? 0,
-    corruption: stats?.corruption ?? 0,
-    obsession: stats?.obsession ?? 0,
+    intimacy: stats?.intimacy ?? 0, affection: stats?.affection ?? 0,
+    dependency: stats?.dependency ?? 0, playfulness: stats?.playfulness ?? 0, trust: stats?.trust ?? 0,
+    lust: stats?.lust ?? 0, corruption: stats?.corruption ?? 0, obsession: stats?.obsession ?? 0,
   };
 
-  // 최고 스탯 하이라이트
   const dominantKey = useMemo(() => {
-    const normalEntries = NORMAL_STATS.map(s => ({ key: s.key, value: safeStats[s.key] }));
-    const sorted = [...normalEntries].sort((a, b) => b.value - a.value);
+    const sorted = NORMAL_STATS.map(s => ({ key: s.key, value: safeStats[s.key] })).sort((a, b) => b.value - a.value);
     return sorted[0]?.value > 0 ? sorted[0].key : null;
   }, [safeStats]);
 
+  const bpmPercent = Math.min(100, Math.max(0, ((bpm - 60) / 120) * 100));
+
+  // 패널 외부 클릭 시 닫기
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e) => {
+      if (panelRef.current && !panelRef.current.contains(e.target)) onClose();
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [isOpen, onClose]);
+
   return (
-    <div
-      ref={panelRef}
-      className="absolute left-4 sm:left-6 top-1/2 -translate-y-1/2 z-40 select-none"
-    >
-      {/* ━━━ Minimal HUD (항상 표시) ━━━ */}
-      <motion.div
-        className="flex flex-col items-center gap-2 cursor-pointer group"
-        onClick={() => setIsExpanded(!isExpanded)}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-      >
-        {/* 심장 아이콘 + BPM */}
-        <div className="relative flex flex-col items-center">
-          <HeartPulse bpm={bpm} size={20} />
-          <motion.span
-            className="text-[10px] tabular-nums font-bold mt-0.5"
-            style={{ color: theme.accent }}
-            animate={{ opacity: [0.5, 1, 0.5] }}
-            transition={{ duration: 2, repeat: Infinity }}
-          >
-            {bpm}
-          </motion.span>
-        </div>
-
-        {/* 미니 호감도 바 */}
-        <div className="w-1 h-16 rounded-full bg-white/[0.06] overflow-hidden relative">
-          <motion.div
-            className="absolute bottom-0 w-full rounded-full"
-            style={{
-              background: `linear-gradient(to top, ${theme.accent}88, ${theme.accent})`,
-              boxShadow: `0 0 8px ${theme.accent}40`,
-            }}
-            animate={{ height: `${Math.max(2, Math.abs(affectionScore))}%` }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
-          />
-        </div>
-
-        {/* 확장 힌트 */}
+    <AnimatePresence>
+      {isOpen && (
+        /* ⚠️ 배경 딤 제거 — 패널만 단독 렌더링 */
         <motion.div
-          className="opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+          ref={panelRef}
+          initial={{ opacity: 0, x: -30 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -30 }}
+          transition={{ type: "spring", stiffness: 280, damping: 26 }}
+          className="fixed left-3 sm:left-5 z-[65] flex flex-col"
+          style={{
+            top: "72px",
+            bottom: "210px",
+            width: "min(310px, 40vw)",
+            willChange: "transform, opacity",
+            transform: "translateZ(0)",
+          }}
         >
-          <ChevronRight size={12} className="text-white/30 rotate-0" />
-        </motion.div>
-      </motion.div>
-
-      {/* ━━━ Expanded Glassmorphism Panel ━━━ */}
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            initial={{ opacity: 0, x: -20, scale: 0.9 }}
-            animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: -20, scale: 0.9 }}
-            transition={{ type: "spring", stiffness: 300, damping: 28 }}
-            className="absolute left-10 top-1/2 -translate-y-1/2 w-[220px] sm:w-[240px]"
+          <div
+            className="h-full rounded-2xl border border-white/[0.06] flex flex-col"
+            style={{
+              background: "linear-gradient(160deg, rgba(8,4,20,0.78), rgba(15,8,30,0.82))",
+              backdropFilter: "blur(28px) saturate(1.3)",
+              boxShadow: `0 12px 60px rgba(0,0,0,0.4), 0 0 80px ${theme.glow}`,
+              /* ⚠️ 스크롤바 완전 비표시 */
+              overflow: "hidden",
+            }}
           >
-            <div
-              className="rounded-2xl border border-white/[0.08] overflow-hidden"
-              style={{
-                background: "linear-gradient(135deg, rgba(10,5,25,0.88), rgba(20,10,40,0.92))",
-                backdropFilter: "blur(24px) saturate(1.4)",
-                boxShadow: `0 8px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06), 0 0 60px ${theme.glow}`,
-              }}
-            >
-              {/* ── Header: 관계 태그 + 캐릭터 이름 ── */}
-              <div className="px-4 pt-3.5 pb-2 border-b border-white/[0.04]">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <HeartPulse bpm={bpm} size={14} />
-                    <span className="text-[10px] tabular-nums font-mono text-white/40">{bpm} BPM</span>
+            {/* 내부 스크롤 컨테이너 (스크롤바 숨김) */}
+            <div className="flex-1 overflow-y-auto" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+              <style>{`.status-scroll::-webkit-scrollbar { display: none; }`}</style>
+              <div className="status-scroll h-full overflow-y-auto" style={{ scrollbarWidth: "none" }}>
+
+                {/* ══════════ Section 1: BPM ══════════ */}
+                <div className="px-5 pt-4 pb-3 border-b border-white/[0.04]">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[9px] text-white/20 uppercase tracking-widest font-bold">Heartbeat</span>
+                    <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/[0.06] transition text-white/25 hover:text-white/50">
+                      <X size={14} />
+                    </button>
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setIsExpanded(false); }}
-                    className="p-1 rounded-lg hover:bg-white/[0.06] transition"
-                  >
-                    <ChevronRight size={12} className="text-white/20 rotate-180" />
-                  </button>
-                </div>
-                <div className="mt-2">
-                  <span
-                    className="text-xs font-bold bg-clip-text text-transparent"
-                    style={{
-                      backgroundImage: `linear-gradient(135deg, ${theme.accent}, white)`,
-                    }}
-                  >
-                    {dynamicRelationTag || "낯선 사람"}
-                  </span>
-                  <p className="text-[10px] text-white/25 mt-0.5">{characterName}의 마음</p>
-                </div>
-              </div>
-
-              {/* ── Radar Chart ── */}
-              <div className="flex justify-center py-2">
-                <RadarChart stats={safeStats} size={160} />
-              </div>
-
-              {/* ── 노말 스탯 수치 ── */}
-              <div className="px-4 pb-2 space-y-1">
-                {NORMAL_STATS.map((stat) => {
-                  const val = safeStats[stat.key];
-                  const isDominant = stat.key === dominantKey;
-                  return (
-                    <div key={stat.key} className="flex items-center gap-1.5">
-                      <span className="text-[10px] w-3.5 text-center">{stat.icon}</span>
-                      <span className={`text-[10px] w-10 shrink-0 ${isDominant ? "text-white/70 font-bold" : "text-white/35"}`}>
-                        {stat.label}
-                      </span>
-                      <div className="flex-1 h-1 rounded-full bg-white/[0.05] overflow-hidden">
+                  <div className="flex items-center gap-4">
+                    <HeartPulse bpm={bpm} size={28} />
+                    <div className="flex-1">
+                      <div className="flex items-baseline gap-2 mb-1.5">
+                        <span className="text-2xl font-black text-white tabular-nums">{bpm}</span>
+                        <span className="text-xs text-rose-400/60 font-bold">BPM</span>
+                      </div>
+                      <div className="w-full h-2 rounded-full bg-white/[0.06] overflow-hidden">
                         <motion.div
                           className="h-full rounded-full"
-                          style={{
-                            background: isDominant
-                              ? `linear-gradient(90deg, ${stat.color}88, ${stat.color})`
-                              : `${stat.color}55`,
-                            boxShadow: isDominant ? `0 0 6px ${stat.color}40` : "none",
-                          }}
-                          initial={{ width: 0 }}
-                          animate={{ width: `${val}%` }}
-                          transition={{ duration: 0.6, ease: "easeOut", delay: 0.05 }}
+                          style={{ background: bpm >= 120 ? "linear-gradient(90deg, #f472b6, #ef4444)" : "linear-gradient(90deg, #f9a8d4, #f472b6)" }}
+                          animate={{ width: `${bpmPercent}%` }}
+                          transition={{ duration: 0.5, ease: "easeOut" }}
                         />
                       </div>
-                      <span className={`text-[10px] w-5 text-right tabular-nums ${isDominant ? "text-white/60" : "text-white/25"}`}>
-                        {val}
-                      </span>
                     </div>
-                  );
-                })}
-              </div>
-
-              {/* ── 시크릿 모드 추가 스탯 ── */}
-              <AnimatePresence>
-                {isSecretMode && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="px-4 pb-2 pt-1 border-t border-red-500/10">
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <EyeOff size={10} className="text-red-400/50" />
-                        <span className="text-[9px] text-red-400/40 uppercase tracking-widest font-bold">Secret</span>
-                      </div>
-                      <div className="space-y-1.5">
-                        {SECRET_STATS.map((stat) => (
-                          <SecretStatBar key={stat.key} stat={stat} value={safeStats[stat.key]} />
-                        ))}
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* ── 캐릭터의 생각 ── */}
-              {characterThought && (
-                <div className="px-4 pb-3.5 pt-1 border-t border-white/[0.04]">
-                  <div className="flex items-center gap-1.5 mb-1.5">
-                    <Brain size={10} className="text-purple-400/50" />
-                    <span className="text-[9px] text-white/25 uppercase tracking-widest font-bold">Inner Thought</span>
                   </div>
-                  <motion.p
-                    key={characterThought}
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5 }}
-                    className="text-[11px] text-white/50 leading-relaxed italic"
-                    style={{ fontFamily: "'Noto Serif KR', serif" }}
-                  >
-                    "{characterThought}"
-                  </motion.p>
                 </div>
-              )}
+
+                {/* ══════════ Section 2: 캐릭터의 마음 (동적 관계) ══════════ */}
+                <div className="px-5 py-3 border-b border-white/[0.04]">
+                  <span className="text-[9px] text-white/20 uppercase tracking-widest font-bold">Relationship</span>
+                  <div className="mt-2">
+                    <motion.span
+                      key={dynamicRelationTag}
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="text-base font-bold bg-clip-text text-transparent leading-tight"
+                      style={{ backgroundImage: `linear-gradient(135deg, ${theme.accent}, white)` }}
+                    >
+                      {dynamicRelationTag || "낯선 사람"}
+                    </motion.span>
+                    <p className="text-[10px] text-white/20 mt-0.5">{characterName}의 당신을 향한 마음</p>
+                  </div>
+                </div>
+
+                {/* ══════════ Section 3: 레이더 차트 + 스탯 ══════════ */}
+                <div className="px-3 pt-2 pb-1 border-b border-white/[0.04]">
+                  <div className="px-2 mb-1">
+                    <span className="text-[9px] text-white/20 uppercase tracking-widest font-bold">Stats</span>
+                  </div>
+
+                  {/* 레이더 차트 */}
+                  <div className="flex justify-center">
+                    <RadarChart stats={safeStats} size={230} />
+                  </div>
+
+                  {/* 스탯 바 */}
+                  <div className="px-2 pb-2 space-y-1.5">
+                    {NORMAL_STATS.map((stat) => {
+                      const val = safeStats[stat.key];
+                      const isDom = stat.key === dominantKey;
+                      const absVal = Math.abs(val);
+                      const isNeg = val < 0;
+                      return (
+                        <div key={stat.key} className="flex items-center gap-2">
+                          <span className="text-sm w-5 text-center">{stat.icon}</span>
+                          <span className={`text-xs w-12 shrink-0 ${isDom ? "text-white/70 font-bold" : "text-white/30"}`}>{stat.label}</span>
+                          <div className="flex-1 h-1.5 rounded-full bg-white/[0.04] overflow-hidden relative">
+                            <motion.div
+                              className="absolute top-0 h-full rounded-full"
+                              style={{
+                                left: isNeg ? `${50 - absVal / 2}%` : "50%",
+                                background: isDom ? `linear-gradient(90deg, ${stat.color}88, ${stat.color})` : `${stat.color}44`,
+                                boxShadow: isDom ? `0 0 8px ${stat.color}30` : "none",
+                              }}
+                              initial={{ width: 0 }}
+                              animate={{ width: `${absVal / 2}%` }}
+                              transition={{ duration: 0.6, ease: "easeOut" }}
+                            />
+                            <div className="absolute left-1/2 top-0 w-px h-full bg-white/[0.08]" />
+                          </div>
+                          <span className={`text-[11px] w-7 text-right tabular-nums ${isDom ? "text-white/60 font-bold" : "text-white/20"}`}>{val}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* 시크릿 스탯 */}
+                  <AnimatePresence>
+                    {isSecretMode && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                        <div className="px-2 pb-2 pt-1 border-t border-red-500/10">
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <EyeOff size={10} className="text-red-400/40" />
+                            <span className="text-[9px] text-red-400/35 uppercase tracking-widest font-bold">Secret</span>
+                          </div>
+                          <div className="space-y-1.5">
+                            {SECRET_STATS.map((stat) => (
+                              <div key={stat.key} className="flex items-center gap-2">
+                                <span className="text-sm w-5 text-center">{stat.icon}</span>
+                                <span className="text-xs text-white/30 w-12 shrink-0">{stat.label}</span>
+                                <div className="flex-1 h-1.5 rounded-full bg-white/[0.04] overflow-hidden">
+                                  <motion.div className="h-full rounded-full"
+                                    style={{ background: `linear-gradient(90deg, ${stat.color}44, ${stat.color})` }}
+                                    initial={{ width: 0 }} animate={{ width: `${Math.max(0, safeStats[stat.key])}%` }}
+                                    transition={{ duration: 0.8, ease: "easeOut" }} />
+                                </div>
+                                <span className="text-[11px] text-white/20 w-7 text-right tabular-nums">{safeStats[stat.key]}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* ══════════ Section 4: 캐릭터의 생각 ══════════ */}
+                <div className="px-5 py-3">
+                  <span className="text-[9px] text-white/20 uppercase tracking-widest font-bold">Inner Thought</span>
+                  {characterThought ? (
+                    <motion.p
+                      key={characterThought}
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.5 }}
+                      className="text-sm text-white/40 leading-relaxed italic mt-2"
+                      style={{ fontFamily: "'Noto Serif KR', serif" }}
+                    >
+                      "{characterThought}"
+                    </motion.p>
+                  ) : (
+                    <p className="text-[11px] text-white/15 mt-2 italic">아직 뚜렷한 생각이 없는 것 같다...</p>
+                  )}
+                </div>
+
+              </div>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };
 
