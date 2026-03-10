@@ -16,6 +16,7 @@ import LucidStore from "../components/LucidStore";
 import SecretModeFlow from "../components/SecretModeFlow";
 import AdultVerificationModal from "../components/AdultVerificationModal";
 import BoostToggle from "../components/BoostToggle";
+import BiometricStatusPanel from "../components/BiometricStatusPanel";
 import { useParams, useNavigate } from "react-router-dom";
 import { 
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
@@ -116,6 +117,15 @@ const ChatPage = () => {
 
   // ━━━ [Phase 5.2] 싫어요 사유 모달 ━━━
   const [dislikeModal, setDislikeModal] = useState(null); // { logId } | null
+
+  // ─── [Phase 5.5] 입체적 상태창 ───
+  const [characterStats, setCharacterStats] = useState({
+    intimacy: 0, affection: 0, dependency: 0, playfulness: 0, trust: 0,
+    lust: 0, corruption: 0, obsession: 0,
+  });
+  const [currentBpm, setCurrentBpm] = useState(65);
+  const [dynamicRelationTag, setDynamicRelationTag] = useState(null);
+  const [characterThought, setCharacterThought] = useState(null);
 
   const logsEndRef = useRef(null);
 
@@ -346,6 +356,19 @@ const ChatPage = () => {
         setCharacters(charsRes.data || []);
 
         setRoomInfo(roomRes.data);
+        // [Phase 5.5] 상태창 데이터 복원
+        if (roomRes.data.stats) {
+          setCharacterStats(roomRes.data.stats);
+        }
+        if (roomRes.data.bpm !== undefined) {
+          setCurrentBpm(roomRes.data.bpm);
+        }
+        if (roomRes.data.dynamicRelationTag) {
+          setDynamicRelationTag(roomRes.data.dynamicRelationTag);
+        }
+        if (roomRes.data.characterThought) {
+          setCharacterThought(roomRes.data.characterThought);
+        }
         setAffection(roomRes.data.affectionScore);
         setUserInfo({
             nickname: userRes.data.nickname || "",
@@ -681,8 +704,23 @@ const ChatPage = () => {
       const messagePayload = text || "..."; 
       const res = await api.post(`/chat/rooms/${roomId}/messages`, { roomId, message: messagePayload });
 
-      const { scenes, currentAffection, promotionEvent, endingTrigger: endingTrig } = res.data;
+      const { scenes, currentAffection, promotionEvent, endingTrigger: endingTrig,
+              stats: newStats, bpm: newBpm, dynamicRelationTag: newRelTag, characterThought: newThought
+      } = res.data;
       setAffection(currentAffection);
+      // [Phase 5.5] 상태창 업데이트
+      if (newStats) {
+        setCharacterStats(newStats);
+      }
+      if (newBpm !== undefined) {
+        setCurrentBpm(newBpm);
+      }
+      if (newRelTag) {
+        setDynamicRelationTag(newRelTag);
+      }
+      if (newThought !== undefined && newThought !== null) {
+        setCharacterThought(newThought);
+      }
       
       if (scenes && scenes.length > 0) {
         setSceneQueue(scenes); 
@@ -869,8 +907,14 @@ const ChatPage = () => {
           });
           
           // 결과 처리 (Narrator Message + Character Reaction)
-          const { scenes, currentAffection } = res.data;
+          const { scenes, currentAffection,
+                  stats: evtStats, bpm: evtBpm, dynamicRelationTag: evtRelTag
+          } = res.data;
           setAffection(currentAffection);
+          // [Phase 5.5]
+          if (evtStats) setCharacterStats(evtStats);
+          if (evtBpm !== undefined) setCurrentBpm(evtBpm);
+          if (evtRelTag) setDynamicRelationTag(evtRelTag);
           // 큐구성: [이벤트 나레이션] -> [캐릭터 반응1] -> [반응2]...
           const newQueue = [];
           
@@ -1022,6 +1066,14 @@ const ChatPage = () => {
                 // [Phase 4.3] 엔딩 상태 초기화
                 setEndingTrigger(null);
                 setEndingData(null);
+                // [Phase 5.5] 상태창 초기화
+                setCharacterStats({
+                  intimacy: 0, affection: 0, dependency: 0, playfulness: 0, trust: 0,
+                  lust: 0, corruption: 0, obsession: 0,
+                });
+                setCurrentBpm(65);
+                setDynamicRelationTag("낯선 사람");
+                setCharacterThought(null);
                 setShowEndingCredits(false);
                 // [Phase 4 Fix] 히스토리 페이지네이션 초기화
                 setHistoryPage(1);
@@ -1148,6 +1200,18 @@ const ChatPage = () => {
 
 
       <CharacterDisplay emotion={displayedEmotion} outfit={currentOutfit} characterSlug={roomInfo?.characterSlug} defaultOutfit={roomInfo?.defaultOutfit} />
+
+       {/* ═══ [Phase 5.5] Biometric Status Panel ═══ */}
+      <BiometricStatusPanel
+        stats={characterStats}
+        bpm={currentBpm}
+        affectionScore={affection}
+        dynamicRelationTag={dynamicRelationTag}
+        characterThought={characterThought}
+        characterName={roomInfo?.characterName || "캐릭터"}
+        statusLevel={roomInfo?.statusLevel || "STRANGER"}
+        isSecretMode={userInfo.isSecretMode}
+      />
 
       {/* ━━━ [Phase 5] Promotion IN_PROGRESS Banner ━━━ */}
       <AnimatePresence>
