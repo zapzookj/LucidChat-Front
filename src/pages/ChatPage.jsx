@@ -21,7 +21,8 @@ import {
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
   LogOut, User as UserIcon, Gamepad2, Save, Sparkles, Lock, Unlock,
   CheckCircle, AlertTriangle, Info, Zap, Play, SkipForward,
-  Heart, Crown, MapPin, Shirt, Award, ChevronRight, ChevronLeft, Gem, Rocket, ShoppingBag
+  Heart, Crown, MapPin, Shirt, Award, ChevronRight, ChevronLeft, Gem, Rocket, ShoppingBag,
+  ThumbsUp, ThumbsDown, MoreHorizontal
 } from "lucide-react";
 
 const ChatPage = () => {
@@ -112,6 +113,9 @@ const ChatPage = () => {
   const [isSubscriber, setIsSubscriber] = useState(false);
   const [freeEnergyMax, setFreeEnergyMax] = useState(30);
   const [characters, setCharacters] = useState([]);
+
+  // ━━━ [Phase 5.2] 싫어요 사유 모달 ━━━
+  const [dislikeModal, setDislikeModal] = useState(null); // { logId } | null
 
   const logsEndRef = useRef(null);
 
@@ -229,10 +233,10 @@ const ChatPage = () => {
   const handleUpdateProfile = async () => {
     setIsSavingProfile(true);
     try {
+      // [Phase 5 Fix] isSecretMode 제거 — 전용 엔드포인트로 분리됨
       await api.patch("/users/update", {
         nickname: userInfo.nickname,
-        profileDescription: userInfo.profileDescription,
-        isSecretMode: userInfo.isSecretMode 
+        profileDescription: userInfo.profileDescription
       });
       showToast("프로필이 성공적으로 저장되었습니다.", "success");
     } catch (err) {
@@ -243,19 +247,19 @@ const ChatPage = () => {
     }
   };
 
-  const toggleSecretMode = async () => {
+  const toggleSecretMode = async (characterId) => {
       const nextValue = !userInfo.isSecretMode;
       setUserInfo(prev => ({ ...prev, isSecretMode: nextValue }));
-
       try {
-          await api.patch("/users/update", {
-              nickname: userInfo.nickname,
-              profileDescription: userInfo.profileDescription,
-              isSecretMode: nextValue 
+          // [Phase 5 Fix] 전용 엔드포인트 사용 — 캐릭터별 접근 권한 검증
+          await api.patch("/users/secret-mode", {
+              enabled: nextValue,
+              characterId: characterId || roomInfo?.characterId
           });
       } catch (err) {
           setUserInfo(prev => ({ ...prev, isSecretMode: !nextValue }));
-          showToast("설정 변경에 실패했습니다.", "error");
+          const errMsg = err.response?.data?.message || "설정 변경에 실패했습니다.";
+          showToast(errMsg, "error");
       }
   };
 
@@ -771,30 +775,49 @@ const ChatPage = () => {
     } catch (err) {
       const status = err.response?.status;
       const data = err.response?.data;
+
+      // [Phase 5.1] LLM 실패 시 낙관적 업데이트 롤백
+      // 백엔드에서 유저 메시지 삭제 + 에너지 환불이 이미 처리됨
+      // 프론트에서도 동기화: 마지막 USER 메시지 제거 + 에너지 복원
+      if (text) {
+        setMessages(prev => {
+          // 마지막 USER 메시지를 찾아서 제거
+          const lastUserIdx = prev.findLastIndex(m => m.role === 'USER');
+          if (lastUserIdx >= 0) {
+            return [...prev.slice(0, lastUserIdx), ...prev.slice(lastUserIdx + 1)];
+          }
+          return prev;
+        });
+
+        // 에너지 복원 (서버에서도 환불됨)
+        const baseCost = roomInfo?.chatMode === "STORY" ? 2 : 1;
+        const cost = boostMode && !isSubscriber ? baseCost * 5 : baseCost;
+        setEnergy(prev => prev + cost);
       
-      if (status === 400 && data?.errorCode === "CONTENT_BLOCKED") {
-          // 콘텐츠 필터 차단 — 유저 친화적 메시지 표시
-          showToast(data.message || "부적절한 내용이 포함되어 있습니다.", "warning");
-          // 에너지는 차감되지 않았으므로 별도 처리 불필요
-      } else if (status === 402) {
-          // 에너지 부족
-          showToast("에너지가 부족합니다.", "error");
-      } else if (status === 429) {
-          // Rate limit
-          showToast("요청이 너무 빠릅니다.", "warning");
-      } else {
-          const narrationMap = {
-                    "연화": "음.. 잠깐 생각에 잠겨버렸네요.. 뭐라고 하셨나요?",
-                    "아이리": "잠시만요.. 아이리가 잠깐 바쁜 일이 있어서...",
-                    "백루나": "음.. ㄴ,네?! 아, 죄송해요.. 잠깐 멍때려버렸어요.. 헤헤..",
-                    "서태리": "..."
-                };
-          setCurrentScene({ 
-            dialogue: narrationMap[roomInfo?.characterName] || "잠시 후 다시 시도해주세요.", emotion: "SAD", narration: "잠시 후 다시 시도해주세요." 
-          });
-          setDisplayedEmotion("SAD");
-          showToast("오류가 발생했습니다.", "error");
-      }
+        if (status === 400 && data?.errorCode === "CONTENT_BLOCKED") {
+            // 콘텐츠 필터 차단 — 유저 친화적 메시지 표시
+            showToast(data.message || "부적절한 내용이 포함되어 있습니다.", "warning");
+            // 에너지는 차감되지 않았으므로 별도 처리 불필요
+        } else if (status === 402) {
+            // 에너지 부족
+            showToast("에너지가 부족합니다.", "error");
+        } else if (status === 429) {
+            // Rate limit
+            showToast("요청이 너무 빠릅니다.", "warning");
+        } else {
+            const narrationMap = {
+                      "연화": "음.. 잠깐 생각에 잠겨버렸네요.. 뭐라고 하셨나요?",
+                      "아이리": "잠시만요.. 아이리가 잠깐 바쁜 일이 있어서...",
+                      "백루나": "음.. ㄴ,네?! 아, 죄송해요.. 잠깐 멍때려버렸어요.. 헤헤..",
+                      "서태리": "..."
+                  };
+            setCurrentScene({ 
+              dialogue: narrationMap[roomInfo?.characterName] || "잠시 후 다시 시도해주세요.", emotion: "SAD", narration: "잠시 후 다시 시도해주세요." 
+            });
+            setDisplayedEmotion("SAD");
+            showToast("오류가 발생했습니다.", "error");
+        }
+    }
     } finally {
       setIsTyping(false);
     }
@@ -900,6 +923,80 @@ const ChatPage = () => {
       setSceneQueue(prev => prev.slice(1));
     }
   }, [sceneQueue, currentScene]);
+
+  // ━━━ [Phase 5.1] 단건 메시지 삭제 핸들러 ━━━
+  const handleDeleteLog = (logId, role) => {
+    const label = role === 'USER' ? '내 메시지' : '캐릭터 응답';
+    openConfirm(
+      `이 ${label}을(를) 삭제하시겠습니까?`,
+      async () => {
+        try {
+          await api.delete(`/chat/rooms/${roomId}/logs/${logId}`);
+          setMessages(prev => prev.filter(msg => msg.logId !== logId));
+          showToast("삭제되었습니다.", "success");
+          closeConfirm();
+        } catch (err) {
+          console.error("Delete failed:", err);
+          showToast("삭제에 실패했습니다.", "error");
+          closeConfirm();
+        }
+      },
+      'danger'
+    );
+  };
+
+  // ━━━ [Phase 5.2] 유저 평가 핸들러 (싫어요 사유 포함) ━━━
+
+  const DISLIKE_REASONS = [
+    { value: 'OOC', label: '말투/성격이 어색해요', icon: '🎭' },
+    { value: 'HALLUCINATION', label: '이전 대화를 잊었어요', icon: '🧠' },
+    { value: 'BORING', label: '대답이 지루해요', icon: '😴' },
+    { value: 'REPETITIVE', label: '비슷한 말만 반복해요', icon: '🔄' },
+    { value: 'CONTEXT_MISMATCH', label: '문맥에 안 맞아요', icon: '❓' },
+    { value: 'OTHER', label: '기타', icon: '💬' },
+  ];
+
+  const handleRateLog = async (logId, rating, dislikeReason = null) => {
+    // DISLIKE 클릭 시 → 사유 선택 모달 먼저 표시
+    if (rating === 'DISLIKE' && !dislikeReason) {
+      // 이미 DISLIKE 상태에서 다시 클릭 → 토글 해제
+      const currentMsg = messages.find(m => m.logId === logId);
+      if (currentMsg?.rating === 'DISLIKE') {
+        // 토글 해제 — 사유 필요 없음
+        await submitRating(logId, 'DISLIKE', null);
+        return;
+      }
+      setDislikeModal({ logId });
+      return;
+    }
+
+    await submitRating(logId, rating, dislikeReason);
+  };
+
+  const submitRating = async (logId, rating, dislikeReason) => {
+    try {
+      const res = await api.patch(`/chat/rooms/${roomId}/logs/${logId}/rate`, {
+        rating,
+        dislikeReason
+      });
+      const newRating = res.data.rating || null;
+      setMessages(prev => prev.map(msg =>
+        msg.logId === logId
+          ? { ...msg, rating: newRating, dislikeReason: newRating === 'DISLIKE' ? dislikeReason : null }
+          : msg
+      ));
+    } catch (err) {
+      console.error("Rating failed:", err);
+      showToast("평가에 실패했습니다.", "error");
+    }
+  };
+
+  const handleDislikeReasonSelect = (reason) => {
+    if (dislikeModal) {
+      handleRateLog(dislikeModal.logId, 'DISLIKE', reason);
+      setDislikeModal(null);
+    }
+  };
 
   const handleClearHistory = () => {
     openConfirm(
@@ -1890,7 +1987,17 @@ const ChatPage = () => {
                 </div>
               )}
 
-              {messages.length === 0 ? <div className="text-center text-white/30 py-10">기록이 없습니다.</div> : messages.map((msg, idx) => {
+                           {messages.length === 0 ? <div className="text-center text-white/30 py-10">기록이 없습니다.</div> : (() => {
+                // [Phase 5.2] 마지막 USER/ASSISTANT 메시지 인덱스 계산
+                let lastUserIdx = -1;
+                let lastAssistantIdx = -1;
+                for (let i = messages.length - 1; i >= 0; i--) {
+                  if (messages[i].role === 'USER' && lastUserIdx === -1) lastUserIdx = i;
+                  if (messages[i].role === 'ASSISTANT' && lastAssistantIdx === -1) lastAssistantIdx = i;
+                  if (lastUserIdx >= 0 && lastAssistantIdx >= 0) break;
+                }
+
+                return messages.map((msg, idx) => {
                 if (msg.role === 'SYSTEM') {
                     return (
                         <div key={`h-${idx}`} className="flex justify-center my-6">
@@ -1903,17 +2010,64 @@ const ChatPage = () => {
                 }
 
                 const isMe = msg.role === 'USER';
+                const isLastOfRole = (isMe && idx === lastUserIdx) || (!isMe && idx === lastAssistantIdx);
+                const hasLogId = !!msg.logId;
+                const showActions = hasLogId && isLastOfRole;
+
                 return (
-                  <div key={`h-${idx}`} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                  <div key={`h-${msg.logId || idx}`} className={`group flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                     <span className={`text-xs mb-1 px-2 ${isMe ? 'text-pink-400' : 'text-indigo-400'}`}>{isMe ? '나' : roomInfo.characterName}</span>
                     <div className={`px-5 py-3 rounded-2xl max-w-[85%] text-sm leading-relaxed shadow-sm ${
                       isMe ? 'bg-pink-600 text-white rounded-tr-sm' : 'bg-[#2a2a35] text-gray-100 rounded-tl-sm border border-white/5'
                     }`}>
                       {msg.cleanContent}
                     </div>
+
+                    {/* [Phase 5.2] 마지막 대사에만 평가/삭제 버튼 표시 */}
+                    {showActions && (
+                      <div className={`flex items-center gap-1 mt-1.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ${isMe ? 'flex-row-reverse' : ''}`}>
+                        {/* ASSISTANT: 좋아요/싫어요 */}
+                        {!isMe && (
+                          <>
+                            <button
+                              onClick={() => handleRateLog(msg.logId, 'LIKE')}
+                              className={`p-1.5 rounded-lg transition-all duration-200 ${
+                                msg.rating === 'LIKE'
+                                  ? 'bg-emerald-500/20 text-emerald-400'
+                                  : 'hover:bg-white/10 text-white/25 hover:text-white/60'
+                              }`}
+                              title="좋아요"
+                            >
+                              <ThumbsUp size={13} />
+                            </button>
+                            <button
+                              onClick={() => handleRateLog(msg.logId, 'DISLIKE')}
+                              className={`p-1.5 rounded-lg transition-all duration-200 ${
+                                msg.rating === 'DISLIKE'
+                                  ? 'bg-rose-500/20 text-rose-400'
+                                  : 'hover:bg-white/10 text-white/25 hover:text-white/60'
+                              }`}
+                              title="싫어요"
+                            >
+                              <ThumbsDown size={13} />
+                            </button>
+                            <div className="w-px h-3 bg-white/10 mx-0.5" />
+                          </>
+                        )}
+                        {/* 삭제 */}
+                        <button
+                          onClick={() => handleDeleteLog(msg.logId, msg.role)}
+                          className="p-1.5 rounded-lg hover:bg-rose-500/10 text-white/25 hover:text-rose-400 transition-all duration-200"
+                          title="삭제"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
-              })}
+              });
+              })()}
               <div ref={logsEndRef} />
             </div>
             <div className="p-6 border-t border-white/10 bg-black/40">
@@ -1943,6 +2097,60 @@ const ChatPage = () => {
                 초기화 시 호감도와 기억이 모두 사라집니다.
               </p>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* [Phase 5.2] 싫어요 사유 선택 모달 */}
+      <AnimatePresence>
+        {dislikeModal && (
+          <motion.div
+            className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setDislikeModal(null)} />
+            <motion.div
+              className="relative z-10 w-full max-w-sm mx-4 mb-4 sm:mb-0 rounded-2xl p-5 border border-white/10"
+              style={{ background: "linear-gradient(145deg, rgba(20,10,35,0.97), rgba(35,15,55,0.95))" }}
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 40, opacity: 0 }}
+              transition={{ type: "spring", damping: 25 }}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-white font-bold text-sm flex items-center gap-2">
+                  <ThumbsDown size={14} className="text-rose-400" />
+                  어떤 점이 아쉬웠나요?
+                </h3>
+                <button onClick={() => setDislikeModal(null)} className="p-1 hover:bg-white/10 rounded-lg transition">
+                  <X size={16} className="text-white/40" />
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {DISLIKE_REASONS.map((reason) => (
+                  <button
+                    key={reason.value}
+                    onClick={() => handleDislikeReasonSelect(reason.value)}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl
+                              bg-white/[0.03] border border-white/5 hover:bg-white/[0.08]
+                              hover:border-rose-500/20 transition-all duration-200 group text-left"
+                  >
+                    <span className="text-base">{reason.icon}</span>
+                    <span className="text-white/70 text-sm group-hover:text-white/90 transition">{reason.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <button
+                onClick={() => setDislikeModal(null)}
+                className="w-full mt-3 text-white/25 text-xs hover:text-white/40 transition py-2"
+              >
+                취소
+              </button>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1991,7 +2199,7 @@ const ChatPage = () => {
         isOpen={showSecretFlow}
         onClose={() => setShowSecretFlow(false)}
         onGranted={() => {
-          toggleSecretMode();
+          toggleSecretMode(roomInfo?.characterId);
           showToast("시크릿 모드가 활성화되었습니다!", "success");
         }}
         onOpenStore={(tab) => {
