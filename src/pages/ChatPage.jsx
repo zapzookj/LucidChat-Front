@@ -17,6 +17,7 @@ import SecretModeFlow from "../components/SecretModeFlow";
 import AdultVerificationModal from "../components/AdultVerificationModal";
 import BoostToggle from "../components/BoostToggle";
 import BiometricStatusPanel from "../components/BiometricStatusPanel";
+import InnerThoughtBubble from "../components/InnerThoughtBubble";
 import { useParams, useNavigate } from "react-router-dom";
 import { 
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
@@ -128,6 +129,13 @@ const ChatPage = () => {
   const [characterThought, setCharacterThought] = useState(null);
   const [showStatusPanel, setShowStatusPanel] = useState(false);   // 상태창 오픈 상태
   const [latestStatChanges, setLatestStatChanges] = useState(null); // 스탯 변화 팝업용
+
+  // ─── [Phase 5.5-IT] 속마음 시스템 ───
+  const [currentInnerThought, setCurrentInnerThought] = useState(null);  // 현재 턴의 속마음 텍스트 (해금 후)
+  const [hasInnerThought, setHasInnerThought] = useState(false);          // 현재 턴에 속마음 존재 여부
+  const [thoughtUnlocked, setThoughtUnlocked] = useState(false);          // 현재 턴 속마음 해금 여부
+  const [currentAssistantLogId, setCurrentAssistantLogId] = useState(null); // 현재 턴 ASSISTANT logId
+  const [isUnlockingThought, setIsUnlockingThought] = useState(false);    // 해금 API 로딩 중
 
   const logsEndRef = useRef(null);
 
@@ -699,7 +707,8 @@ const ChatPage = () => {
       const res = await api.post(`/chat/rooms/${roomId}/messages`, { roomId, message: messagePayload });
 
       const { scenes, currentAffection, promotionEvent, endingTrigger: endingTrig,
-              stats: newStats, bpm: newBpm, dynamicRelationTag: newRelTag, characterThought: newThought
+              stats: newStats, bpm: newBpm, dynamicRelationTag: newRelTag, characterThought: newThought,
+              hasInnerThought: resHasThought, assistantLogId: resLogId   // [Phase 5.5-IT]
       } = res.data;
       setAffection(currentAffection);
       // [Phase 5.5-P] 상태창 업데이트
@@ -730,9 +739,21 @@ const ChatPage = () => {
         setSceneQueue(scenes); 
       }
 
-      const combinedText = scenes.map(s => s.dialogue).join(" ");
-      setMessages(prev => [...prev, { role: 'ASSISTANT', cleanContent: combinedText }]);
+      // [Phase 5.5-IT] 속마음 상태 업데이트
+      setHasInnerThought(!!resHasThought);
+      setThoughtUnlocked(false);        // 새 턴이므로 초기화
+      setCurrentInnerThought(null);      // 새 턴이므로 초기화
+      setCurrentAssistantLogId(resLogId || null);
 
+      const combinedText = scenes.map(s => s.dialogue).join(" ");
+      setMessages(prev => [...prev, {
+        role: 'ASSISTANT',
+        cleanContent: combinedText,
+        logId: resLogId || null,           // [Phase 5.5-IT] 해금 API용
+        hasInnerThought: !!resHasThought,  // [Phase 5.5-IT]
+        thoughtUnlocked: false,            // [Phase 5.5-IT]
+        innerThought: null,                // [Phase 5.5-IT] 해금 전
+      }]);
       // [Phase 4.2] 승급 이벤트 처리
       if (promotionEvent) {
         handlePromotionEvent(promotionEvent);
@@ -878,6 +899,56 @@ const ChatPage = () => {
     }
   };
 
+  /**
+   * [Phase 5.5-IT] 속마음 해금 핸들러
+   *
+   * InnerThoughtBubble 클릭 시 호출.
+   * 1. API 호출하여 에너지 차감 + 속마음 텍스트 수신
+   * 2. 프론트 상태 업데이트
+   * 3. 에너지 UI 감소
+   * 4. DialogueBox에 토글 탭 표시
+   */
+  const handleUnlockInnerThought = useCallback(async () => {
+    if (!currentAssistantLogId || isUnlockingThought || thoughtUnlocked) return;
+
+    setIsUnlockingThought(true);
+    try {
+      const res = await api.post(
+        `/chat/rooms/${roomId}/logs/${currentAssistantLogId}/unlock-thought`
+      );
+
+      const { innerThought, energyCost } = res.data;
+
+      // 속마음 텍스트 설정
+      setCurrentInnerThought(innerThought);
+      setThoughtUnlocked(true);
+
+      // 에너지 차감 반영
+      setEnergy(prev => Math.max(0, prev - (energyCost || 1)));
+
+      // 히스토리의 해당 메시지도 업데이트 (채팅 기록에 반영)
+      setMessages(prev => prev.map(msg => {
+        if (msg.logId === currentAssistantLogId) {
+          return { ...msg, innerThought, thoughtUnlocked: true, hasInnerThought: true };
+        }
+        return msg;
+      }));
+
+      showToast("💭 속마음이 해금되었습니다!", "success");
+
+    } catch (err) {
+      console.error("Inner thought unlock failed:", err);
+      if (err.response?.status === 400 && err.response?.data?.message?.includes("에너지")) {
+        showToast("에너지가 부족합니다!", "error");
+      } else {
+        showToast("속마음 해금에 실패했습니다.", "error");
+      }
+    } finally {
+      setIsUnlockingThought(false);
+    }
+  }, [currentAssistantLogId, isUnlockingThought, thoughtUnlocked, roomId]);
+
+
   // 이벤트 트리거 -> 옵션 받기 (1단계)
   const handleTriggerEvent = async () => {
     setIsTyping(true); 
@@ -924,10 +995,16 @@ const ChatPage = () => {
           });
           
           // 결과 처리 (Narrator Message + Character Reaction)
-          const { scenes, currentAffection,
-                  stats: evtStats, bpm: evtBpm, dynamicRelationTag: evtRelTag
-          } = res.data;
+          const {
+            scenes: evtScenes, currentAffection: evtAff,
+            stats: evtStats, bpm: evtBpm, dynamicRelationTag: evtRelTag,
+            hasInnerThought: evtHasThought, assistantLogId: evtLogId
+          } = evtRes.data;
           setAffection(currentAffection);
+          setHasInnerThought(!!evtHasThought);
+          setThoughtUnlocked(false);
+          setCurrentInnerThought(null);
+          setCurrentAssistantLogId(evtLogId || null);
           // [Phase 5.5]
           if (evtStats) setCharacterStats(evtStats);
           if (evtBpm !== undefined) setCurrentBpm(evtBpm);
@@ -1095,6 +1172,10 @@ const ChatPage = () => {
                 setShowStatusPanel(false);
                 setLatestStatChanges(null);
                 setShowEndingCredits(false);
+                setCurrentInnerThought(null);
+                setHasInnerThought(false);
+                setThoughtUnlocked(false);
+                setCurrentAssistantLogId(null);
                 // [Phase 4 Fix] 히스토리 페이지네이션 초기화
                 setHistoryPage(1);
                 setHasMoreHistory(false);
@@ -1219,7 +1300,23 @@ const ChatPage = () => {
       </AnimatePresence>
 
 
-      <CharacterDisplay emotion={displayedEmotion} outfit={currentOutfit} characterSlug={roomInfo?.characterSlug} defaultOutfit={roomInfo?.defaultOutfit} />
+      {/* ═══ 캐릭터 디스플레이 + 속마음 말풍선 ═══ */}
+      <div className="absolute inset-0 z-0">
+        <CharacterDisplay
+          emotion={displayedEmotion}
+          outfit={currentOutfit}
+          characterSlug={roomInfo?.characterSlug}
+          defaultOutfit={roomInfo?.defaultOutfit}
+        />
+
+        {/* [Phase 5.5-IT] 속마음 말풍선 — CharacterDisplay 위에 오버레이 */}
+        <InnerThoughtBubble
+          visible={hasInnerThought && !thoughtUnlocked}
+          onUnlock={handleUnlockInnerThought}
+          isUnlocking={isUnlockingThought}
+          unlocked={thoughtUnlocked}
+        />
+      </div>
 
        {/* ═══ [Phase 5.5-P] Biometric Status Panel (좌측 전체 활용) ═══ */}
       <BiometricStatusPanel
@@ -1333,7 +1430,7 @@ const ChatPage = () => {
       </div>
 
       <DialogueBox
-        characterName={roomInfo.characterName}
+        characterName={roomInfo?.characterName}
         scene={currentScene}
         onSend={handleSendMessage}
         isTyping={isTyping}
@@ -1341,20 +1438,20 @@ const ChatPage = () => {
         energy={energy}
         onNextScene={handleNextScene}
         hasNextScene={sceneQueue.length > 0}
-        nickname={user?.nickname || "사용자"}
+        nickname={userInfo.nickname}
         onTriggerEvent={handleTriggerEvent}
         boostMode={boostMode}
         isSubscriber={isSubscriber}
         freeEnergyMax={freeEnergyMax}
-        chatMode={roomInfo?.chatMode || "SANDBOX"}
-        onOpenStore={(tab) => {
-          setStoreInitialTab(tab || "energy");
-          setShowStore(true);
-        }}
-        // ── [Phase 5.5-P] 새 props ──
+        chatMode={roomInfo?.chatMode}
+        onOpenStore={(tab) => { setStoreInitialTab(tab); setShowStore(true); }}
         bpm={currentBpm}
         onOpenStatusPanel={() => setShowStatusPanel(true)}
         statChanges={latestStatChanges}
+        // ── [Phase 5.5-IT] 속마음 props ──
+        innerThought={currentInnerThought}
+        hasInnerThought={hasInnerThought}
+        thoughtUnlocked={thoughtUnlocked}
       />
 
       {/* ================= Event Selection Modal (3-Branch) ================= */}
@@ -2111,6 +2208,55 @@ const ChatPage = () => {
                     }`}>
                       {msg.cleanContent}
                     </div>
+
+                       {/* [Phase 5.5-IT] 속마음 히스토리 표시 */}
+                    {msg.role === 'ASSISTANT' && msg.hasInnerThought && (
+                      <div className="mt-2 pt-2 border-t border-purple-500/10">
+                        {msg.thoughtUnlocked && msg.innerThought ? (
+                          // 해금된 속마음
+                          <div className="flex items-start gap-2">
+                            <span className="text-xs mt-0.5 opacity-60">💭</span>
+                            <p
+                              className="text-sm leading-relaxed"
+                              style={{
+                                fontStyle: "italic",
+                                color: "rgba(192,132,252,0.7)",
+                                fontFamily: "'Noto Serif KR', serif",
+                              }}
+                            >
+                              "{msg.innerThought}"
+                            </p>
+                          </div>
+                        ) : (
+                          // 미해금 속마음 — 히스토리에서 해금 가능
+                          <button
+                            onClick={async () => {
+                              try {
+                                const res = await api.post(
+                                  `/chat/rooms/${roomId}/logs/${msg.logId}/unlock-thought`
+                                );
+                                setMessages(prev => prev.map(m =>
+                                  m.logId === msg.logId
+                                    ? { ...m, innerThought: res.data.innerThought, thoughtUnlocked: true }
+                                    : m
+                                ));
+                                setEnergy(prev => Math.max(0, prev - 1));
+                                showToast("💭 속마음이 해금되었습니다!", "success");
+                              } catch (err) {
+                                showToast("해금에 실패했습니다.", "error");
+                              }
+                            }}
+                            className="flex items-center gap-2 text-xs text-purple-400/50 hover:text-purple-300 transition group"
+                          >
+                            <span className="text-sm group-hover:scale-110 transition-transform">💭</span>
+                            <span className="border-b border-purple-500/20 group-hover:border-purple-400/40 transition">
+                              속마음 엿보기
+                            </span>
+                            <span className="text-[10px] text-yellow-500/50 font-bold">⚡-1</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
 
                     {/* [Phase 5.2] 마지막 대사에만 평가/삭제 버튼 표시 */}
                     {showActions && (

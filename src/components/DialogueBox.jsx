@@ -1,18 +1,17 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Heart, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity } from "lucide-react";
+import { Send, Heart, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity, MessageSquare, Eye } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 
 /**
- * [Phase 5.5-v3] DialogueBox
+ * [Phase 5.5-IT] DialogueBox
  *
- * 변경점 vs 원본:
- * 1. 레거시 호감도 UI(하트 채움) 제거
- * 2. BPM HUD 추가 — 에너지 바와 동일한 형식 (심장 애니, '심박수' 텍스트, 게이지바, 수치)
- * 3. Status 버튼 추가 (상태창 열기)
- * 4. 스탯 변화 순차 팝업 알림
+ * 변경점 vs Phase 5.5-v3:
+ * 1. 속마음 토글 탭 추가 — [🗣️ 대사] / [💭 속마음]
+ * 2. 속마음 뷰: slide 전환 + 보라색 이탤릭체
+ * 3. 해금되지 않은 상태의 빈 속마음 뷰 없음 (해금 후에만 탭 노출)
  *
  * ⚠️ 대사 출력 로직(타이핑/씬 전환)은 원본과 100% 동일 — 수정 없음
- * ⚠️ 외부 의존성 없음 (BiometricStatusPanel import 제거)
+ * ⚠️ 상단 정보바(부스트/BPM/에너지/상태창)도 100% 동일
  */
 
 // ── 자립형 HeartPulse (외부 import 없이 동작) ──
@@ -78,25 +77,26 @@ const StatChangeToasts = ({ changes }) => {
       timersRef.current.forEach(t => clearTimeout(t));
       timersRef.current = [];
     };
-
   }, [changes]);
 
   return (
-    <div className="absolute -top-2 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-none z-50">
-      <AnimatePresence>
+    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex flex-col items-center gap-1 pointer-events-none z-50">
+      <AnimatePresence mode="popLayout">
         {queue.map((change) => {
-          const meta = STAT_META[change.key] || { label: change.key, icon: "📊", color: "#fff" };
+          const meta = STAT_META[change.key] || { label: change.key, icon: "📊", color: "#aaa" };
           return (
             <motion.div
               key={change.id}
-              initial={{ opacity: 0, y: 10, scale: 0.5 }}
-              animate={{ opacity: 1, y: -30, scale: 1 }}
-              exit={{ opacity: 0, y: -50, scale: 0.8 }}
-              transition={{ duration: 0.6, type: "spring", stiffness: 200 }}
-              className="flex items-center gap-1.5 whitespace-nowrap"
+              layout
+              initial={{ opacity: 0, y: 12, scale: 0.7 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.8 }}
+              transition={{ type: "spring", stiffness: 350, damping: 22 }}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full backdrop-blur-md whitespace-nowrap"
+              style={{ background: `${meta.color}18`, border: `1px solid ${meta.color}30` }}
             >
               <span className="text-xs">{meta.icon}</span>
-              <span className="text-[11px] font-bold" style={{ color: meta.color }}>{meta.label}</span>
+              <span className="text-[11px] text-white/50 font-medium">{meta.label}</span>
               <span className={`text-sm font-black drop-shadow-lg ${change.value > 0 ? "text-emerald-400" : "text-rose-400"}`}>
                 {change.value > 0 ? `+${change.value}` : change.value}
               </span>
@@ -107,6 +107,106 @@ const StatChangeToasts = ({ changes }) => {
     </div>
   );
 };
+
+
+// ═══════════════════════════════════════════════════════════════
+//  속마음 뷰 컴포넌트 (보라색 이탤릭)
+// ═══════════════════════════════════════════════════════════════
+
+const InnerThoughtView = ({ text, characterName }) => {
+  const [displayedText, setDisplayedText] = useState("");
+  const [isFullyDisplayed, setIsFullyDisplayed] = useState(false);
+
+  useEffect(() => {
+    if (!text) return;
+    setDisplayedText("");
+    setIsFullyDisplayed(false);
+
+    let charIndex = 0;
+    const typingInterval = setInterval(() => {
+      charIndex++;
+      setDisplayedText(text.slice(0, charIndex));
+      if (charIndex >= text.length) {
+        clearInterval(typingInterval);
+        setIsFullyDisplayed(true);
+      }
+    }, 40);
+
+    return () => clearInterval(typingInterval);
+  }, [text]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ duration: 0.35, ease: "easeOut" }}
+      className="min-h-[3.5rem] flex flex-col justify-center py-2"
+    >
+      {/* 속마음 라벨 */}
+      <div className="flex items-center gap-2 mb-2 opacity-50">
+        <span className="text-xs">💭</span>
+        <span className="text-[10px] text-purple-300 uppercase tracking-widest font-bold">
+          {characterName}의 속마음
+        </span>
+      </div>
+
+      {/* 속마음 텍스트 */}
+      <p
+        className="text-lg leading-relaxed font-medium tracking-wide"
+        style={{
+          fontStyle: "italic",
+          color: "rgba(216,180,254,0.9)",
+          textShadow: "0 0 20px rgba(168,85,247,0.2)",
+          fontFamily: "'Noto Serif KR', serif",
+        }}
+      >
+        "{displayedText}"
+        {!isFullyDisplayed && (
+          <motion.span
+            animate={{ opacity: [1, 0] }}
+            transition={{ duration: 0.6, repeat: Infinity }}
+            className="text-purple-400"
+          >
+            |
+          </motion.span>
+        )}
+      </p>
+    </motion.div>
+  );
+};
+
+
+// ═══════════════════════════════════════════════════════════════
+//  토글 탭 컴포넌트
+// ═══════════════════════════════════════════════════════════════
+
+const ThoughtToggleTabs = ({ activeTab, onTabChange }) => (
+  <div className="flex gap-1 mb-3">
+    <button
+      onClick={() => onTabChange("dialogue")}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+        activeTab === "dialogue"
+          ? "bg-white/10 text-white/80 border border-white/15 shadow-sm"
+          : "text-white/25 hover:text-white/40 hover:bg-white/[0.03]"
+      }`}
+    >
+      <MessageSquare size={12} />
+      <span>대사</span>
+    </button>
+    <button
+      onClick={() => onTabChange("thought")}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+        activeTab === "thought"
+          ? "bg-purple-500/15 text-purple-300 border border-purple-500/25 shadow-[0_0_8px_rgba(168,85,247,0.15)]"
+          : "text-purple-400/30 hover:text-purple-400/50 hover:bg-purple-500/[0.05]"
+      }`}
+    >
+      <Eye size={12} />
+      <span>속마음</span>
+    </button>
+  </div>
+);
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -129,16 +229,28 @@ const DialogueBox = ({
   freeEnergyMax = 30,
   chatMode = "SANDBOX",
   onOpenStore,
-  // ── [Phase 5.5-v3] 새 props ──
+  // ── [Phase 5.5-v3] 기존 props ──
   bpm = 65,
   onOpenStatusPanel,
   statChanges = null,
+  // ── [Phase 5.5-IT] 속마음 props ──
+  innerThought = null,           // 해금된 속마음 텍스트 (null이면 미해금 or 없음)
+  hasInnerThought = false,       // 속마음 존재 여부 (해금과 무관)
+  thoughtUnlocked = false,       // 해금 완료 여부
 }) => {
   const [input, setInput] = useState("");
   const [displayedText, setDisplayedText] = useState("");
   const [isTextFullyDisplayed, setIsTextFullyDisplayed] = useState(false);
 
+  // [Phase 5.5-IT] 속마음 토글 상태
+  const [activeTab, setActiveTab] = useState("dialogue");
+
   const isEventScene = scene?.isEvent;
+
+  // 새 씬이 오면 대사 탭으로 리셋
+  useEffect(() => {
+    setActiveTab("dialogue");
+  }, [scene]);
 
   // 부스트 모드 에너지 비용 계산
   const getEnergyCost = () => {
@@ -185,6 +297,9 @@ const DialogueBox = ({
 
   // ━━━ 클릭 핸들러 (원본 100% 동일) ━━━
   const handleBoxClick = () => {
+    // 속마음 탭이 활성화되어 있으면 클릭으로 씬 넘기지 않음
+    if (activeTab === "thought") return;
+
     if (scene?.dialogue && !isTextFullyDisplayed) {
       setDisplayedText(scene.dialogue);
       setIsTextFullyDisplayed(true);
@@ -198,6 +313,9 @@ const DialogueBox = ({
 
   // BPM 게이지 퍼센트 (60~180 → 0~100%)
   const bpmPercent = Math.min(100, Math.max(0, ((bpm - 60) / 120) * 100));
+
+  // 속마음 토글 탭 표시 조건: 해금 완료 + 속마음 텍스트 존재
+  const showThoughtTabs = thoughtUnlocked && innerThought;
 
   return (
     <div className="absolute bottom-0 w-full z-20 p-4 pb-8 flex justify-center select-none">
@@ -227,7 +345,7 @@ const DialogueBox = ({
             )}
           </AnimatePresence>
 
-          {/* ━━━ [Phase 5.5-v3] 상태창 버튼 + 스탯 변화 팝업 ━━━ */}
+          {/* ━━━ 상태창 버튼 + 스탯 변화 팝업 ━━━ */}
           <div className="relative">
             <StatChangeToasts changes={statChanges} />
             <button
@@ -241,7 +359,7 @@ const DialogueBox = ({
             </button>
           </div>
 
-          {/* ━━━ [Phase 5.5-v3] BPM 심박수 바 (에너지 바와 동일 형식) ━━━ */}
+          {/* ━━━ BPM 심박수 바 ━━━ */}
           <div className="relative group cursor-help">
             <div className="flex items-center gap-3 bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-rose-500/40 shadow-[0_0_15px_rgba(244,114,182,0.3)] hover:bg-black/80 transition-colors">
               <HeartPulse bpm={bpm} size={20} />
@@ -325,17 +443,19 @@ const DialogueBox = ({
           </div>
         </div>
 
-        {/* ═══ 메인 대화창 (원본 100% 동일 구조) ═══ */}
+        {/* ═══ 메인 대화창 ═══ */}
         <motion.div
           onClick={handleBoxClick}
           initial={{ y: 50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           className={`relative border rounded-[2rem] p-6 pt-10 shadow-2xl transition-all ${
-            hasNextScene || (!isTextFullyDisplayed && (scene?.dialogue || isEventScene)) ? 'cursor-pointer' : ''
+            activeTab === "dialogue" && (hasNextScene || (!isTextFullyDisplayed && (scene?.dialogue || isEventScene))) ? 'cursor-pointer' : ''
           } ${
             isEventScene
               ? 'bg-gradient-to-br from-indigo-900/90 to-purple-900/90 border-indigo-400/50 backdrop-blur-xl ring-1 ring-purple-500/30'
-              : 'bg-black/50 border-white/10 backdrop-blur-xl hover:bg-black/60'
+              : activeTab === "thought"
+                ? 'bg-gradient-to-br from-purple-950/70 to-indigo-950/70 border-purple-500/20 backdrop-blur-xl'
+                : 'bg-black/50 border-white/10 backdrop-blur-xl hover:bg-black/60'
           }`}
         >
           {/* 캐릭터 이름표 */}
@@ -345,9 +465,16 @@ const DialogueBox = ({
             </div>
           )}
 
-          {/* 나레이션 */}
+          {/* ━━━ [Phase 5.5-IT] 속마음 토글 탭 ━━━ */}
+          {showThoughtTabs && !isEventScene && (
+            <div className="absolute -top-5 right-8 z-20">
+              <ThoughtToggleTabs activeTab={activeTab} onTabChange={setActiveTab} />
+            </div>
+          )}
+
+          {/* 나레이션 (대사 탭에서만) */}
           <AnimatePresence mode="wait">
-            {!isEventScene && scene?.narration && (
+            {activeTab === "dialogue" && !isEventScene && scene?.narration && (
               <motion.div
                 key={scene.narration}
                 initial={{ opacity: 0, y: 5 }}
@@ -360,39 +487,55 @@ const DialogueBox = ({
             )}
           </AnimatePresence>
 
-          {/* ━━━ 텍스트 출력 (원본과 100% 동일 로직) ━━━ */}
-          <div className={`min-h-[3.5rem] leading-relaxed font-medium drop-shadow-md tracking-wide flex flex-col justify-center ${
-            isEventScene ? 'items-center text-center py-4' : 'text-lg text-white/95'
-          }`}>
-            {isEventScene && (
-              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="mb-3 text-yellow-300">
-                <Sparkles size={24} />
-              </motion.div>
-            )}
-
-            {isTyping ? (
-              <div className="flex gap-1.5 items-center justify-center h-full opacity-70 mt-2">
-                <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce" />
-                <span className="ml-2 text-sm text-indigo-200/50 font-light">
-                  {isEventScene ? "운명의 주사위를 굴리는 중..." : "생각 중..."}
-                </span>
-              </div>
-            ) : (
-              <>
-                <span className={isEventScene ? "text-xl text-indigo-100 font-serif italic" : ""}>
-                  {displayedText}
-                </span>
-                {!scene?.dialogue && !scene?.narration && !isTyping && (
-                  <span className="text-white/30 text-sm">　대화를 시작해보세요...</span>
+          {/* ━━━ 텍스트 출력 영역 ━━━ */}
+          <AnimatePresence mode="wait">
+            {activeTab === "dialogue" ? (
+              /* ── 대사 뷰 (원본 100% 동일) ── */
+              <motion.div
+                key="dialogue-view"
+                initial={false}
+                className={`min-h-[3.5rem] leading-relaxed font-medium drop-shadow-md tracking-wide flex flex-col justify-center ${
+                  isEventScene ? 'items-center text-center py-4' : 'text-lg text-white/95'
+                }`}
+              >
+                {isEventScene && (
+                  <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="mb-3 text-yellow-300">
+                    <Sparkles size={24} />
+                  </motion.div>
                 )}
-              </>
+
+                {isTyping ? (
+                  <div className="flex gap-1.5 items-center justify-center h-full opacity-70 mt-2">
+                    <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                    <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                    <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce" />
+                    <span className="ml-2 text-sm text-indigo-200/50 font-light">
+                      {isEventScene ? "운명의 주사위를 굴리는 중..." : "생각 중..."}
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <span className={isEventScene ? "text-xl text-indigo-100 font-serif italic" : ""}>
+                      {displayedText}
+                    </span>
+                    {!scene?.dialogue && !scene?.narration && !isTyping && (
+                      <span className="text-white/30 text-sm">　대화를 시작해보세요...</span>
+                    )}
+                  </>
+                )}
+              </motion.div>
+            ) : (
+              /* ── 속마음 뷰 ── */
+              <InnerThoughtView
+                key="thought-view"
+                text={innerThought}
+                characterName={characterName}
+              />
             )}
-          </div>
+          </AnimatePresence>
 
           {/* 다음 씬 아이콘 */}
-          {hasNextScene && isTextFullyDisplayed && (
+          {activeTab === "dialogue" && hasNextScene && isTextFullyDisplayed && (
             <motion.div
               animate={{ x: [0, 5, 0] }}
               transition={{ repeat: Infinity, duration: 1 }}
@@ -402,8 +545,8 @@ const DialogueBox = ({
             </motion.div>
           )}
 
-          {/* 입력 폼 */}
-          {!hasNextScene && !isEventScene && (
+          {/* 입력 폼 (대사 탭에서만) */}
+          {activeTab === "dialogue" && !hasNextScene && !isEventScene && (
             <motion.form
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
