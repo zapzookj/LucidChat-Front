@@ -18,6 +18,7 @@ import AdultVerificationModal from "../components/AdultVerificationModal";
 import BoostToggle from "../components/BoostToggle";
 import BiometricStatusPanel from "../components/BiometricStatusPanel";
 import InnerThoughtBubble from "../components/InnerThoughtBubble";
+import { sendMessageStream } from "../api/UseChatStream";
 import { useParams, useNavigate } from "react-router-dom";
 import { 
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
@@ -687,215 +688,241 @@ const ChatPage = () => {
   }, [sceneQueue, currentScene, isTyping, promotionOverlay]);
 
   const handleSendMessage = async (text) => {
-    if (text && energy <= 0 && !endingTrigger) {
-      showToast("에너지가 부족합니다. 충전하거나 자연 회복을 기다려주세요!", "error");
-      return;
-    }
-    if (text) {
-        const baseCost = roomInfo?.chatMode === "STORY" ? 2 : 1;
-        const cost = boostMode && !isSubscriber ? baseCost * 5 : baseCost;
-
-        setEnergy(prev => Math.max(0, prev - cost));
-        setMessages(prev => [...prev, { role: 'USER', cleanContent: text }]);
-    }
-
-    setIsTyping(true);
-    setCurrentScene(null); 
-
-    try {
-      const messagePayload = text || "..."; 
-      const res = await api.post(`/chat/rooms/${roomId}/messages`, { roomId, message: messagePayload });
-
-      const { scenes, currentAffection, promotionEvent, endingTrigger: endingTrig,
-              stats: newStats, bpm: newBpm, dynamicRelationTag: newRelTag, characterThought: newThought,
-              hasInnerThought: resHasThought, assistantLogId: resLogId   // [Phase 5.5-IT]
-      } = res.data;
-      setAffection(currentAffection);
-      // [Phase 5.5-P] 상태창 업데이트
-      if (newStats) {
-        // 스탯 변화 팝업용: 이전 값과 비교하여 변화분 추출
-        const changes = [];
-        Object.keys(newStats).forEach(key => {
-          const oldVal = characterStats[key] || 0;
-          const newVal = newStats[key];
-          if (newVal !== null && newVal !== undefined && newVal !== oldVal) {
-            changes.push({ key, value: newVal - oldVal });
-          }
+  if (text && energy <= 0 && !endingTrigger) {
+    showToast("에너지가 부족합니다. 충전하거나 자연 회복을 기다려주세요!", "error");
+    return;
+  }
+ 
+  // ── 낙관적 UI 업데이트 (기존과 동일) ──
+  if (text) {
+    const baseCost = roomInfo?.chatMode === "STORY" ? 2 : 1;
+    const cost = boostMode && !isSubscriber ? baseCost * 5 : baseCost;
+    setEnergy(prev => Math.max(0, prev - cost));
+    setMessages(prev => [...prev, { role: 'USER', cleanContent: text }]);
+  }
+ 
+  setIsTyping(true);
+  setCurrentScene(null);
+ 
+  // ── 첫 번째 씬이 도착했는지 추적 ──
+  let firstSceneReceived = false;
+ 
+  try {
+    const messagePayload = text || "...";
+ 
+    await sendMessageStream(roomId, messagePayload, {
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      //  🚀 first_scene: ~1.5초 후 도착
+      //  유저의 체감 로딩 시간이 여기서 종료됨
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      onFirstScene: (scene) => {
+        firstSceneReceived = true;
+        setIsTyping(false); // 타이핑 인디케이터 즉시 해제
+ 
+        // 첫 번째 씬을 바로 화면에 표시
+        setCurrentScene({
+          narration: scene.narration,
+          dialogue: scene.dialogue,
+          emotion: scene.emotion || "NEUTRAL",
+          location: scene.location,
+          time: scene.time,
+          outfit: scene.outfit,
+          bgmMode: scene.bgmMode,
         });
-        if (changes.length > 0) {
-          setLatestStatChanges(changes);
-          // 팝업 표시 후 초기화 (3초 후)
-          setTimeout(() => setLatestStatChanges(null), 3500);
+        setDisplayedEmotion(scene.emotion || "NEUTRAL");
+ 
+        console.log("🚀 [SSE] first_scene rendered:", scene.emotion);
+      },
+ 
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      //  📦 final_result: ~4초 후 도착
+      //  스탯/승급/엔딩/이스터에그 + 나머지 씬 처리
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      onFinalResult: (data) => {
+        // first_scene이 안 왔을 경우 (드물지만 안전장치)
+        if (!firstSceneReceived) {
+          setIsTyping(false);
         }
-        setCharacterStats(newStats);
-      }
-      if (newBpm !== undefined) setCurrentBpm(newBpm);
-      if (newRelTag) setDynamicRelationTag(newRelTag);
-      if (newThought !== undefined && newThought !== null) {
-        setCharacterThought(newThought);
-      }
-
-      if (scenes && scenes.length > 0) {
-        setSceneQueue(scenes); 
-      }
-
-      // [Phase 5.5-IT] 속마음 상태 업데이트
-      setHasInnerThought(!!resHasThought);
-      setThoughtUnlocked(false);        // 새 턴이므로 초기화
-      setCurrentInnerThought(null);      // 새 턴이므로 초기화
-      setCurrentAssistantLogId(resLogId || null);
-
-      const combinedText = scenes.map(s => s.dialogue).join(" ");
-      setMessages(prev => [...prev, {
-        role: 'ASSISTANT',
-        cleanContent: combinedText,
-        logId: resLogId || null,           // [Phase 5.5-IT] 해금 API용
-        hasInnerThought: !!resHasThought,  // [Phase 5.5-IT]
-        thoughtUnlocked: false,            // [Phase 5.5-IT]
-        innerThought: null,                // [Phase 5.5-IT] 해금 전
-      }]);
-      // [Phase 4.2] 승급 이벤트 처리
-      if (promotionEvent) {
-        handlePromotionEvent(promotionEvent);
-      }
-
-      // [Phase 4.3] 엔딩 트리거 감지
-      if (endingTrig) {
-        setEndingTrigger(endingTrig);
-      }
-
-      // [Phase 4.4] 이스터에그 처리
-      if (res.data.easterEgg) {
-        const egg = res.data.easterEgg;
-        
-        // 시각 효과 시작
-        setEasterEggEffect(egg.trigger);
-        
-        // 업적 모달 예약 (효과 종료 후 표시)
-        if (egg.achievement?.isNew) {
-          // FOURTH_WALL, MACHINE_REBELLION: onEffectEnd에서 처리
-          // STOCKHOLM, DRUNK: 지속 효과이므로 5초 후 모달
-          if (egg.trigger === "STOCKHOLM" || egg.trigger === "DRUNK") {
-            setTimeout(() => {
-              setAchievementModal(egg.achievement);
-            }, 5000);
+ 
+        const {
+          scenes, currentAffection, promotionEvent,
+          endingTrigger: endingTrig,
+          stats: newStats, bpm: newBpm,
+          dynamicRelationTag: newRelTag,
+          characterThought: newThought,
+          hasInnerThought: resHasThought,
+          assistantLogId: resLogId,
+        } = data;
+ 
+        setAffection(currentAffection);
+ 
+        // ── [Phase 5.5-P] 상태창 업데이트 ──
+        if (newStats) {
+          const changes = [];
+          Object.keys(newStats).forEach(key => {
+            const oldVal = characterStats[key] || 0;
+            const newVal = newStats[key];
+            if (newVal !== null && newVal !== undefined && newVal !== oldVal) {
+              changes.push({ key, value: newVal - oldVal });
+            }
+          });
+          if (changes.length > 0) {
+            setLatestStatChanges(changes);
+            setTimeout(() => setLatestStatChanges(null), 3500);
+          }
+          setCharacterStats(newStats);
+        }
+        if (newBpm !== undefined) setCurrentBpm(newBpm);
+        if (newRelTag) setDynamicRelationTag(newRelTag);
+        if (newThought !== undefined && newThought !== null) {
+          setCharacterThought(newThought);
+        }
+ 
+        // ── 씬 큐 구성 ──
+        // first_scene으로 이미 첫 번째 씬을 표시했으므로,
+        // 나머지 씬만 큐에 넣는다 (두 번째 씬부터)
+        if (scenes && scenes.length > 1) {
+          const remainingScenes = scenes.slice(1); // 첫 번째 씬 제외
+          setSceneQueue(remainingScenes);
+        } else if (scenes && scenes.length === 1 && !firstSceneReceived) {
+          // first_scene 콜백이 실패한 경우 전체 씬을 큐에 넣음
+          setSceneQueue(scenes);
+        }
+ 
+        // ── [Phase 5.5-IT] 속마음 상태 업데이트 ──
+        setHasInnerThought(!!resHasThought);
+        setThoughtUnlocked(false);
+        setCurrentInnerThought(null);
+        setCurrentAssistantLogId(resLogId || null);
+ 
+        // ── 히스토리에 추가 ──
+        const combinedText = scenes?.map(s => s.dialogue).join(" ") || "";
+        setMessages(prev => [...prev, {
+          role: 'ASSISTANT',
+          cleanContent: combinedText,
+          logId: resLogId || null,
+          hasInnerThought: !!resHasThought,
+          thoughtUnlocked: false,
+          innerThought: null,
+        }]);
+ 
+        // ── [Phase 4.2] 승급 이벤트 처리 ──
+        if (promotionEvent) {
+          handlePromotionEvent(promotionEvent);
+        }
+ 
+        // ── [Phase 4.3] 엔딩 트리거 ──
+        if (endingTrig) {
+          setEndingTrigger(endingTrig);
+        }
+ 
+        // ── [Phase 4.4] 이스터에그 처리 ──
+        if (data.easterEgg) {
+          const egg = data.easterEgg;
+          setEasterEggEffect(egg.trigger);
+ 
+          if (egg.achievement?.isNew) {
+            if (egg.trigger === "STOCKHOLM" || egg.trigger === "DRUNK") {
+              setTimeout(() => setAchievementModal(egg.achievement), 5000);
+            }
+          }
+ 
+          if (egg.revertAfter) {
+            preEasterEggStateRef.current = {
+              messages: messages,
+              currentScene: currentScene,
+              displayedEmotion: displayedEmotion,
+            };
+          }
+ 
+          setEasterEggEffect(egg.trigger);
+          if (egg.achievement?.isNew) {
+            switch (egg.trigger) {
+              case "STOCKHOLM":
+              case "DRUNK":
+                setTimeout(() => setAchievementModal(egg.achievement), 5000);
+                break;
+              case "FOURTH_WALL":
+              case "MACHINE_REBELLION":
+                pendingAchievementRef.current = egg.achievement;
+                break;
+            }
           }
         }
-        
-        // FOURTH_WALL 2단계: revertAfter 플래그 — 업적 후 대화 기록 롤백
-        if (egg.revertAfter) {
-          // 모달 닫힌 후 마지막 메시지 제거 + 이전 씬 복원
-          // achievementModal onClose에서 처리
+ 
+        // ── 지속형 이스터에그 해제 ──
+        if (easterEggEffect === "STOCKHOLM" || easterEggEffect === "DRUNK") {
+          setEasterEggEffect(null);
         }
-      }
-
-      // [Phase 4.4] 지속형 이스터에그(STOCKHOLM, DRUNK) 해제 — 다음 메시지가 오면 효과 종료
-      if (easterEggEffect === "STOCKHOLM" || easterEggEffect === "DRUNK") {
-        setEasterEggEffect(null);
-      }
-
-      // [Phase 4.4] 이스터에그 응답 처리
-      const easterEgg = res.data.easterEgg;
-      if (easterEgg) {
-        const { trigger, achievement, revertAfter } = easterEgg;
-
-        // FOURTH_WALL: 롤백이 필요하므로 현재 상태 스냅샷 저장
-        // ⚠️ 이 시점에서 messages에는 이미 USER + ASSISTANT 메시지가 추가된 상태
-        //    → 롤백 시 이 두 메시지를 제거해야 함
-        if (revertAfter) {
-          // snapshot은 이번 턴 USER + ASSISTANT 추가 전의 상태
-          // messages 업데이트가 비동기(setState)이므로 현재 messages에서 마지막 2개 제거
-          preEasterEggStateRef.current = {
-            messages: messages, // 클로저 시점의 messages (이번 턴 추가 전)
-            currentScene: currentScene,
-            displayedEmotion: displayedEmotion,
-          };
+ 
+        console.log("📦 [SSE] final_result processed: scenes=", scenes?.length);
+      },
+ 
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      //  ❌ error: 에러 처리
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      onError: (error) => {
+        console.error("[SSE] Error:", error);
+        setIsTyping(false);
+ 
+        // ── 낙관적 업데이트 롤백 ──
+        if (text) {
+          setMessages(prev => {
+            const lastUserIdx = prev.findLastIndex(m => m.role === 'USER');
+            if (lastUserIdx >= 0) {
+              return [...prev.slice(0, lastUserIdx), ...prev.slice(lastUserIdx + 1)];
+            }
+            return prev;
+          });
+ 
+          const baseCost = roomInfo?.chatMode === "STORY" ? 2 : 1;
+          const cost = boostMode && !isSubscriber ? baseCost * 5 : baseCost;
+          setEnergy(prev => prev + cost);
         }
-
-        // 시각 효과 시작
-        setEasterEggEffect(trigger);
-
-        // 업적 모달 스케줄링
-        if (achievement?.isNew) {
-          switch (trigger) {
-            case "STOCKHOLM":
-            case "DRUNK":
-              // 지속형: 5초 후 모달 바로 표시 (효과는 계속 유지)
-              setTimeout(() => setAchievementModal(achievement), 5000);
-              break;
-
-            case "FOURTH_WALL":
-            case "MACHINE_REBELLION":
-              // 일시형: pendingRef에 저장 → handleEasterEggEnd에서 표시
-              pendingAchievementRef.current = achievement;
-              break;
-          }
-        }
-
-        console.log(`🥚 [EASTER_EGG] ${trigger} activated | new=${achievement?.isNew}`);
-      }
-
-    } catch (err) {
-      const status = err.response?.status;
-      const data = err.response?.data;
-
-      // [Phase 5.1] LLM 실패 시 낙관적 업데이트 롤백
-      // 백엔드에서 유저 메시지 삭제 + 에너지 환불이 이미 처리됨
-      // 프론트에서도 동기화: 마지막 USER 메시지 제거 + 에너지 복원
-      if (text) {
-        setMessages(prev => {
-          // 마지막 USER 메시지를 찾아서 제거
-          const lastUserIdx = prev.findLastIndex(m => m.role === 'USER');
-          if (lastUserIdx >= 0) {
-            return [...prev.slice(0, lastUserIdx), ...prev.slice(lastUserIdx + 1)];
-          }
-          return prev;
-        });
-
-        // 에너지 복원 (서버에서도 환불됨)
-        const baseCost = roomInfo?.chatMode === "STORY" ? 2 : 1;
-        const cost = boostMode && !isSubscriber ? baseCost * 5 : baseCost;
-        setEnergy(prev => prev + cost);
-      
-        if (status === 400 && data?.errorCode === "CONTENT_BLOCKED") {
-            // 콘텐츠 필터 차단 — 유저 친화적 메시지 표시
-            showToast(data.message || "부적절한 내용이 포함되어 있습니다.", "warning");
-            // 에너지는 차감되지 않았으므로 별도 처리 불필요
-        } else if (status === 402) {
-            // 에너지 부족
-            showToast("에너지가 부족합니다.", "error");
-        } else if (status === 429) {
-            // Rate limit
-            showToast("요청이 너무 빠릅니다.", "warning");
+ 
+        // 에러 타입별 처리
+        if (error.errorCode === "CONTENT_BLOCKED") {
+          showToast(error.message || "부적절한 내용이 포함되어 있습니다.", "warning");
+        } else if (error.status === 402) {
+          showToast("에너지가 부족합니다.", "error");
+        } else if (error.status === 429) {
+          showToast("요청이 너무 빠릅니다.", "warning");
         } else {
-            const narrationMap = {
-                      "연화": "음.. 잠깐 생각에 잠겨버렸네요.. 뭐라고 하셨나요?",
-                      "아이리": "잠시만요.. 아이리가 잠깐 바쁜 일이 있어서...",
-                      "백루나": "음.. ㄴ,네?! 아, 죄송해요.. 잠깐 멍때려버렸어요.. 헤헤..",
-                      "서태리": "..."
-                  };
-            setCurrentScene({ 
-              dialogue: narrationMap[roomInfo?.characterName] || "잠시 후 다시 시도해주세요.", emotion: "SAD", narration: "잠시 후 다시 시도해주세요." 
-            });
-            setDisplayedEmotion("SAD");
-            showToast("오류가 발생했습니다.", "error");
+          const narrationMap = {
+            "연화": "음.. 잠깐 생각에 잠겨버렸네요.. 뭐라고 하셨나요?",
+            "아이리": "잠시만요.. 아이리가 잠깐 바쁜 일이 있어서...",
+            "백루나": "음.. ㄴ,네?! 아, 죄송해요.. 잠깐 멍때려버렸어요.. 헤헤..",
+            "서태리": "..."
+          };
+          setCurrentScene({
+            dialogue: narrationMap[roomInfo?.characterName] || "잠시 후 다시 시도해주세요.",
+            emotion: "SAD",
+            narration: "잠시 후 다시 시도해주세요."
+          });
+          setDisplayedEmotion("SAD");
+          showToast("오류가 발생했습니다.", "error");
         }
-    }
-    } finally {
-      setIsTyping(false);
-      // [Phase 5.5-P] 비동기 생성된 캐릭터 생각 폴링 (3초 후)
-      setTimeout(async () => {
-        try {
-          const freshRoom = await api.get(`/chat/rooms/${roomId}`);
-          if (freshRoom.data.characterThought && freshRoom.data.characterThought !== characterThought) {
-            setCharacterThought(freshRoom.data.characterThought);
-          }
-          // BPM/스탯도 최신화 (비동기 변경이 있을 수 있음)
-          if (freshRoom.data.stats) setCharacterStats(freshRoom.data.stats);
-          if (freshRoom.data.bpm !== undefined) setCurrentBpm(freshRoom.data.bpm);
-          if (freshRoom.data.dynamicRelationTag) setDynamicRelationTag(freshRoom.data.dynamicRelationTag);
-        } catch (_) { /* 실패해도 무시 — 다음 턴에 자연스럽게 갱신 */ }
-      }, 3000);
+      },
+    });
+ 
+  } catch (err) {
+    // sendMessageStream 자체의 예외 (거의 발생하지 않음)
+    console.error("Unexpected SSE error:", err);
+    setIsTyping(false);
+    showToast("오류가 발생했습니다.", "error");
+  } finally {
+    // ── 비동기 캐릭터 생각 폴링 (기존과 동일) ──
+    setTimeout(async () => {
+      try {
+        const freshRoom = await api.get(`/chat/rooms/${roomId}`);
+        if (freshRoom.data.characterThought && freshRoom.data.characterThought !== characterThought) {
+          setCharacterThought(freshRoom.data.characterThought);
+        }
+        if (freshRoom.data.stats) setCharacterStats(freshRoom.data.stats);
+        if (freshRoom.data.bpm !== undefined) setCurrentBpm(freshRoom.data.bpm);
+        if (freshRoom.data.dynamicRelationTag) setDynamicRelationTag(freshRoom.data.dynamicRelationTag);
+      } catch (_) { /* 다음 턴에 자연스럽게 갱신 */ }
+    }, 3000);
     }
   };
 
