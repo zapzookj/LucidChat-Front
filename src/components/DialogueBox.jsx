@@ -247,6 +247,8 @@ const DialogueBox = ({
   topicConcluded = false,         // 주제 종료 플래그
   eventStatus = null,              // "ONGOING" | "RESOLVED" | null
   onWatch,                         // 👀 계속 지켜보기 콜백
+  // [Phase 5.5-NPC]
+  speaker = null,          // 현재 씬의 화자 이름 (null → 메인 캐릭터)
   onTimeSkip,                      // ⏭ 시간 넘기기 콜백
 }) => {
   const [input, setInput] = useState("");
@@ -260,6 +262,10 @@ const DialogueBox = ({
 
   // [Phase 5.5-EV] 디렉터 모드 진행 중 여부
   const isDirectorOngoing = eventStatus === "ONGOING";
+
+  // [Phase 5.5-NPC] 현재 화자가 NPC인지 판별
+  const isNpcSpeaking = speaker && speaker !== characterName;
+  const displaySpeakerName = speaker || characterName;
 
   // 새 씬이 오면 대사 탭으로 리셋
   useEffect(() => {
@@ -473,16 +479,32 @@ const DialogueBox = ({
           } ${
             isEventScene
               ? 'bg-gradient-to-br from-indigo-900/90 to-purple-900/90 border-indigo-400/50 backdrop-blur-xl ring-1 ring-purple-500/30'
+              : isDirectorOngoing
+                ? 'bg-gradient-to-br from-amber-950/60 to-orange-950/60 border-amber-500/30 backdrop-blur-xl ring-1 ring-amber-500/20'
               : activeTab === "thought"
                 ? 'bg-gradient-to-br from-purple-950/70 to-indigo-950/70 border-purple-500/20 backdrop-blur-xl'
                 : 'bg-black/50 border-white/10 backdrop-blur-xl hover:bg-black/60'
           }`}
         >
-          {/* 캐릭터 이름표 */}
+          {/* ═══ [Phase 5.5-NPC] 화자 이름표 ═══ */}
           {!isEventScene && (
-            <div className="absolute -top-5 left-8 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold px-8 py-2 rounded-2xl shadow-lg border border-white/20 transform -rotate-1 z-20">
-              {characterName}
-            </div>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={displaySpeakerName}
+                initial={{ opacity: 0, y: -4, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 4, scale: 0.95 }}
+                transition={{ duration: 0.3 }}
+                className={`absolute -top-5 left-8 font-bold px-8 py-2 rounded-2xl shadow-lg border transform -rotate-1 z-20 ${
+                  isNpcSpeaking
+                    ? 'bg-gradient-to-r from-red-800 to-rose-900 text-red-200 border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2)]'
+                    : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white border-white/20'
+                }`}
+              >
+                {isNpcSpeaking && <span className="mr-1.5 text-sm">👤</span>}
+                {displaySpeakerName}
+              </motion.div>
+            </AnimatePresence>
           )}
 
           {/* [Phase 5.5-EV] 디렉터 모드 진행 중 뱃지 */}

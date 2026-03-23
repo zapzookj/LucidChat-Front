@@ -103,6 +103,14 @@ async function _ssePost(url, body, callbacks, abortController) {
         if (!parsed) continue;
 
         switch (parsed.event) {
+          case 'event_meta':
+            try {
+                const meta = JSON.parse(parsed.data);
+                callbacks.onEventMeta?.(meta);
+            } catch (e) {
+                console.warn('[SSE] event_meta parse error:', e);
+            }
+            break;
           case 'first_scene':
             try { callbacks.onFirstScene?.(JSON.parse(parsed.data)); }
             catch (e) { console.warn('[SSE] first_scene parse error:', e); }

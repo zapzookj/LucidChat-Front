@@ -761,6 +761,7 @@ const ChatPage = () => {
  
         // 첫 번째 씬을 바로 화면에 표시
         setCurrentScene({
+          speaker: scene.speaker || null,     // ★ Fix-UI-2: speaker 포함
           narration: scene.narration,
           dialogue: scene.dialogue,
           emotion: scene.emotion || "NEUTRAL",
@@ -855,8 +856,11 @@ const ChatPage = () => {
         // first_scene으로 이미 첫 번째 씬을 표시했으므로,
         // 나머지 씬만 큐에 넣는다 (두 번째 씬부터)
         if (scenes && scenes.length > 1) {
-          const remainingScenes = scenes.slice(1); // 첫 번째 씬 제외
-          setSceneQueue(remainingScenes);
+          const remaining = scenes.slice(1).map(s => ({
+            ...s,
+            speaker: s.speaker || null,
+          }));
+          setSceneQueue(remaining);
         } else if (scenes && scenes.length === 1 && !firstSceneReceived) {
           // first_scene 콜백이 실패한 경우 전체 씬을 큐에 넣음
           setSceneQueue(scenes);
@@ -870,14 +874,35 @@ const ChatPage = () => {
  
         // ── 히스토리에 추가 ──
         const combinedText = scenes?.map(s => s.dialogue).join(" ") || "";
-        setMessages(prev => [...prev, {
-          role: 'ASSISTANT',
-          cleanContent: combinedText,
-          logId: resLogId || null,
-          hasInnerThought: !!resHasThought,
-          thoughtUnlocked: false,
-          innerThought: null,
-        }]);
+        if (eventActive && scenes && scenes.length > 0) {
+          // 이벤트 중: 씬별 분리
+          const entries = scenes.map((s, i) => {
+            const speakerName = s.speaker || roomInfo?.characterName;
+            const isNpc = s.speaker && s.speaker !== roomInfo?.characterName;
+            const content = [];
+            if (s.narration) content.push(`*${s.narration}*`);
+            if (s.dialogue) content.push(s.dialogue);
+            return {
+              role: isNpc ? 'NPC' : 'ASSISTANT',
+              cleanContent: content.join('\n'),
+              speaker: speakerName,
+              logId: (i === scenes.length - 1) ? (resLogId || null) : null,
+              hasInnerThought: (i === scenes.length - 1) ? !!resHasThought : false,
+            };
+          });
+          setMessages(prev => [...prev, ...entries]);
+        } else {
+          // 일반 채팅: 기존 방식
+          const combinedText = scenes?.map(s => s.dialogue).join(" ") || "";
+          setMessages(prev => [...prev, {
+            role: 'ASSISTANT',
+            cleanContent: combinedText,
+            logId: resLogId || null,
+            hasInnerThought: !!resHasThought,
+            thoughtUnlocked: false,
+            innerThought: null,
+          }]);
+        }
  
         // ── [Phase 4.2] 승급 이벤트 처리 ──
         if (promotionEvent) {
@@ -1121,23 +1146,24 @@ const ChatPage = () => {
       sceneType: option.type,
     });
   
-    let firstSceneReceived = false;
+    // 첫 씬 임시 저장 (큐 구성을 onFinalResult에서 함)
+    let firstSceneData = null;
   
     try {
       await sendEventSelectStream(roomId, detail, energyCost, {
-        // ★ Fix 2: event_meta — first_scene보다 먼저 도착
+  
         onEventMeta: (meta) => {
           if (meta.eventStatus) {
             setEventStatus(meta.eventStatus);
             setEventActive(meta.eventStatus === "ONGOING");
-            console.log("🎬 [SSE] event_meta received:", meta.eventStatus);
           }
         },
-
+  
         onFirstScene: (scene) => {
-          firstSceneReceived = true;
-          setIsTyping(false);
-          setCurrentScene({
+          // [Fix-UI-1] currentScene을 덮어쓰지 않음!
+          // 대신 첫 씬 데이터를 임시 저장 → onFinalResult에서 큐에 합류
+          firstSceneData = {
+            speaker: scene.speaker || null,    // [Fix-UI-2] speaker 포함
             narration: scene.narration,
             dialogue: scene.dialogue,
             emotion: scene.emotion || "NEUTRAL",
@@ -1145,65 +1171,100 @@ const ChatPage = () => {
             time: scene.time,
             outfit: scene.outfit,
             bgmMode: scene.bgmMode,
-          });
-          if (scene.speaker && scene.speaker !== roomInfo?.characterName) {
-            setNpcSpeaker(scene.speaker);
-            setCurrentSpeaker(scene.speaker);
-          } else {
-            setCurrentSpeaker(scene.speaker || null);
-          }
-          setDisplayedEmotion(scene.emotion || "NEUTRAL");
+          };
+          // 타이핑 인디케이터는 해제 (나레이션은 이미 표시 중)
+          setIsTyping(false);
+  
+          console.log("🚀 [SSE] first_scene buffered (not rendered yet):", scene.speaker, scene.emotion);
         },
   
         onFinalResult: (data) => {
-          if (!firstSceneReceived) setIsTyping(false);
+          setIsTyping(false);
   
           const {
             scenes, currentAffection, stats: newStats, bpm: newBpm,
             dynamicRelationTag: newRelTag, eventStatus: newEventStatus,
             topicConcluded: newTopicConcluded,
+            hasInnerThought: resHasThought, assistantLogId: resLogId,
           } = data;
   
           setAffection(currentAffection);
-          if (newStats) setCharacterStats(newStats);
+          if (newStats) {
+            const changes = [];
+            Object.keys(newStats).forEach(key => {
+              const oldVal = characterStats[key] || 0;
+              const newVal = newStats[key];
+              if (newVal !== null && newVal !== undefined && newVal !== oldVal) {
+                changes.push({ key, value: newVal - oldVal });
+              }
+            });
+            if (changes.length > 0) {
+              setLatestStatChanges(changes);
+              setTimeout(() => setLatestStatChanges(null), 3500);
+            }
+            setCharacterStats(newStats);
+          }
           if (newBpm !== undefined) setCurrentBpm(newBpm);
           if (newRelTag) setDynamicRelationTag(newRelTag);
-  
-          // [Phase 5.5-EV] 디렉터 모드 활성화
           if (newEventStatus) {
             setEventStatus(newEventStatus);
             setEventActive(newEventStatus === "ONGOING");
           }
           if (newTopicConcluded !== undefined) setTopicConcluded(newTopicConcluded);
   
-          // 씬 큐 구성
-          if (scenes && scenes.length > 1) {
-            setSceneQueue(scenes.slice(1));
-          } else if (scenes && scenes.length === 1 && !firstSceneReceived) {
-            setSceneQueue(scenes);
-          }
-
-          // ── [Phase 5.5-NPC] NPC 스피커 감지 ──
-          if (scenes && scenes.length > 0) {
-            const npcScene = scenes.find(s => s.speaker && s.speaker !== roomInfo?.characterName);
-            if (npcScene) {
-              setNpcSpeaker(npcScene.speaker);
-            }
+          setHasInnerThought(!!resHasThought);
+          setThoughtUnlocked(false);
+          setCurrentInnerThought(null);
+          setCurrentAssistantLogId(resLogId || null);
+  
+          // [Fix-UI-1] 씬 큐 구성: 현재 나레이션이 표시 중이므로
+          // 유저가 클릭하면 → 첫 번째 씬(firstSceneData or scenes[0]) → 나머지 씬
+          const fullScenes = scenes || [];
+          const queue = fullScenes.map(s => ({
+            speaker: s.speaker || null,      // [Fix-UI-2] speaker 전달
+            narration: s.narration,
+            dialogue: s.dialogue,
+            emotion: s.emotion || "NEUTRAL",
+            location: s.location,
+            time: s.time,
+            outfit: s.outfit,
+            bgmMode: s.bgmMode,
+          }));
+  
+          setSceneQueue(queue);
+  
+          // [Fix-UI-4] 히스토리: 화자별 분리 + 나레이션 포함
+          const historyEntries = [
+            { role: 'SYSTEM', cleanContent: detail }, // 이벤트 나레이션
+          ];
+  
+          // 씬별로 분리하여 히스토리에 추가
+          fullScenes.forEach((s, i) => {
+            const speakerName = s.speaker || roomInfo?.characterName || "캐릭터";
+            const isNpc = s.speaker && s.speaker !== roomInfo?.characterName;
+            const content = [];
+            if (s.narration) content.push(`*${s.narration}*`);
+            if (s.dialogue) content.push(s.dialogue);
+  
+            historyEntries.push({
+              role: isNpc ? 'NPC' : 'ASSISTANT',
+              cleanContent: content.join('\n'),
+              speaker: speakerName,
+              logId: (i === fullScenes.length - 1) ? (resLogId || null) : null,
+              hasInnerThought: (i === fullScenes.length - 1) ? !!resHasThought : false,
+              thoughtUnlocked: false,
+              innerThought: null,
+            });
+          });
+  
+          setMessages(prev => [...prev, ...historyEntries]);
+  
+          // NPC 감지
+          const npcScene = fullScenes.find(s => s.speaker && s.speaker !== roomInfo?.characterName);
+          if (npcScene) {
+            setNpcSpeaker(npcScene.speaker);
           }
   
-          // 히스토리 추가
-          const combinedText = scenes?.map(s => s.dialogue).join(" ") || "";
-          setMessages(prev => [...prev,
-            { role: 'SYSTEM', cleanContent: detail },
-            {
-              role: 'ASSISTANT',
-              cleanContent: combinedText,
-              logId: data.assistantLogId || null,
-              hasInnerThought: !!data.hasInnerThought,
-            }
-          ]);
-  
-          // 에너지 동기화
           api.get("/users/me").then(res => {
             if (res.data.energy !== undefined) setEnergy(res.data.energy);
           }).catch(() => {});
@@ -1212,18 +1273,12 @@ const ChatPage = () => {
         onError: (error) => {
           console.error("[SSE] Event select error:", error);
           setIsTyping(false);
-          setEnergy(prev => prev + energyCost); // 롤백
+          setEnergy(prev => prev + energyCost);
           setCurrentScene(null);
-  
-          if (error.errorCode === "CONTENT_BLOCKED") {
-            showToast(error.message || "부적절한 내용이 포함되어 있습니다.", "warning");
-          } else {
-            showToast(error.message || "이벤트 처리 중 오류가 발생했습니다.", "error");
-          }
+          showToast(error.message || "이벤트 처리 중 오류가 발생했습니다.", "error");
         },
       });
     } catch (err) {
-      console.error("Event select failed:", err);
       setIsTyping(false);
       setEnergy(prev => prev + energyCost);
       setCurrentScene(null);
@@ -1259,6 +1314,7 @@ const ChatPage = () => {
           firstSceneReceived = true;
           setIsTyping(false);
           setCurrentScene({
+            speaker: scene.speaker || null,     // ★ Fix-UI-2: speaker 포함
             narration: scene.narration,
             dialogue: scene.dialogue,
             emotion: scene.emotion || "NEUTRAL",
@@ -1312,10 +1368,21 @@ const ChatPage = () => {
           }
   
           const combinedText = scenes?.map(s => s.dialogue).join(" ") || "";
-          setMessages(prev => [...prev, {
-            role: 'ASSISTANT',
-            cleanContent: combinedText,
-          }]);
+          const historyEntries = [];
+          (scenes || []).forEach((s, i) => {
+            const speakerName = s.speaker || roomInfo?.characterName || "캐릭터";
+            const isNpc = s.speaker && s.speaker !== roomInfo?.characterName;
+            const content = [];
+            if (s.narration) content.push(`*${s.narration}*`);
+            if (s.dialogue) content.push(s.dialogue);
+  
+            historyEntries.push({
+              role: isNpc ? 'NPC' : 'ASSISTANT',
+              cleanContent: content.join('\n'),
+              speaker: speakerName,
+            });
+          });
+          setMessages(prev => [...prev, ...historyEntries]);
         },
   
         onError: (error) => {
@@ -2599,18 +2666,48 @@ const ChatPage = () => {
                     );
                 }
 
+                if (msg.role === 'NPC') {
+                    return (
+                        <div key={`h-${idx}`} className="group flex flex-col items-start">
+                            <span className="text-xs mb-1 px-2 text-red-400/70 flex items-center gap-1">
+                                <span>👤</span> {msg.speaker || "???"}
+                            </span>
+                            <div className="px-5 py-3 rounded-2xl max-w-[85%] text-sm leading-relaxed shadow-sm
+                                            bg-gradient-to-br from-red-950/40 to-rose-950/30 text-red-100/80
+                                            rounded-tl-sm border border-red-500/10"
+                                 style={{ fontStyle: msg.cleanContent?.startsWith('*') ? 'italic' : 'normal' }}
+                            >
+                                {/* 나레이션(*로 감싸진)과 대사 분리 렌더링 */}
+                                {msg.cleanContent?.split('\n').map((line, li) => (
+                                    <span key={li} className={line.startsWith('*') ? 'text-red-300/40 text-xs block mb-1' : 'block'}>
+                                        {line.replace(/^\*|\*$/g, '')}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                }
+
                 const isMe = msg.role === 'USER';
                 const isLastOfRole = (isMe && idx === lastUserIdx) || (!isMe && idx === lastAssistantIdx);
                 const hasLogId = !!msg.logId;
                 const showActions = hasLogId && isLastOfRole;
+                // ★ Fix-UI-4: speaker가 있으면 그 이름 표시
+                const displayName = isMe ? '나' : (msg.speaker || roomInfo?.characterName || "캐릭터");
 
                 return (
                   <div key={`h-${msg.logId || idx}`} className={`group flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                    <span className={`text-xs mb-1 px-2 ${isMe ? 'text-pink-400' : 'text-indigo-400'}`}>{isMe ? '나' : roomInfo.characterName}</span>
+                    <span className={`text-xs mb-1 px-2 ${isMe ? 'text-pink-400' : 'text-indigo-400'}`}>{displayName}</span>
                     <div className={`px-5 py-3 rounded-2xl max-w-[85%] text-sm leading-relaxed shadow-sm ${
-                      isMe ? 'bg-pink-600 text-white rounded-tr-sm' : 'bg-[#2a2a35] text-gray-100 rounded-tl-sm border border-white/5'
+                    isMe ? 'bg-pink-600 text-white rounded-tr-sm' : 'bg-[#2a2a35] text-gray-100 rounded-tl-sm border border-white/5'
                     }`}>
-                      {msg.cleanContent}
+                        {msg.cleanContent?.split('\n').map((line, li) => (
+                            <span key={li} className={line.startsWith('*')
+                                ? 'text-indigo-300/40 text-xs italic block mb-1'
+                                : 'block'}>
+                                {line.replace(/^\*|\*$/g, '')}
+                            </span>
+                        ))}
                     </div>
 
                        {/* [Phase 5.5-IT] 속마음 히스토리 표시 */}
