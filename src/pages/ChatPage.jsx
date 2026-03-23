@@ -1008,63 +1008,95 @@ const ChatPage = () => {
           showToast("시크릿 모드 활성화가 필요합니다.", "info");
           return;
       }
-
+ 
       // UX: 로딩 중일 때 이전 대사 지우기 (몰입감)
       setCurrentScene({ dialogue: "", narration: "운명의 흐름을 읽는 중...", emotion: displayedEmotion, isEvent: true });
       setEventOptions(null); // 모달 닫기
       setIsTyping(true);
       setEnergy(prev => Math.max(0, prev - option.energyCost)); // 선차감(낙관적)
-
+ 
       try {
           const res = await api.post(`/story/rooms/${roomId}/events/select`, {
               detail: option.detail,
               energyCost: option.energyCost
           });
           
-          // 결과 처리 (Narrator Message + Character Reaction)
+          // ── [Fix #2] 올바른 변수 참조 ──
           const {
-            scenes: evtScenes, currentAffection: evtAff,
-            stats: evtStats, bpm: evtBpm, dynamicRelationTag: evtRelTag,
-            hasInnerThought: evtHasThought, assistantLogId: evtLogId
-          } = evtRes.data;
-          setAffection(currentAffection);
+            scenes: evtScenes,                        // [Fix] scenes → evtScenes
+            currentAffection: evtAff,                  // [Fix] 이름 매핑 확인
+            stats: evtStats,
+            bpm: evtBpm,
+            dynamicRelationTag: evtRelTag,
+            characterThought: evtThought,              // [Fix] 디스트럭처링 누락 추가
+            hasInnerThought: evtHasThought,
+            assistantLogId: evtLogId
+          } = res.data;                                // [Fix] evtRes → res
+ 
+          setAffection(evtAff);                        // [Fix] currentAffection → evtAff
           setHasInnerThought(!!evtHasThought);
           setThoughtUnlocked(false);
           setCurrentInnerThought(null);
           setCurrentAssistantLogId(evtLogId || null);
+ 
           // [Phase 5.5]
-          if (evtStats) setCharacterStats(evtStats);
+          if (evtStats) {
+            // 스탯 변화 팝업용
+            const changes = [];
+            Object.keys(evtStats).forEach(key => {
+              const oldVal = characterStats[key] || 0;
+              const newVal = evtStats[key];
+              if (newVal !== null && newVal !== undefined && newVal !== oldVal) {
+                changes.push({ key, value: newVal - oldVal });
+              }
+            });
+            if (changes.length > 0) {
+              setLatestStatChanges(changes);
+              setTimeout(() => setLatestStatChanges(null), 3500);
+            }
+            setCharacterStats(evtStats);
+          }
           if (evtBpm !== undefined) setCurrentBpm(evtBpm);
           if (evtRelTag) setDynamicRelationTag(evtRelTag);
-          if (evtThought) setCharacterThought(evtThought);
+          if (evtThought) setCharacterThought(evtThought); // [Fix] evtThought 정상 참조
+ 
           // 큐구성: [이벤트 나레이션] -> [캐릭터 반응1] -> [반응2]...
           const newQueue = [];
           
           // 1. 이벤트 나레이션 (옵션의 detail)
           newQueue.push({
               dialogue: "",
-              narration: option.detail, // 선택한 상황 묘사
-              emotion: displayedEmotion, // 감정 유지
-              isEvent: true // 이벤트 씬 플래그
+              narration: option.detail,
+              emotion: displayedEmotion,
+              isEvent: true
           });
           
           // 2. 캐릭터 반응 추가
-          if (scenes?.length) {
-              newQueue.push(...scenes);
+          if (evtScenes?.length) {                     // [Fix] scenes → evtScenes
+              newQueue.push(...evtScenes);              // [Fix] scenes → evtScenes
           }
           
           setSceneQueue(newQueue);
-
+ 
           // 로그 업데이트 (히스토리용)
           setMessages(prev => [
               ...prev, 
               { role: 'SYSTEM', cleanContent: option.detail },
-              { role: 'ASSISTANT', cleanContent: scenes.map(s => s.dialogue).join(" ") }
+              {
+                role: 'ASSISTANT',
+                cleanContent: evtScenes?.map(s => s.dialogue).join(" ") || "",  // [Fix] scenes → evtScenes
+                logId: evtLogId || null,
+                hasInnerThought: !!evtHasThought,
+                thoughtUnlocked: false,
+                innerThought: null,
+              }
           ]);
-
+ 
       } catch (e) { 
           showToast("오류 발생", "error"); 
           setCurrentScene(null);
+          // 에너지 롤백 (낙관적 업데이트 복원)
+          setEnergy(prev => prev + option.energyCost);
       } finally { 
           setIsTyping(false); 
       }

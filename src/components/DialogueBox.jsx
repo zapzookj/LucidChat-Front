@@ -44,41 +44,47 @@ const STAT_META = {
 
 const StatChangeToasts = ({ changes }) => {
   const [queue, setQueue] = useState([]);
-  const changesRef = useRef(null);
-  const timersRef = useRef([]);
-
+  const showTimersRef = useRef([]);
+ 
+  // changes가 null/빈 배열이 되면 큐 즉시 정리 (안전장치)
   useEffect(() => {
-    if (!changes || changes.length === 0) return;
-
-    const key = JSON.stringify(changes);
-    if (changesRef.current === key) return;
-    changesRef.current = key;
-
+    if (!changes || changes.length === 0) {
+      // 진행 중인 show 타이머 취소
+      showTimersRef.current.forEach(t => clearTimeout(t));
+      showTimersRef.current = [];
+      // 큐 비우기 (잔류 토스트 강제 제거)
+      setQueue([]);
+      return;
+    }
+ 
     const filtered = changes.filter(c => c.value !== 0);
-
+    if (filtered.length === 0) return;
+ 
+    // 각 스탯 변화를 순차적으로 큐에 추가
     filtered.forEach((change, i) => {
-      const timer = setTimeout(() => {
-        const id = Date.now() + i;
-
+      const showTimer = setTimeout(() => {
+        const id = Date.now() + Math.random(); // 고유 ID (동일 타임스탬프 방지)
+ 
         setQueue(prev => [...prev, { ...change, id }]);
-
-        const removeTimer = setTimeout(() => {
+ 
+        // ⭐ 핵심 수정: 제거 타이머를 useEffect cleanup과 무관하게 독립 실행
+        // 이 타이머는 showTimersRef에 포함되지 않으므로 cleanup에 영향 없음
+        setTimeout(() => {
           setQueue(prev => prev.filter(item => item.id !== id));
         }, 2200);
-
-        timersRef.current.push(removeTimer);
-
+ 
       }, i * 600);
-
-      timersRef.current.push(timer);
+ 
+      showTimersRef.current.push(showTimer);
     });
-
+ 
+    // cleanup: show 타이머만 취소 (제거 타이머는 독립적으로 실행됨)
     return () => {
-      timersRef.current.forEach(t => clearTimeout(t));
-      timersRef.current = [];
+      showTimersRef.current.forEach(t => clearTimeout(t));
+      showTimersRef.current = [];
     };
   }, [changes]);
-
+ 
   return (
     <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex flex-col items-center gap-1 pointer-events-none z-50">
       <AnimatePresence mode="popLayout">
