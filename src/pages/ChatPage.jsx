@@ -148,6 +148,10 @@ const ChatPage = () => {
   const [eventStatus, setEventStatus] = useState(null);              // "ONGOING" | "RESOLVED" | null
   const [eventActive, setEventActive] = useState(false);             // 디렉터 모드 진행 중
 
+  // ─── [Phase 5.5-NPC] NPC 스피커 시스템 ───
+  const [currentSpeaker, setCurrentSpeaker] = useState(null);    // 현재 씬의 화자 이름
+  const [npcSpeaker, setNpcSpeaker] = useState(null);            // 활성 NPC 이름 (null이면 NPC 없음)
+
   const logsEndRef = useRef(null);
 
   // ================= Helper Functions =================
@@ -518,6 +522,18 @@ const ChatPage = () => {
   // [Phase 4 Fix] 캐릭터별 독립 세계관 — 허용 목록 기반 프론트 가드
   useEffect(() => {
     if (!currentScene) return;
+    // [Phase 5.5-NPC] 화자 추적
+    if (currentScene?.speaker) {
+      setCurrentSpeaker(currentScene.speaker);
+      // NPC인지 판별: 캐릭터 이름과 다르면 NPC
+      if (currentScene.speaker !== roomInfo?.characterName) {
+        setNpcSpeaker(currentScene.speaker);
+      }
+    } else {
+      setCurrentSpeaker(null);
+      // speaker가 null이어도 npcSpeaker는 유지 (같은 이벤트 내 다른 씬에서 NPC가 등장했었으므로)
+      // npcSpeaker는 이벤트 종료 시 초기화
+    }
     if (currentScene.emotion) {
       setDisplayedEmotion(currentScene.emotion);
     }
@@ -730,6 +746,15 @@ const ChatPage = () => {
       //  🚀 first_scene: ~1.5초 후 도착
       //  유저의 체감 로딩 시간이 여기서 종료됨
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // ★ Fix 2: event_meta — first_scene보다 먼저 도착
+      onEventMeta: (meta) => {
+        if (meta.eventStatus) {
+          setEventStatus(meta.eventStatus);
+          setEventActive(meta.eventStatus === "ONGOING");
+          console.log("🎬 [SSE] event_meta received:", meta.eventStatus);
+        }
+      },
+
       onFirstScene: (scene) => {
         firstSceneReceived = true;
         setIsTyping(false); // 타이핑 인디케이터 즉시 해제
@@ -744,6 +769,13 @@ const ChatPage = () => {
           outfit: scene.outfit,
           bgmMode: scene.bgmMode,
         });
+
+        if (scene.speaker && scene.speaker !== roomInfo?.characterName) {
+            setNpcSpeaker(scene.speaker);
+            setCurrentSpeaker(scene.speaker);
+          } else {
+            setCurrentSpeaker(scene.speaker || null);
+        }
         setDisplayedEmotion(scene.emotion || "NEUTRAL");
  
         console.log("🚀 [SSE] first_scene rendered:", scene.emotion);
@@ -807,6 +839,13 @@ const ChatPage = () => {
               setEventActive(false);
             }, 2000);
           }
+        // ── [Phase 5.5-NPC] NPC 스피커 감지 ──
+        if (scenes && scenes.length > 0) {
+          const npcScene = scenes.find(s => s.speaker && s.speaker !== roomInfo?.characterName);
+          if (npcScene) {
+            setNpcSpeaker(npcScene.speaker);
+          }
+        }
         } else {
           // 이벤트가 아닌 일반 채팅 → eventStatus 리셋하지 않음
           // (eventActive는 서버에서 관리)
@@ -856,6 +895,8 @@ const ChatPage = () => {
             setTimeout(() => {
               setEventStatus(null);
               setEventActive(false);
+              setNpcSpeaker(null); // 이벤트 종료 시 NPC 화자 초기화
+              setCurrentSpeaker(null); // 현재 화자 초기화 (이벤트 종료 시)
             }, 2000);
           }
         } else if (eventActive && !data.eventStatus) {
@@ -1059,10 +1100,14 @@ const ChatPage = () => {
       showToast(`에너지가 부족합니다. (필요: ${energyCost})`, "error");
       return;
     }
+
+    if (option.type === 'SECRET' && !userInfo.isSecretMode) {
+      showToast("시크릿 모드 활성화가 필요합니다.", "info");
+      return;
+    }
   
     setEventOptions(null); // 이벤트 선택지 모달 닫기
     setIsTyping(true);
-    setCurrentScene(null);
   
     // 낙관적 에너지 차감
     setEnergy(prev => Math.max(0, prev - energyCost));
@@ -1080,6 +1125,15 @@ const ChatPage = () => {
   
     try {
       await sendEventSelectStream(roomId, detail, energyCost, {
+        // ★ Fix 2: event_meta — first_scene보다 먼저 도착
+        onEventMeta: (meta) => {
+          if (meta.eventStatus) {
+            setEventStatus(meta.eventStatus);
+            setEventActive(meta.eventStatus === "ONGOING");
+            console.log("🎬 [SSE] event_meta received:", meta.eventStatus);
+          }
+        },
+
         onFirstScene: (scene) => {
           firstSceneReceived = true;
           setIsTyping(false);
@@ -1092,6 +1146,12 @@ const ChatPage = () => {
             outfit: scene.outfit,
             bgmMode: scene.bgmMode,
           });
+          if (scene.speaker && scene.speaker !== roomInfo?.characterName) {
+            setNpcSpeaker(scene.speaker);
+            setCurrentSpeaker(scene.speaker);
+          } else {
+            setCurrentSpeaker(scene.speaker || null);
+          }
           setDisplayedEmotion(scene.emotion || "NEUTRAL");
         },
   
@@ -1121,6 +1181,14 @@ const ChatPage = () => {
             setSceneQueue(scenes.slice(1));
           } else if (scenes && scenes.length === 1 && !firstSceneReceived) {
             setSceneQueue(scenes);
+          }
+
+          // ── [Phase 5.5-NPC] NPC 스피커 감지 ──
+          if (scenes && scenes.length > 0) {
+            const npcScene = scenes.find(s => s.speaker && s.speaker !== roomInfo?.characterName);
+            if (npcScene) {
+              setNpcSpeaker(npcScene.speaker);
+            }
           }
   
           // 히스토리 추가
@@ -1178,6 +1246,15 @@ const ChatPage = () => {
   
     try {
       await sendDirectorWatchStream(roomId, {
+        // ★ Fix 2: event_meta — first_scene보다 먼저 도착
+        onEventMeta: (meta) => {
+          if (meta.eventStatus) {
+            setEventStatus(meta.eventStatus);
+            setEventActive(meta.eventStatus === "ONGOING");
+            console.log("🎬 [SSE] event_meta received:", meta.eventStatus);
+          }
+        },
+
         onFirstScene: (scene) => {
           firstSceneReceived = true;
           setIsTyping(false);
@@ -1190,6 +1267,12 @@ const ChatPage = () => {
             outfit: scene.outfit,
             bgmMode: scene.bgmMode,
           });
+          if (scene.speaker && scene.speaker !== roomInfo?.characterName) {
+            setNpcSpeaker(scene.speaker);
+            setCurrentSpeaker(scene.speaker);
+          } else {
+            setCurrentSpeaker(scene.speaker || null);
+          }
           setDisplayedEmotion(scene.emotion || "NEUTRAL");
         },
   
@@ -1218,6 +1301,14 @@ const ChatPage = () => {
   
           if (scenes && scenes.length > 1) {
             setSceneQueue(scenes.slice(1));
+          }
+
+          // ── [Phase 5.5-NPC] NPC 스피커 감지 ──
+          if (scenes && scenes.length > 0) {
+            const npcScene = scenes.find(s => s.speaker && s.speaker !== roomInfo?.characterName);
+            if (npcScene) {
+              setNpcSpeaker(npcScene.speaker);
+            }
           }
   
           const combinedText = scenes?.map(s => s.dialogue).join(" ") || "";
@@ -1254,6 +1345,15 @@ const ChatPage = () => {
   
     try {
       await sendTimeSkipStream(roomId, {
+        // ★ Fix 2: event_meta — first_scene보다 먼저 도착
+        onEventMeta: (meta) => {
+          if (meta.eventStatus) {
+            setEventStatus(meta.eventStatus);
+            setEventActive(meta.eventStatus === "ONGOING");
+            console.log("🎬 [SSE] event_meta received:", meta.eventStatus);
+          }
+        },
+
         onFirstScene: (scene) => {
           firstSceneReceived = true;
           setIsTyping(false);
@@ -1302,6 +1402,14 @@ const ChatPage = () => {
   
           if (scenes && scenes.length > 1) {
             setSceneQueue(scenes.slice(1));
+          }
+
+          // ── [Phase 5.5-NPC] NPC 스피커 감지 ──
+          if (scenes && scenes.length > 0) {
+            const npcScene = scenes.find(s => s.speaker && s.speaker !== roomInfo?.characterName);
+            if (npcScene) {
+              setNpcSpeaker(npcScene.speaker);
+            }
           }
   
           const combinedText = scenes?.map(s => s.dialogue).join(" ") || "";
@@ -1464,6 +1572,10 @@ const ChatPage = () => {
                 // [Phase 4 Fix] 히스토리 페이지네이션 초기화
                 setHistoryPage(1);
                 setHasMoreHistory(false);
+                setEventStatus(null);
+                setEventActive(false);
+                setNpcSpeaker(null);
+                setCurrentSpeaker(null);
                 // [Fix] Energy re-sync - restore from server after clear
                 try {
                     const freshUser = await api.get("/users/me");
@@ -1592,6 +1704,8 @@ const ChatPage = () => {
           outfit={currentOutfit}
           characterSlug={roomInfo?.characterSlug}
           defaultOutfit={roomInfo?.defaultOutfit}
+          npcSpeaker={npcSpeaker}
+          isNpcActive={currentSpeaker !== null && currentSpeaker !== roomInfo?.characterName}
         />
 
         {/* [Phase 5.5-IT] 속마음 말풍선 — CharacterDisplay 위에 오버레이 */}
@@ -1741,6 +1855,7 @@ const ChatPage = () => {
         eventStatus={eventStatus}
         onWatch={handleDirectorWatch}
         onTimeSkip={handleTimeSkip}
+        speaker={currentSpeaker}
       />
 
       {/* ================= Event Selection Modal (3-Branch) ================= */}
