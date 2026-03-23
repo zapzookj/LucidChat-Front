@@ -18,7 +18,12 @@ import AdultVerificationModal from "../components/AdultVerificationModal";
 import BoostToggle from "../components/BoostToggle";
 import BiometricStatusPanel from "../components/BiometricStatusPanel";
 import InnerThoughtBubble from "../components/InnerThoughtBubble";
-import { sendMessageStream } from "../api/UseChatStream";
+import {
+  sendMessageStream,
+  sendEventSelectStream,
+  sendDirectorWatchStream,
+  sendTimeSkipStream
+} from "../api/UseChatStream";
 import { useParams, useNavigate } from "react-router-dom";
 import { 
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
@@ -137,6 +142,11 @@ const ChatPage = () => {
   const [thoughtUnlocked, setThoughtUnlocked] = useState(false);          // 현재 턴 속마음 해금 여부
   const [currentAssistantLogId, setCurrentAssistantLogId] = useState(null); // 현재 턴 ASSISTANT logId
   const [isUnlockingThought, setIsUnlockingThought] = useState(false);    // 해금 API 로딩 중
+
+  // ─── [Phase 5.5-EV] 이벤트 시스템 강화 ───
+  const [topicConcluded, setTopicConcluded] = useState(false);      // 주제 종료 플래그
+  const [eventStatus, setEventStatus] = useState(null);              // "ONGOING" | "RESOLVED" | null
+  const [eventActive, setEventActive] = useState(false);             // 디렉터 모드 진행 중
 
   const logsEndRef = useRef(null);
 
@@ -382,6 +392,11 @@ const ChatPage = () => {
         if (userRes.data.energy !== undefined) {
             setEnergy(userRes.data.energy);
         }
+
+        // [Phase 5.5-EV] 이벤트 상태 복원
+        if (roomRes.data.topicConcluded !== undefined) setTopicConcluded(roomRes.data.topicConcluded);
+        if (roomRes.data.eventActive !== undefined) setEventActive(roomRes.data.eventActive);
+        if (roomRes.data.eventStatus) setEventStatus(roomRes.data.eventStatus);
 
         // [Phase 4.1] 씬 상태 복원 (재접속 시 서버에서 마지막 상태 로드)
         // [Phase 5] 캐릭터별 기본값 사용 — roomInfo.defaultLocation/defaultOutfit 폴백
@@ -746,6 +761,8 @@ const ChatPage = () => {
  
         const {
           scenes, currentAffection, promotionEvent,
+          topicConcluded: newTopicConcluded,
+          eventStatus: newEventStatus,
           endingTrigger: endingTrig,
           stats: newStats, bpm: newBpm,
           dynamicRelationTag: newRelTag,
@@ -776,6 +793,23 @@ const ChatPage = () => {
         if (newRelTag) setDynamicRelationTag(newRelTag);
         if (newThought !== undefined && newThought !== null) {
           setCharacterThought(newThought);
+        }
+
+        // ── [Phase 5.5-EV] 이벤트 상태 업데이트 ──
+        if (newTopicConcluded !== undefined) setTopicConcluded(newTopicConcluded);
+        if (newEventStatus !== undefined) {
+          setEventStatus(newEventStatus);
+          setEventActive(newEventStatus === "ONGOING");
+          if (newEventStatus === "RESOLVED") {
+            // 이벤트 해소 → 짧은 딜레이 후 초기화
+            setTimeout(() => {
+              setEventStatus(null);
+              setEventActive(false);
+            }, 2000);
+          }
+        } else {
+          // 이벤트가 아닌 일반 채팅 → eventStatus 리셋하지 않음
+          // (eventActive는 서버에서 관리)
         }
  
         // ── 씬 큐 구성 ──
@@ -809,6 +843,25 @@ const ChatPage = () => {
         // ── [Phase 4.2] 승급 이벤트 처리 ──
         if (promotionEvent) {
           handlePromotionEvent(promotionEvent);
+        }
+
+        // ── [Phase 5.5-EV] 이벤트 상태 업데이트 ──
+        if (newTopicConcluded !== undefined) setTopicConcluded(newTopicConcluded);
+      
+        if (newEventStatus) {
+          setEventStatus(newEventStatus);
+          setEventActive(newEventStatus === "ONGOING");
+          if (newEventStatus === "RESOLVED") {
+            // 이벤트 해소 연출 후 초기화
+            setTimeout(() => {
+              setEventStatus(null);
+              setEventActive(false);
+            }, 2000);
+          }
+        } else if (eventActive && !data.eventStatus) {
+          // 유저 개입으로 서버가 이벤트를 종료한 경우 (eventStatus가 null)
+          setEventStatus(null);
+          setEventActive(false);
         }
  
         // ── [Phase 4.3] 엔딩 트리거 ──
@@ -998,54 +1051,236 @@ const ChatPage = () => {
 
   // 이벤트 선택 -> 실행 (2단계)
   const handleSelectEvent = async (option) => {
-      // 1. 에너지 체크
-      if (energy < option.energyCost) {
-          showToast(`에너지가 부족합니다. (필요: ${option.energyCost})`, "error");
-          return;
-      }
-      // 2. 시크릿 모드 체크
-      if (option.type === 'SECRET' && !userInfo.isSecretMode) {
-          showToast("시크릿 모드 활성화가 필요합니다.", "info");
-          return;
-      }
- 
-      // UX: 로딩 중일 때 이전 대사 지우기 (몰입감)
-      setCurrentScene({ dialogue: "", narration: "운명의 흐름을 읽는 중...", emotion: displayedEmotion, isEvent: true });
-      setEventOptions(null); // 모달 닫기
-      setIsTyping(true);
-      setEnergy(prev => Math.max(0, prev - option.energyCost)); // 선차감(낙관적)
- 
-      try {
-          const res = await api.post(`/story/rooms/${roomId}/events/select`, {
-              detail: option.detail,
-              energyCost: option.energyCost
+    // option: { type, summary, detail, energyCost, isSecret } — NarratorResponse.EventOption
+    const detail = option.detail;
+    const energyCost = option.energyCost;
+  
+    if (energy < energyCost) {
+      showToast(`에너지가 부족합니다. (필요: ${energyCost})`, "error");
+      return;
+    }
+  
+    setEventOptions(null); // 이벤트 선택지 모달 닫기
+    setIsTyping(true);
+    setCurrentScene(null);
+  
+    // 낙관적 에너지 차감
+    setEnergy(prev => Math.max(0, prev - energyCost));
+  
+    // 이벤트 시작 전: 나레이션 씬을 먼저 표시 (기존 UX 유지)
+    setCurrentScene({
+      dialogue: "",
+      narration: detail,
+      emotion: "NEUTRAL",
+      isEvent: true,
+      sceneType: option.type,
+    });
+  
+    let firstSceneReceived = false;
+  
+    try {
+      await sendEventSelectStream(roomId, detail, energyCost, {
+        onFirstScene: (scene) => {
+          firstSceneReceived = true;
+          setIsTyping(false);
+          setCurrentScene({
+            narration: scene.narration,
+            dialogue: scene.dialogue,
+            emotion: scene.emotion || "NEUTRAL",
+            location: scene.location,
+            time: scene.time,
+            outfit: scene.outfit,
+            bgmMode: scene.bgmMode,
           });
-          
-          // ── [Fix #2] 올바른 변수 참조 ──
+          setDisplayedEmotion(scene.emotion || "NEUTRAL");
+        },
+  
+        onFinalResult: (data) => {
+          if (!firstSceneReceived) setIsTyping(false);
+  
           const {
-            scenes: evtScenes,                        // [Fix] scenes → evtScenes
-            currentAffection: evtAff,                  // [Fix] 이름 매핑 확인
-            stats: evtStats,
-            bpm: evtBpm,
-            dynamicRelationTag: evtRelTag,
-            characterThought: evtThought,              // [Fix] 디스트럭처링 누락 추가
-            hasInnerThought: evtHasThought,
-            assistantLogId: evtLogId
-          } = res.data;                                // [Fix] evtRes → res
- 
-          setAffection(evtAff);                        // [Fix] currentAffection → evtAff
-          setHasInnerThought(!!evtHasThought);
-          setThoughtUnlocked(false);
-          setCurrentInnerThought(null);
-          setCurrentAssistantLogId(evtLogId || null);
- 
-          // [Phase 5.5]
-          if (evtStats) {
-            // 스탯 변화 팝업용
+            scenes, currentAffection, stats: newStats, bpm: newBpm,
+            dynamicRelationTag: newRelTag, eventStatus: newEventStatus,
+            topicConcluded: newTopicConcluded,
+          } = data;
+  
+          setAffection(currentAffection);
+          if (newStats) setCharacterStats(newStats);
+          if (newBpm !== undefined) setCurrentBpm(newBpm);
+          if (newRelTag) setDynamicRelationTag(newRelTag);
+  
+          // [Phase 5.5-EV] 디렉터 모드 활성화
+          if (newEventStatus) {
+            setEventStatus(newEventStatus);
+            setEventActive(newEventStatus === "ONGOING");
+          }
+          if (newTopicConcluded !== undefined) setTopicConcluded(newTopicConcluded);
+  
+          // 씬 큐 구성
+          if (scenes && scenes.length > 1) {
+            setSceneQueue(scenes.slice(1));
+          } else if (scenes && scenes.length === 1 && !firstSceneReceived) {
+            setSceneQueue(scenes);
+          }
+  
+          // 히스토리 추가
+          const combinedText = scenes?.map(s => s.dialogue).join(" ") || "";
+          setMessages(prev => [...prev,
+            { role: 'SYSTEM', cleanContent: detail },
+            {
+              role: 'ASSISTANT',
+              cleanContent: combinedText,
+              logId: data.assistantLogId || null,
+              hasInnerThought: !!data.hasInnerThought,
+            }
+          ]);
+  
+          // 에너지 동기화
+          api.get("/users/me").then(res => {
+            if (res.data.energy !== undefined) setEnergy(res.data.energy);
+          }).catch(() => {});
+        },
+  
+        onError: (error) => {
+          console.error("[SSE] Event select error:", error);
+          setIsTyping(false);
+          setEnergy(prev => prev + energyCost); // 롤백
+          setCurrentScene(null);
+  
+          if (error.errorCode === "CONTENT_BLOCKED") {
+            showToast(error.message || "부적절한 내용이 포함되어 있습니다.", "warning");
+          } else {
+            showToast(error.message || "이벤트 처리 중 오류가 발생했습니다.", "error");
+          }
+        },
+      });
+    } catch (err) {
+      console.error("Event select failed:", err);
+      setIsTyping(false);
+      setEnergy(prev => prev + energyCost);
+      setCurrentScene(null);
+      showToast("이벤트 처리 중 오류가 발생했습니다.", "error");
+    }
+  };
+
+  const handleDirectorWatch = async () => {
+    if (energy <= 0 || isTyping) return;
+  
+    setIsTyping(true);
+    setCurrentScene(null);
+  
+    // 낙관적 에너지 차감 (일반 채팅과 동일)
+    const baseCost = roomInfo?.chatMode === "STORY" ? 2 : 1;
+    const cost = boostMode && !isSubscriber ? baseCost * 5 : baseCost;
+    setEnergy(prev => Math.max(0, prev - cost));
+  
+    let firstSceneReceived = false;
+  
+    try {
+      await sendDirectorWatchStream(roomId, {
+        onFirstScene: (scene) => {
+          firstSceneReceived = true;
+          setIsTyping(false);
+          setCurrentScene({
+            narration: scene.narration,
+            dialogue: scene.dialogue,
+            emotion: scene.emotion || "NEUTRAL",
+            location: scene.location,
+            time: scene.time,
+            outfit: scene.outfit,
+            bgmMode: scene.bgmMode,
+          });
+          setDisplayedEmotion(scene.emotion || "NEUTRAL");
+        },
+  
+        onFinalResult: (data) => {
+          if (!firstSceneReceived) setIsTyping(false);
+  
+          const { scenes, currentAffection, stats: newStats, bpm: newBpm,
+                  dynamicRelationTag: newRelTag, eventStatus: newEventStatus } = data;
+  
+          setAffection(currentAffection);
+          if (newStats) setCharacterStats(newStats);
+          if (newBpm !== undefined) setCurrentBpm(newBpm);
+          if (newRelTag) setDynamicRelationTag(newRelTag);
+  
+          // 이벤트 상태 업데이트
+          if (newEventStatus) {
+            setEventStatus(newEventStatus);
+            setEventActive(newEventStatus === "ONGOING");
+            if (newEventStatus === "RESOLVED") {
+              setTimeout(() => {
+                setEventStatus(null);
+                setEventActive(false);
+              }, 2000);
+            }
+          }
+  
+          if (scenes && scenes.length > 1) {
+            setSceneQueue(scenes.slice(1));
+          }
+  
+          const combinedText = scenes?.map(s => s.dialogue).join(" ") || "";
+          setMessages(prev => [...prev, {
+            role: 'ASSISTANT',
+            cleanContent: combinedText,
+          }]);
+        },
+  
+        onError: (error) => {
+          console.error("[SSE] Watch error:", error);
+          setIsTyping(false);
+          setEnergy(prev => prev + cost);
+          showToast(error.message || "지켜보기 처리 중 오류가 발생했습니다.", "error");
+        },
+      });
+    } catch (err) {
+      setIsTyping(false);
+      setEnergy(prev => prev + cost);
+      showToast("지켜보기 처리 중 오류가 발생했습니다.", "error");
+    }
+  };
+
+  const handleTimeSkip = async () => {
+    if (energy < 1 || isTyping) return;
+  
+    setIsTyping(true);
+    setCurrentScene(null);
+  
+    // 낙관적 에너지 차감 (1 에너지)
+    setEnergy(prev => Math.max(0, prev - 1));
+  
+    let firstSceneReceived = false;
+  
+    try {
+      await sendTimeSkipStream(roomId, {
+        onFirstScene: (scene) => {
+          firstSceneReceived = true;
+          setIsTyping(false);
+          setCurrentScene({
+            narration: scene.narration,
+            dialogue: scene.dialogue,
+            emotion: scene.emotion || "NEUTRAL",
+            location: scene.location,
+            time: scene.time,
+            outfit: scene.outfit,
+            bgmMode: scene.bgmMode,
+          });
+          setDisplayedEmotion(scene.emotion || "NEUTRAL");
+        },
+  
+        onFinalResult: (data) => {
+          if (!firstSceneReceived) setIsTyping(false);
+  
+          const { scenes, currentAffection, stats: newStats, bpm: newBpm,
+                  dynamicRelationTag: newRelTag, characterThought: newThought } = data;
+  
+          setAffection(currentAffection);
+          if (newStats) {
             const changes = [];
-            Object.keys(evtStats).forEach(key => {
+            Object.keys(newStats).forEach(key => {
               const oldVal = characterStats[key] || 0;
-              const newVal = evtStats[key];
+              const newVal = newStats[key];
               if (newVal !== null && newVal !== undefined && newVal !== oldVal) {
                 changes.push({ key, value: newVal - oldVal });
               }
@@ -1054,52 +1289,43 @@ const ChatPage = () => {
               setLatestStatChanges(changes);
               setTimeout(() => setLatestStatChanges(null), 3500);
             }
-            setCharacterStats(evtStats);
+            setCharacterStats(newStats);
           }
-          if (evtBpm !== undefined) setCurrentBpm(evtBpm);
-          if (evtRelTag) setDynamicRelationTag(evtRelTag);
-          if (evtThought) setCharacterThought(evtThought); // [Fix] evtThought 정상 참조
- 
-          // 큐구성: [이벤트 나레이션] -> [캐릭터 반응1] -> [반응2]...
-          const newQueue = [];
-          
-          // 1. 이벤트 나레이션 (옵션의 detail)
-          newQueue.push({
-              dialogue: "",
-              narration: option.detail,
-              emotion: displayedEmotion,
-              isEvent: true
-          });
-          
-          // 2. 캐릭터 반응 추가
-          if (evtScenes?.length) {                     // [Fix] scenes → evtScenes
-              newQueue.push(...evtScenes);              // [Fix] scenes → evtScenes
+          if (newBpm !== undefined) setCurrentBpm(newBpm);
+          if (newRelTag) setDynamicRelationTag(newRelTag);
+          if (newThought) setCharacterThought(newThought);
+  
+          // 시간 넘기기 후 topic 리셋
+          setTopicConcluded(false);
+          setEventStatus(null);
+          setEventActive(false);
+  
+          if (scenes && scenes.length > 1) {
+            setSceneQueue(scenes.slice(1));
           }
-          
-          setSceneQueue(newQueue);
- 
-          // 로그 업데이트 (히스토리용)
-          setMessages(prev => [
-              ...prev, 
-              { role: 'SYSTEM', cleanContent: option.detail },
-              {
-                role: 'ASSISTANT',
-                cleanContent: evtScenes?.map(s => s.dialogue).join(" ") || "",  // [Fix] scenes → evtScenes
-                logId: evtLogId || null,
-                hasInnerThought: !!evtHasThought,
-                thoughtUnlocked: false,
-                innerThought: null,
-              }
-          ]);
- 
-      } catch (e) { 
-          showToast("오류 발생", "error"); 
-          setCurrentScene(null);
-          // 에너지 롤백 (낙관적 업데이트 복원)
-          setEnergy(prev => prev + option.energyCost);
-      } finally { 
-          setIsTyping(false); 
-      }
+  
+          const combinedText = scenes?.map(s => s.dialogue).join(" ") || "";
+          setMessages(prev => [...prev, {
+            role: 'SYSTEM',
+            cleanContent: "시간이 흘렀다...",
+          }, {
+            role: 'ASSISTANT',
+            cleanContent: combinedText,
+          }]);
+        },
+  
+        onError: (error) => {
+          console.error("[SSE] Time skip error:", error);
+          setIsTyping(false);
+          setEnergy(prev => prev + 1);
+          showToast(error.message || "시간 넘기기 처리 중 오류가 발생했습니다.", "error");
+        },
+      });
+    } catch (err) {
+      setIsTyping(false);
+      setEnergy(prev => prev + 1);
+      showToast("시간 넘기기 처리 중 오류가 발생했습니다.", "error");
+    }
   };
 
   // 씬 전환 로직 (자동 "..." 발송 제거)
@@ -1511,6 +1737,10 @@ const ChatPage = () => {
         innerThought={currentInnerThought}
         hasInnerThought={hasInnerThought}
         thoughtUnlocked={thoughtUnlocked}
+        topicConcluded={topicConcluded}
+        eventStatus={eventStatus}
+        onWatch={handleDirectorWatch}
+        onTimeSkip={handleTimeSkip}
       />
 
       {/* ================= Event Selection Modal (3-Branch) ================= */}

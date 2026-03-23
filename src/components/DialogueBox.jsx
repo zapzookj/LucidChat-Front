@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Heart, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity, MessageSquare, Eye } from "lucide-react";
+import { Send, Heart, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity, MessageSquare, Eye, Clock, EyeIcon } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 
 /**
@@ -243,6 +243,11 @@ const DialogueBox = ({
   innerThought = null,           // 해금된 속마음 텍스트 (null이면 미해금 or 없음)
   hasInnerThought = false,       // 속마음 존재 여부 (해금과 무관)
   thoughtUnlocked = false,       // 해금 완료 여부
+  // ── [Phase 5.5-EV] 이벤트 시스템 강화 ──
+  topicConcluded = false,         // 주제 종료 플래그
+  eventStatus = null,              // "ONGOING" | "RESOLVED" | null
+  onWatch,                         // 👀 계속 지켜보기 콜백
+  onTimeSkip,                      // ⏭ 시간 넘기기 콜백
 }) => {
   const [input, setInput] = useState("");
   const [displayedText, setDisplayedText] = useState("");
@@ -252,6 +257,9 @@ const DialogueBox = ({
   const [activeTab, setActiveTab] = useState("dialogue");
 
   const isEventScene = scene?.isEvent;
+
+  // [Phase 5.5-EV] 디렉터 모드 진행 중 여부
+  const isDirectorOngoing = eventStatus === "ONGOING";
 
   // 새 씬이 오면 대사 탭으로 리셋
   useEffect(() => {
@@ -322,6 +330,12 @@ const DialogueBox = ({
 
   // 속마음 토글 탭 표시 조건: 해금 완료 + 속마음 텍스트 존재
   const showThoughtTabs = thoughtUnlocked && innerThought;
+
+  // [Phase 5.5-EV] 이벤트 트리거 버튼 활성화 조건
+  const canTriggerEvent = topicConcluded && !isDirectorOngoing && energy >= 2;
+ 
+  // [Phase 5.5-EV] 시간 넘기기 버튼 표시 조건
+  const canTimeSkip = topicConcluded && !isDirectorOngoing && energy >= 1;
 
   return (
     <div className="absolute bottom-0 w-full z-20 p-4 pb-8 flex justify-center select-none">
@@ -471,6 +485,21 @@ const DialogueBox = ({
             </div>
           )}
 
+          {/* [Phase 5.5-EV] 디렉터 모드 진행 중 뱃지 */}
+          {isDirectorOngoing && !isEventScene && (
+            <div className="absolute -top-5 right-8 z-20">
+              <motion.div
+                initial={{ scale: 0 }} animate={{ scale: 1 }}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-gradient-to-r from-amber-600 to-orange-600 border border-amber-400/30 shadow-lg"
+              >
+                <motion.span animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1.5, repeat: Infinity }}>
+                  🎬
+                </motion.span>
+                <span className="text-xs font-bold text-white">이벤트 진행 중</span>
+              </motion.div>
+            </div>
+          )}
+
           {/* ━━━ [Phase 5.5-IT] 속마음 토글 탭 ━━━ */}
           {showThoughtTabs && !isEventScene && (
             <div className="absolute -top-5 right-8 z-20">
@@ -516,7 +545,7 @@ const DialogueBox = ({
                     <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce [animation-delay:-0.15s]" />
                     <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce" />
                     <span className="ml-2 text-sm text-indigo-200/50 font-light">
-                      {isEventScene ? "운명의 주사위를 굴리는 중..." : "생각 중..."}
+                      {isDirectorOngoing ? "상황이 전개되고 있습니다..." : isEventScene ? "운명의 주사위를 굴리는 중..." : "생각 중..."}
                     </span>
                   </div>
                 ) : (
@@ -551,64 +580,142 @@ const DialogueBox = ({
             </motion.div>
           )}
 
-          {/* 입력 폼 (대사 탭에서만) */}
+          {/* ═══ 입력 영역 ═══ */}
           {activeTab === "dialogue" && !hasNextScene && !isEventScene && (
-            <motion.form
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              onSubmit={handleSubmit}
-              className="mt-4 flex gap-3 relative z-10"
-            >
-              <div className="relative group">
-                <button
-                  type="button"
-                  onClick={onTriggerEvent}
-                  disabled={isTyping || energy < 2}
-                  className="h-full px-4 rounded-xl bg-indigo-600/20 border border-indigo-500/50 text-indigo-300 hover:bg-indigo-600/40 hover:text-white transition flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <Dices size={20} />
-                </button>
-                <div className="absolute right-full bottom-0 mr-3 w-64 bg-black/95 border border-indigo-500/30 p-4 rounded-xl text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
-                  <p className="font-bold text-indigo-300 mb-2 text-sm flex items-center gap-2">
-                    <Sparkles size={16} /> 이벤트 트리거
-                  </p>
-                  <p className="leading-relaxed text-gray-400">랜덤 이벤트를 발생시킵니다. <br />운명의 흐름이 바뀔 수도 있어요.</p>
-                  <div className="mt-3 flex items-center justify-between text-[11px]">
-                    <span className="text-gray-500">소모</span>
-                    <span className="text-yellow-300 font-bold">-2 에너지</span>
-                  </div>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 relative z-10">
+ 
+              {/* ━━━ [Phase 5.5-EV] 디렉터 모드 진행 중: 지켜보기 + 난입 UI ━━━ */}
+              {isDirectorOngoing ? (
+                <div className="flex flex-col gap-3">
+                  {/* 👀 계속 지켜보기 버튼 */}
+                  <motion.button
+                    onClick={onWatch}
+                    disabled={isTyping || noEnergy || lowEnergy}
+                    className="w-full py-4 rounded-xl bg-gradient-to-r from-amber-600/30 to-orange-600/30 border border-amber-500/40
+                               hover:from-amber-600/50 hover:to-orange-600/50 hover:border-amber-400/60
+                               transition-all shadow-lg disabled:opacity-30 disabled:cursor-not-allowed
+                               flex items-center justify-center gap-3 group"
+                    whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
+                  >
+                    <motion.span
+                      animate={{ scale: [1, 1.15, 1] }}
+                      transition={{ duration: 2, repeat: Infinity }}
+                      className="text-xl"
+                    >
+                      👀
+                    </motion.span>
+                    <span className="text-amber-200 font-bold text-sm group-hover:text-white transition">
+                      계속 지켜보기
+                    </span>
+                    <span className="text-amber-400/50 text-xs">
+                      -{energyCost} ⚡
+                    </span>
+                  </motion.button>
+ 
+                  {/* 난입용 채팅 입력 */}
+                  <form onSubmit={handleSubmit} className="flex gap-3">
+                    <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
+                      placeholder="직접 개입하기... (채팅을 입력하세요)"
+                      disabled={isTyping || noEnergy || lowEnergy}
+                      className="flex-1 bg-white/5 border border-amber-500/20 rounded-xl px-5 py-3.5 text-white placeholder-amber-200/30
+                                 focus:bg-white/10 focus:border-amber-400/50 transition duration-300 shadow-inner"
+                    />
+                    <button type="submit" disabled={isTyping || !input.trim()}
+                      className="bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500
+                                 text-white p-3.5 rounded-xl transition shadow-lg disabled:opacity-50 disabled:grayscale transform active:scale-95"
+                    >
+                      <Send size={22} />
+                    </button>
+                  </form>
                 </div>
-              </div>
-
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={noEnergy ? "에너지가 부족합니다" : lowEnergy ? `에너지가 부족합니다 (필요: ${energyCost})` : "대화를 입력하세요..."}
-                disabled={isTyping || noEnergy || lowEnergy}
-                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-5 py-3.5 text-white placeholder-white/40 focus:bg-white/10 focus:border-pink-500/50 transition duration-300 shadow-inner"
-              />
-
-              {noEnergy || lowEnergy ? (
-                <motion.button
-                  type="button"
-                  onClick={() => onOpenStore?.("energy")}
-                  className="bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white px-4 py-3.5 rounded-xl transition shadow-lg flex items-center gap-2 font-medium text-sm whitespace-nowrap"
-                  whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                >
-                  <ShoppingBag size={18} />
-                  <span className="hidden sm:inline">충전하기</span>
-                </motion.button>
               ) : (
-                <button
-                  type="submit"
-                  disabled={isTyping || !input.trim()}
-                  className="bg-gradient-to-br from-pink-500 to-rose-600 hover:from-pink-400 hover:to-rose-500 text-white p-3.5 rounded-xl transition shadow-lg disabled:opacity-50 disabled:grayscale transform active:scale-95"
-                >
-                  <Send size={22} />
-                </button>
+                /* ━━━ 일반 모드: 기존 입력 UI + 시간 넘기기 ━━━ */
+                <form onSubmit={handleSubmit} className="flex gap-3">
+                  {/* 이벤트 트리거 버튼 */}
+                  <div className="relative group">
+                    <button type="button" onClick={onTriggerEvent}
+                      disabled={isTyping || !canTriggerEvent}
+                      className={`h-full px-4 rounded-xl border transition flex items-center justify-center
+                        ${canTriggerEvent
+                          ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-300 hover:bg-indigo-600/40 hover:text-white'
+                          : 'bg-white/[0.02] border-white/5 text-white/15 cursor-not-allowed'
+                        }`}
+                    >
+                      <Dices size={20} />
+                    </button>
+                    {/* 이벤트 트리거 툴팁 */}
+                    <div className="absolute right-full bottom-0 mr-3 w-64 bg-black/95 border border-indigo-500/30 p-4 rounded-xl text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
+                      <p className="font-bold text-indigo-300 mb-2 text-sm flex items-center gap-2">
+                        <Sparkles size={16} /> 이벤트 트리거
+                      </p>
+                      {canTriggerEvent ? (
+                        <p className="leading-relaxed text-gray-400">랜덤 이벤트를 발생시킵니다.<br/>운명의 흐름이 바뀔 수도 있어요.</p>
+                      ) : (
+                        <p className="leading-relaxed text-amber-400/80">
+                          현재 대화가 마무리되면 활성화됩니다.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+ 
+                  {/* [Phase 5.5-EV] 시간 넘기기 버튼 */}
+                  <AnimatePresence>
+                    {canTimeSkip && (
+                      <motion.div
+                        className="relative group"
+                        initial={{ scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0, opacity: 0 }}
+                        transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                      >
+                        <button
+                          type="button"
+                          onClick={onTimeSkip}
+                          disabled={isTyping}
+                          className="h-full px-4 rounded-xl bg-sky-600/20 border border-sky-500/50 text-sky-300
+                                     hover:bg-sky-600/40 hover:text-white transition flex items-center justify-center
+                                     disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          <Clock size={20} />
+                        </button>
+                        {/* 시간 넘기기 툴팁 */}
+                        <div className="absolute right-full bottom-0 mr-3 w-56 bg-black/95 border border-sky-500/30 p-4 rounded-xl text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
+                          <p className="font-bold text-sky-300 mb-2 text-sm flex items-center gap-2">
+                            <Clock size={16} /> 시간 넘기기
+                          </p>
+                          <p className="leading-relaxed text-gray-400">
+                            시간을 흘려보내 새로운 상황으로<br/>전환합니다.
+                          </p>
+                          <div className="mt-3 flex items-center justify-between text-[11px]">
+                            <span className="text-gray-500">소모</span>
+                            <span className="text-yellow-300 font-bold">-1 에너지</span>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+ 
+                  <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
+                    placeholder={noEnergy ? "에너지가 부족합니다" : lowEnergy ? `에너지가 부족합니다 (필요: ${energyCost})` : "대화를 입력하세요..."}
+                    disabled={isTyping || noEnergy || lowEnergy}
+                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-5 py-3.5 text-white placeholder-white/40 focus:bg-white/10 focus:border-pink-500/50 transition duration-300 shadow-inner"
+                  />
+ 
+                  {noEnergy || lowEnergy ? (
+                    <motion.button type="button" onClick={() => onOpenStore?.("energy")}
+                      className="bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white px-4 py-3.5 rounded-xl transition shadow-lg flex items-center gap-2 font-medium text-sm whitespace-nowrap"
+                      whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+                      <ShoppingBag size={18} /><span className="hidden sm:inline">충전하기</span>
+                    </motion.button>
+                  ) : (
+                    <button type="submit" disabled={isTyping || !input.trim()}
+                      className="bg-gradient-to-br from-pink-500 to-rose-600 hover:from-pink-400 hover:to-rose-500 text-white p-3.5 rounded-xl transition shadow-lg disabled:opacity-50 disabled:grayscale transform active:scale-95">
+                      <Send size={22} />
+                    </button>
+                  )}
+                </form>
               )}
-            </motion.form>
+            </motion.div>
           )}
         </motion.div>
       </div>
