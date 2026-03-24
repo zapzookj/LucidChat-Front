@@ -6,12 +6,12 @@
  *   - sendTimeSkipStream(): 시간 넘기기 SSE
  */
 
+// const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1' // 백엔드 주소
 const BASE_URL = 'http://localhost:8080/api/v1';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  1. 일반 채팅 메시지 (기존)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 export async function sendMessageStream(roomId, message, callbacks, abortController) {
   const url = `${BASE_URL}/chat/rooms/${roomId}/messages/stream`;
   return _ssePost(url, { roomId, message }, callbacks, abortController);
