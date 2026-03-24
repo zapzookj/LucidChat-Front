@@ -250,6 +250,8 @@ const DialogueBox = ({
   // [Phase 5.5-NPC]
   speaker = null,          // 현재 씬의 화자 이름 (null → 메인 캐릭터)
   onTimeSkip,                      // ⏭ 시간 넘기기 콜백
+  // [Phase 5.5-Fix] SSE 응답 대기 플래그 — final_result 도착 전 premature 입력창 방지
+  awaitingFinalResult = false,
 }) => {
   const [input, setInput] = useState("");
   const [displayedText, setDisplayedText] = useState("");
@@ -602,8 +604,34 @@ const DialogueBox = ({
             </motion.div>
           )}
 
+          {/* [Phase 5.5-Fix] final_result 대기 중 인디케이터 — first_scene은 도착했지만 나머지 씬이 아직 없을 때 */}
+          {activeTab === "dialogue" && !hasNextScene && !isEventScene && awaitingFinalResult && isTextFullyDisplayed && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mt-4 flex items-center justify-center gap-2 py-3"
+            >
+              <motion.div
+                className="w-1.5 h-1.5 rounded-full bg-white/30"
+                animate={{ scale: [1, 1.4, 1], opacity: [0.3, 0.7, 0.3] }}
+                transition={{ duration: 1.2, repeat: Infinity, delay: 0 }}
+              />
+              <motion.div
+                className="w-1.5 h-1.5 rounded-full bg-white/30"
+                animate={{ scale: [1, 1.4, 1], opacity: [0.3, 0.7, 0.3] }}
+                transition={{ duration: 1.2, repeat: Infinity, delay: 0.2 }}
+              />
+              <motion.div
+                className="w-1.5 h-1.5 rounded-full bg-white/30"
+                animate={{ scale: [1, 1.4, 1], opacity: [0.3, 0.7, 0.3] }}
+                transition={{ duration: 1.2, repeat: Infinity, delay: 0.4 }}
+              />
+            </motion.div>
+          )}
+
           {/* ═══ 입력 영역 ═══ */}
-          {activeTab === "dialogue" && !hasNextScene && !isEventScene && (
+          {/* [Phase 5.5-Fix] awaitingFinalResult: first_scene 도착 후 final_result 도착 전까지 입력창 숨김 */}
+          {activeTab === "dialogue" && !hasNextScene && !isEventScene && !awaitingFinalResult && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 relative z-10">
  
               {/* ━━━ [Phase 5.5-EV] 디렉터 모드 진행 중: 지켜보기 + 난입 UI ━━━ */}

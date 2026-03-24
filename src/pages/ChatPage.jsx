@@ -152,6 +152,9 @@ const ChatPage = () => {
   const [currentSpeaker, setCurrentSpeaker] = useState(null);    // 현재 씬의 화자 이름
   const [npcSpeaker, setNpcSpeaker] = useState(null);            // 활성 NPC 이름 (null이면 NPC 없음)
 
+  // ─── [Phase 5.5-Fix] SSE 응답 대기 플래그 ───
+  const [awaitingFinalResult, setAwaitingFinalResult] = useState(false);
+
   const logsEndRef = useRef(null);
 
   // ================= Helper Functions =================
@@ -167,6 +170,88 @@ const ChatPage = () => {
   const closeConfirm = () => {
       setConfirmModal(null);
   };
+
+  // ━━━ [Phase 5.5-Fix] 3-Layer 통합 헬퍼 함수 ━━━
+
+  /**
+   * 씬 배열 → 히스토리 엔트리 변환.
+   * 이벤트/일반 채팅 구분 없이 항상 동일 포맷:
+   * - 씬별 분리
+   * - 나레이션 포함 (*narration*)
+   * - speaker 태깅 (NPC면 role='NPC')
+   */
+  const buildHistoryEntries = useCallback((scenes, resLogId, resHasThought) => {
+    if (!scenes || scenes.length === 0) return [];
+    return scenes.map((s, i) => {
+      const speakerName = s.speaker || roomInfo?.characterName || "캐릭터";
+      const isNpc = s.speaker && s.speaker !== roomInfo?.characterName;
+      const content = [];
+      if (s.narration) content.push(`*${s.narration}*`);
+      if (s.dialogue) content.push(s.dialogue);
+      return {
+        role: isNpc ? 'NPC' : 'ASSISTANT',
+        cleanContent: content.join('\n'),
+        speaker: speakerName,
+        logId: (i === scenes.length - 1) ? (resLogId || null) : null,
+        hasInnerThought: (i === scenes.length - 1) ? !!resHasThought : false,
+        thoughtUnlocked: false,
+        innerThought: null,
+      };
+    });
+  }, [roomInfo]);
+
+  /**
+   * 씬 배열에서 NPC speaker 감지 → 상태 업데이트.
+   * 이벤트/일반 채팅 모두에서 호출.
+   */
+  const detectNpc = useCallback((scenes) => {
+    if (!scenes || scenes.length === 0) return;
+    const npcScene = scenes.find(s => s.speaker && s.speaker !== roomInfo?.characterName);
+    if (npcScene) {
+      setNpcSpeaker(npcScene.speaker);
+    }
+  }, [roomInfo]);
+
+  /**
+   * NPC/speaker 상태 완전 초기화.
+   * 이벤트 종료 시 호출.
+   */
+  const clearNpcState = useCallback(() => {
+    setNpcSpeaker(null);
+    setCurrentSpeaker(null);
+  }, []);
+
+  /**
+   * ChatLogResponse (서버 로그) → 프론트 메시지 배열 확장.
+   * scenesJson이 있으면 씬별 분리 복원, 없으면 기존 cleanContent 사용.
+   */
+  const expandLogWithScenes = useCallback((log) => {
+    if (log.role === 'ASSISTANT' && log.scenesJson) {
+      try {
+        const scenes = JSON.parse(log.scenesJson);
+        return scenes.map((scene, i) => {
+          const isNpc = scene.speaker && scene.speaker !== roomInfo?.characterName;
+          const content = [];
+          if (scene.narration) content.push(`*${scene.narration}*`);
+          if (scene.dialogue) content.push(scene.dialogue);
+          return {
+            role: isNpc ? 'NPC' : 'ASSISTANT',
+            cleanContent: content.join('\n'),
+            speaker: scene.speaker || roomInfo?.characterName || "캐릭터",
+            logId: (i === scenes.length - 1) ? log.logId : null,
+            hasInnerThought: (i === scenes.length - 1) ? log.hasInnerThought : false,
+            thoughtUnlocked: log.thoughtUnlocked || false,
+            innerThought: log.innerThought || null,
+            emotionTag: scene.emotion || log.emotionTag,
+          };
+        });
+      } catch (e) {
+        // scenesJson 파싱 실패 → 기존 방식 fallback
+        return [log];
+      }
+    }
+    return [log];
+  }, [roomInfo]);
 
   // [Phase 4.4] 투명인간 이스터에그 — 10분 방치 감지
   useInvisibleMan({
@@ -422,14 +507,21 @@ const ChatPage = () => {
         } else {
             // [Case B] 기존 유저 -> 마지막 상태 복원
             const sortedLogs = logs.reverse();
-            setMessages(sortedLogs);
+
+            // [Phase 5.5-Fix] scenesJson 기반 씬별 분리 복원
+            const expandedLogs = [];
+            for (const log of sortedLogs) {
+              const expanded = expandLogWithScenes(log);
+              expandedLogs.push(...expanded);
+            }
+            setMessages(expandedLogs);
             
             // 마지막 로그가 캐릭터 대사라면 씬 복원
-            if (sortedLogs.length > 0) {
-               const lastLog = sortedLogs[sortedLogs.length - 1];
-               if (lastLog.role === 'ASSISTANT') {
+            if (expandedLogs.length > 0) {
+               const lastLog = expandedLogs[expandedLogs.length - 1];
+               if (lastLog.role === 'ASSISTANT' || lastLog.role === 'NPC') {
                  setCurrentScene({
-                   dialogue: lastLog.cleanContent,
+                   dialogue: lastLog.cleanContent?.replace(/^\*.*\*\n?/, '') || '',
                    narration: "",
                    emotion: lastLog.emotionTag || "NEUTRAL"
                  });
@@ -539,11 +631,11 @@ const ChatPage = () => {
       }
     } else {
       setCurrentSpeaker(null);
-      // speaker가 null이어도 npcSpeaker는 유지 (같은 이벤트 내 다른 씬에서 NPC가 등장했었으므로)
-      // npcSpeaker는 이벤트 종료 시 초기화
-    }
-    if (currentScene.emotion) {
-      setDisplayedEmotion(currentScene.emotion);
+      // [Phase 5.5-Fix] speaker가 null이고 이벤트가 비활성이면 NPC 상태도 초기화
+      // (이벤트 종료 후 일반 대화 복귀 시 CharacterDisplay 원상복구)
+      if (!eventActive) {
+        setNpcSpeaker(null);
+      }
     }
     // null이 아닌 값만 업데이트 (null = 이전 상태 유지)
     // 프론트 가드: 서버에서 제공한 허용 목록에 포함된 값만 적용
@@ -565,7 +657,7 @@ const ChatPage = () => {
       }
     }
     if (currentScene.bgmMode) setCurrentBgmMode(currentScene.bgmMode);
-  }, [currentScene]);
+  }, [currentScene, eventActive, roomInfo?.characterName]);
 
   // 스크롤 처리
   useEffect(() => {
@@ -748,6 +840,7 @@ const ChatPage = () => {
  
   try {
     const messagePayload = text || "...";
+    setAwaitingFinalResult(true);
  
     await sendMessageStream(roomId, messagePayload, {
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -799,6 +892,7 @@ const ChatPage = () => {
         if (!firstSceneReceived) {
           setIsTyping(false);
         }
+        setAwaitingFinalResult(false);
  
         const {
           scenes, currentAffection, promotionEvent,
@@ -836,33 +930,31 @@ const ChatPage = () => {
           setCharacterThought(newThought);
         }
 
-        // ── [Phase 5.5-EV] 이벤트 상태 업데이트 ──
+        // ── [Phase 5.5-EV] 이벤트 상태 업데이트 (통합) ──
         if (newTopicConcluded !== undefined) setTopicConcluded(newTopicConcluded);
-        if (newEventStatus !== undefined) {
+
+        if (newEventStatus) {
           setEventStatus(newEventStatus);
           setEventActive(newEventStatus === "ONGOING");
           if (newEventStatus === "RESOLVED") {
-            // 이벤트 해소 → 짧은 딜레이 후 초기화
             setTimeout(() => {
               setEventStatus(null);
               setEventActive(false);
+              clearNpcState();
             }, 2000);
           }
-        // ── [Phase 5.5-NPC] NPC 스피커 감지 ──
-        if (scenes && scenes.length > 0) {
-          const npcScene = scenes.find(s => s.speaker && s.speaker !== roomInfo?.characterName);
-          if (npcScene) {
-            setNpcSpeaker(npcScene.speaker);
-          }
+        } else if (eventActive && !data.eventStatus) {
+          // 유저 개입으로 서버가 이벤트를 종료한 경우
+          setEventStatus(null);
+          setEventActive(false);
+          clearNpcState();
         }
-        } else {
-          // 이벤트가 아닌 일반 채팅 → eventStatus 리셋하지 않음
-          // (eventActive는 서버에서 관리)
-        }
+
+        // ── [Phase 5.5-Fix] NPC 감지 (이벤트/일반 모두 동일) ──
+        detectNpc(scenes);
  
         // ── 씬 큐 구성 ──
-        // first_scene으로 이미 첫 번째 씬을 표시했으므로,
-        // 나머지 씬만 큐에 넣는다 (두 번째 씬부터)
+        // first_scene으로 이미 첫 번째 씬을 표시했으므로 나머지 씬만 큐에 넣는다
         if (scenes && scenes.length > 1) {
           const remaining = scenes.slice(1).map(s => ({
             ...s,
@@ -870,7 +962,6 @@ const ChatPage = () => {
           }));
           setSceneQueue(remaining);
         } else if (scenes && scenes.length === 1 && !firstSceneReceived) {
-          // first_scene 콜백이 실패한 경우 전체 씬을 큐에 넣음
           setSceneQueue(scenes);
         }
  
@@ -880,62 +971,15 @@ const ChatPage = () => {
         setCurrentInnerThought(null);
         setCurrentAssistantLogId(resLogId || null);
  
-        // ── 히스토리에 추가 ──
-        const combinedText = scenes?.map(s => s.dialogue).join(" ") || "";
-        if (eventActive && scenes && scenes.length > 0) {
-          // 이벤트 중: 씬별 분리
-          const entries = scenes.map((s, i) => {
-            const speakerName = s.speaker || roomInfo?.characterName;
-            const isNpc = s.speaker && s.speaker !== roomInfo?.characterName;
-            const content = [];
-            if (s.narration) content.push(`*${s.narration}*`);
-            if (s.dialogue) content.push(s.dialogue);
-            return {
-              role: isNpc ? 'NPC' : 'ASSISTANT',
-              cleanContent: content.join('\n'),
-              speaker: speakerName,
-              logId: (i === scenes.length - 1) ? (resLogId || null) : null,
-              hasInnerThought: (i === scenes.length - 1) ? !!resHasThought : false,
-            };
-          });
+        // ── [Phase 5.5-Fix] 히스토리 추가 (통합 — 이벤트/일반 구분 없음) ──
+        const entries = buildHistoryEntries(scenes, resLogId, resHasThought);
+        if (entries.length > 0) {
           setMessages(prev => [...prev, ...entries]);
-        } else {
-          // 일반 채팅: 기존 방식
-          const combinedText = scenes?.map(s => s.dialogue).join(" ") || "";
-          setMessages(prev => [...prev, {
-            role: 'ASSISTANT',
-            cleanContent: combinedText,
-            logId: resLogId || null,
-            hasInnerThought: !!resHasThought,
-            thoughtUnlocked: false,
-            innerThought: null,
-          }]);
         }
  
         // ── [Phase 4.2] 승급 이벤트 처리 ──
         if (promotionEvent) {
           handlePromotionEvent(promotionEvent);
-        }
-
-        // ── [Phase 5.5-EV] 이벤트 상태 업데이트 ──
-        if (newTopicConcluded !== undefined) setTopicConcluded(newTopicConcluded);
-      
-        if (newEventStatus) {
-          setEventStatus(newEventStatus);
-          setEventActive(newEventStatus === "ONGOING");
-          if (newEventStatus === "RESOLVED") {
-            // 이벤트 해소 연출 후 초기화
-            setTimeout(() => {
-              setEventStatus(null);
-              setEventActive(false);
-              setNpcSpeaker(null); // 이벤트 종료 시 NPC 화자 초기화
-              setCurrentSpeaker(null); // 현재 화자 초기화 (이벤트 종료 시)
-            }, 2000);
-          }
-        } else if (eventActive && !data.eventStatus) {
-          // 유저 개입으로 서버가 이벤트를 종료한 경우 (eventStatus가 null)
-          setEventStatus(null);
-          setEventActive(false);
         }
  
         // ── [Phase 4.3] 엔딩 트리거 ──
@@ -991,6 +1035,7 @@ const ChatPage = () => {
       onError: (error) => {
         console.error("[SSE] Error:", error);
         setIsTyping(false);
+        setAwaitingFinalResult(false);
  
         // ── 낙관적 업데이트 롤백 ──
         if (text) {
@@ -1241,37 +1286,15 @@ const ChatPage = () => {
   
           setSceneQueue(queue);
   
-          // [Fix-UI-4] 히스토리: 화자별 분리 + 나레이션 포함
+          // [Phase 5.5-Fix] 히스토리: 통합 헬퍼 사용
           const historyEntries = [
             { role: 'SYSTEM', cleanContent: detail }, // 이벤트 나레이션
+            ...buildHistoryEntries(fullScenes, resLogId, resHasThought),
           ];
-  
-          // 씬별로 분리하여 히스토리에 추가
-          fullScenes.forEach((s, i) => {
-            const speakerName = s.speaker || roomInfo?.characterName || "캐릭터";
-            const isNpc = s.speaker && s.speaker !== roomInfo?.characterName;
-            const content = [];
-            if (s.narration) content.push(`*${s.narration}*`);
-            if (s.dialogue) content.push(s.dialogue);
-  
-            historyEntries.push({
-              role: isNpc ? 'NPC' : 'ASSISTANT',
-              cleanContent: content.join('\n'),
-              speaker: speakerName,
-              logId: (i === fullScenes.length - 1) ? (resLogId || null) : null,
-              hasInnerThought: (i === fullScenes.length - 1) ? !!resHasThought : false,
-              thoughtUnlocked: false,
-              innerThought: null,
-            });
-          });
-  
           setMessages(prev => [...prev, ...historyEntries]);
   
-          // NPC 감지
-          const npcScene = fullScenes.find(s => s.speaker && s.speaker !== roomInfo?.characterName);
-          if (npcScene) {
-            setNpcSpeaker(npcScene.speaker);
-          }
+          // [Phase 5.5-Fix] NPC 감지 (통합)
+          detectNpc(fullScenes);
   
           api.get("/users/me").then(res => {
             if (res.data.energy !== undefined) setEnergy(res.data.energy);
@@ -1359,6 +1382,7 @@ const ChatPage = () => {
               setTimeout(() => {
                 setEventStatus(null);
                 setEventActive(false);
+                clearNpcState();
               }, 2000);
             }
           }
@@ -1367,30 +1391,14 @@ const ChatPage = () => {
             setSceneQueue(scenes.slice(1));
           }
 
-          // ── [Phase 5.5-NPC] NPC 스피커 감지 ──
-          if (scenes && scenes.length > 0) {
-            const npcScene = scenes.find(s => s.speaker && s.speaker !== roomInfo?.characterName);
-            if (npcScene) {
-              setNpcSpeaker(npcScene.speaker);
-            }
+          // [Phase 5.5-Fix] NPC 감지 (통합)
+          detectNpc(scenes);
+  
+          // [Phase 5.5-Fix] 히스토리 추가 (통합)
+          const entries = buildHistoryEntries(scenes, null, false);
+          if (entries.length > 0) {
+            setMessages(prev => [...prev, ...entries]);
           }
-  
-          const combinedText = scenes?.map(s => s.dialogue).join(" ") || "";
-          const historyEntries = [];
-          (scenes || []).forEach((s, i) => {
-            const speakerName = s.speaker || roomInfo?.characterName || "캐릭터";
-            const isNpc = s.speaker && s.speaker !== roomInfo?.characterName;
-            const content = [];
-            if (s.narration) content.push(`*${s.narration}*`);
-            if (s.dialogue) content.push(s.dialogue);
-  
-            historyEntries.push({
-              role: isNpc ? 'NPC' : 'ASSISTANT',
-              cleanContent: content.join('\n'),
-              speaker: speakerName,
-            });
-          });
-          setMessages(prev => [...prev, ...historyEntries]);
         },
   
         onError: (error) => {
@@ -1448,7 +1456,8 @@ const ChatPage = () => {
           if (!firstSceneReceived) setIsTyping(false);
   
           const { scenes, currentAffection, stats: newStats, bpm: newBpm,
-                  dynamicRelationTag: newRelTag, characterThought: newThought } = data;
+                  dynamicRelationTag: newRelTag, characterThought: newThought,
+                  hasInnerThought: resHasThought, assistantLogId: resLogId } = data;
   
           setAffection(currentAffection);
           if (newStats) {
@@ -1470,31 +1479,31 @@ const ChatPage = () => {
           if (newRelTag) setDynamicRelationTag(newRelTag);
           if (newThought) setCharacterThought(newThought);
   
-          // 시간 넘기기 후 topic 리셋
+          // 시간 넘기기 후 topic 리셋 + NPC 초기화
           setTopicConcluded(false);
           setEventStatus(null);
           setEventActive(false);
+          clearNpcState();
   
           if (scenes && scenes.length > 1) {
             setSceneQueue(scenes.slice(1));
           }
 
-          // ── [Phase 5.5-NPC] NPC 스피커 감지 ──
-          if (scenes && scenes.length > 0) {
-            const npcScene = scenes.find(s => s.speaker && s.speaker !== roomInfo?.characterName);
-            if (npcScene) {
-              setNpcSpeaker(npcScene.speaker);
-            }
-          }
+          // [Phase 5.5-Fix] NPC 감지 (통합)
+          detectNpc(scenes);
   
-          const combinedText = scenes?.map(s => s.dialogue).join(" ") || "";
-          setMessages(prev => [...prev, {
-            role: 'SYSTEM',
-            cleanContent: "시간이 흘렀다...",
-          }, {
-            role: 'ASSISTANT',
-            cleanContent: combinedText,
-          }]);
+          // [Phase 5.5-Fix] 히스토리: 시스템 나레이션 + 씬별 분리 (통합)
+          const entries = [
+            { role: 'SYSTEM', cleanContent: "시간이 흘렀다..." },
+            ...buildHistoryEntries(scenes, resLogId, resHasThought),
+          ];
+          setMessages(prev => [...prev, ...entries]);
+
+          // 속마음 상태 업데이트
+          setHasInnerThought(!!resHasThought);
+          setThoughtUnlocked(false);
+          setCurrentInnerThought(null);
+          setCurrentAssistantLogId(resLogId || null);
         },
   
         onError: (error) => {
@@ -1931,6 +1940,7 @@ const ChatPage = () => {
         onWatch={handleDirectorWatch}
         onTimeSkip={handleTimeSkip}
         speaker={currentSpeaker}
+        awaitingFinalResult={awaitingFinalResult}
       />
 
       {/* ================= Event Selection Modal (3-Branch) ================= */}
