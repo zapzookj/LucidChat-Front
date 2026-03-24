@@ -522,6 +522,14 @@ const ChatPage = () => {
   // [Phase 4 Fix] 캐릭터별 독립 세계관 — 허용 목록 기반 프론트 가드
   useEffect(() => {
     if (!currentScene) return;
+    // [Fix-UI-2] NPC 발화 씬인지 판별
+    const isNpcScene = currentScene.speaker
+        && currentScene.speaker !== roomInfo?.characterName;
+    // [Fix-UI-2] NPC 씬이면 캐릭터 감정을 변경하지 않음
+    // (캐릭터 이미지가 NPC 감정에 맞춰 바뀌는 버그 방지)
+    if (currentScene.emotion && !isNpcScene) {
+      setDisplayedEmotion(currentScene.emotion);
+    }
     // [Phase 5.5-NPC] 화자 추적
     if (currentScene?.speaker) {
       setCurrentSpeaker(currentScene.speaker);

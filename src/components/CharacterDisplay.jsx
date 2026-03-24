@@ -2,15 +2,13 @@ import { motion, AnimatePresence, useAnimation } from "framer-motion";
 import { useEffect, useRef, useMemo } from "react";
 
 // ═══════════════════════════════════════════════════════════════
-//  [Phase 5.5-NPC] Enhanced Character Display
+//  [Phase 5.5-NPC] CharacterDisplay — NPC UI Fix
 //
-//  변경점 vs Phase 5:
-//  1. npcSpeaker prop: 제3자(NPC) 화자 이름 (null이면 일반 모드)
-//  2. 스포트라이트 시스템: 발화자에게 하이라이트, 비발화자 딤 처리
-//  3. NPC 실루엣: 검은 인물 음영 (오른쪽에 표시)
-//  4. 메인 캐릭터 위치 시프트: NPC 존재 시 좌측으로 이동
-//
-//  추후 다인큐 채팅에서도 동일 패턴 재활용 가능하도록 설계
+//  Fix-UI-3 변경점:
+//  1. NPC 위치: right-[8%] → right-[15%] (너무 구석 → 적절한 위치)
+//  2. NPC 크기: height 55% → 68%, SVG 140x280 → 180x360 (더 크게)
+//  3. NPC 지속 표시: isNpcActive가 false여도 hasNpc이면 표시 (딤 처리)
+//  4. 메인 캐릭터 위치: left 10% → 15% (NPC와 더 균형있는 배치)
 // ═══════════════════════════════════════════════════════════════
 
 const EMOTION_LIST = [
@@ -25,84 +23,20 @@ function resolveCharacterImage(characterSlug, outfit, emotion) {
   return `/characters/${slug}/${o}_${e}.png`;
 }
 
-// ─── 감정별 애니메이션 프로파일 ───
-
 const EMOTION_ANIM = {
-  NEUTRAL: {
-    punch: null,
-    idle: { rotate: [0, 0.4, 0, -0.4, 0], x: [0, 0.5, 0, -0.5, 0] },
-    idleTx: { duration: 8, repeat: Infinity, ease: "easeInOut" },
-    glow: "rgba(180, 180, 255, 0.08)", glowIntensity: 1, imgBrightness: 1.05,
-  },
-  JOY: {
-    punch: { y: [-18, 4, 0], scale: [1, 1.04, 1], transition: { duration: 0.5, ease: "easeOut" } },
-    idle: { y: [0, -5, 0], rotate: [0, 1.2, 0, -1.2, 0] },
-    idleTx: { duration: 3, repeat: Infinity, ease: "easeInOut" },
-    glow: "rgba(255, 105, 180, 0.28)", glowIntensity: 1.4, imgBrightness: 1.1,
-  },
-  SAD: {
-    punch: { y: [0, 5, 3], scale: [1, 0.98, 0.99], transition: { duration: 0.7, ease: "easeOut" } },
-    idle: { y: [0, 2, 0], rotate: [0, -0.3, 0] },
-    idleTx: { duration: 5, repeat: Infinity, ease: "easeInOut" },
-    glow: "rgba(100, 100, 200, 0.15)", glowIntensity: 0.8, imgBrightness: 0.95,
-  },
-  ANGRY: {
-    punch: { x: [-6, 6, -4, 4, 0], transition: { duration: 0.4, ease: "easeInOut" } },
-    idle: { x: [0, 1.5, -1.5, 0], scale: [1, 1.01, 1] },
-    idleTx: { duration: 2, repeat: Infinity, ease: "easeInOut" },
-    glow: "rgba(255, 50, 50, 0.25)", glowIntensity: 1.5, imgBrightness: 1.05,
-  },
-  SHY: {
-    punch: { x: [0, -8, -5], rotate: [0, -2, -1], transition: { duration: 0.5, ease: "easeOut" } },
-    idle: { x: [0, -1, 0], rotate: [0, -0.5, 0] },
-    idleTx: { duration: 4, repeat: Infinity, ease: "easeInOut" },
-    glow: "rgba(255, 150, 200, 0.22)", glowIntensity: 1.2, imgBrightness: 1.08,
-  },
-  SURPRISE: {
-    punch: { y: [-20, 5, 0], scale: [1, 1.06, 1], transition: { duration: 0.4, ease: "easeOut" } },
-    idle: { y: [0, -3, 0] },
-    idleTx: { duration: 3, repeat: Infinity, ease: "easeInOut" },
-    glow: "rgba(255, 200, 50, 0.2)", glowIntensity: 1.3, imgBrightness: 1.1,
-  },
-  PANIC: {
-    punch: { x: [-4, 4, -3, 3, 0], y: [-5, 0], transition: { duration: 0.3, ease: "easeInOut" } },
-    idle: { x: [0, 2, -2, 0], y: [0, -2, 0] },
-    idleTx: { duration: 1.5, repeat: Infinity, ease: "easeInOut" },
-    glow: "rgba(255, 100, 50, 0.2)", glowIntensity: 1.3, imgBrightness: 1.0,
-  },
-  RELAX: {
-    punch: null,
-    idle: { y: [0, -3, 0], rotate: [0, 0.3, 0, -0.3, 0] },
-    idleTx: { duration: 7, repeat: Infinity, ease: "easeInOut" },
-    glow: "rgba(100, 200, 150, 0.12)", glowIntensity: 0.9, imgBrightness: 1.05,
-  },
-  DISGUST: {
-    punch: { x: [0, -5, -3], rotate: [0, -1.5, -0.5], transition: { duration: 0.4, ease: "easeOut" } },
-    idle: { x: [0, -1, 0] },
-    idleTx: { duration: 4, repeat: Infinity, ease: "easeInOut" },
-    glow: "rgba(80, 180, 80, 0.15)", glowIntensity: 1.0, imgBrightness: 0.95,
-  },
-  FRIGHTENED: {
-    punch: { x: [-3, 3, -2, 2, 0], y: [-4, 0], scale: [1, 0.97, 1], transition: { duration: 0.5 } },
-    idle: { x: [0, 1.5, -1.5, 0], y: [0, -1, 0] },
-    idleTx: { duration: 2, repeat: Infinity, ease: "easeInOut" },
-    glow: "rgba(100, 100, 180, 0.18)", glowIntensity: 1.1, imgBrightness: 0.9,
-  },
-  FLIRTATIOUS: {
-    punch: { rotate: [0, 3, 1], scale: [1, 1.03, 1], transition: { duration: 0.6, ease: "easeOut" } },
-    idle: { rotate: [0, 1, 0, -1, 0], y: [0, -2, 0] },
-    idleTx: { duration: 4, repeat: Infinity, ease: "easeInOut" },
-    glow: "rgba(255, 100, 200, 0.3)", glowIntensity: 1.5, imgBrightness: 1.12,
-  },
-  HEATED: {
-    punch: { scale: [1, 1.05, 1.02], y: [0, -8, -3], transition: { duration: 0.5, ease: "easeOut" } },
-    idle: { scale: [1, 1.02, 1], y: [0, -3, 0] },
-    idleTx: { duration: 3, repeat: Infinity, ease: "easeInOut" },
-    glow: "rgba(255, 50, 100, 0.35)", glowIntensity: 1.6, imgBrightness: 1.15,
-  },
+  NEUTRAL: { punch: null, idle: { rotate: [0, 0.4, 0, -0.4, 0], x: [0, 0.5, 0, -0.5, 0] }, idleTx: { duration: 8, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(180, 180, 255, 0.08)", glowIntensity: 1, imgBrightness: 1.05 },
+  JOY: { punch: { y: [-18, 4, 0], scale: [1, 1.04, 1], transition: { duration: 0.5 } }, idle: { y: [0, -5, 0], rotate: [0, 1.2, 0, -1.2, 0] }, idleTx: { duration: 3, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(255, 105, 180, 0.28)", glowIntensity: 1.4, imgBrightness: 1.1 },
+  SAD: { punch: { y: [0, 5, 3], scale: [1, 0.98, 0.99], transition: { duration: 0.7 } }, idle: { y: [0, 2, 0], rotate: [0, -0.3, 0] }, idleTx: { duration: 5, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(100, 100, 200, 0.15)", glowIntensity: 0.8, imgBrightness: 0.95 },
+  ANGRY: { punch: { x: [-6, 6, -4, 4, 0], transition: { duration: 0.4 } }, idle: { x: [0, 1.5, -1.5, 0], scale: [1, 1.01, 1] }, idleTx: { duration: 2, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(255, 50, 50, 0.25)", glowIntensity: 1.5, imgBrightness: 1.05 },
+  SHY: { punch: { x: [0, -8, -5], rotate: [0, -2, -1], transition: { duration: 0.5 } }, idle: { x: [0, -1, 0], rotate: [0, -0.5, 0] }, idleTx: { duration: 4, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(255, 150, 200, 0.22)", glowIntensity: 1.2, imgBrightness: 1.08 },
+  SURPRISE: { punch: { y: [-20, 5, 0], scale: [1, 1.06, 1], transition: { duration: 0.4 } }, idle: { y: [0, -3, 0] }, idleTx: { duration: 3, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(255, 200, 50, 0.2)", glowIntensity: 1.3, imgBrightness: 1.1 },
+  PANIC: { punch: { x: [-4, 4, -3, 3, 0], y: [-5, 0], transition: { duration: 0.3 } }, idle: { x: [0, 2, -2, 0], y: [0, -2, 0] }, idleTx: { duration: 1.5, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(255, 100, 50, 0.2)", glowIntensity: 1.3, imgBrightness: 1.0 },
+  RELAX: { punch: null, idle: { y: [0, -3, 0], rotate: [0, 0.3, 0, -0.3, 0] }, idleTx: { duration: 7, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(100, 200, 150, 0.12)", glowIntensity: 0.9, imgBrightness: 1.05 },
+  DISGUST: { punch: { x: [0, -5, -3], rotate: [0, -1.5, -0.5], transition: { duration: 0.4 } }, idle: { x: [0, -1, 0] }, idleTx: { duration: 4, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(80, 180, 80, 0.15)", glowIntensity: 1.0, imgBrightness: 0.95 },
+  FRIGHTENED: { punch: { x: [-3, 3, -2, 2, 0], y: [-4, 0], scale: [1, 0.97, 1], transition: { duration: 0.5 } }, idle: { x: [0, 1.5, -1.5, 0], y: [0, -1, 0] }, idleTx: { duration: 2, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(100, 100, 180, 0.18)", glowIntensity: 1.1, imgBrightness: 0.9 },
+  FLIRTATIOUS: { punch: { rotate: [0, 3, 1], scale: [1, 1.03, 1], transition: { duration: 0.6 } }, idle: { rotate: [0, 1, 0, -1, 0], y: [0, -2, 0] }, idleTx: { duration: 4, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(255, 100, 200, 0.3)", glowIntensity: 1.5, imgBrightness: 1.12 },
+  HEATED: { punch: { scale: [1, 1.05, 1.02], y: [0, -8, -3], transition: { duration: 0.5 } }, idle: { scale: [1, 1.02, 1], y: [0, -3, 0] }, idleTx: { duration: 3, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(255, 50, 100, 0.35)", glowIntensity: 1.6, imgBrightness: 1.15 },
 };
-
-// ─── 파티클 시스템 ───
 
 const PARTICLE_PRESETS = {
   JOY: { emojis: ["✨", "🌸", "💫"], count: 6, color: "#ffb6d9", baseOpacity: 0.7 },
@@ -115,20 +49,11 @@ const PARTICLE_PRESETS = {
 };
 
 function generateParticles(emotion) {
-  const preset = PARTICLE_PRESETS[emotion];
-  if (!preset) return [];
-  return Array.from({ length: preset.count }, (_, i) => {
-    const xStart = 25 + Math.random() * 50;
-    const xDriftVal = (Math.random() - 0.5) * 60;
-    const yEnd = -(80 + Math.random() * 120);
-    const dur = 2.5 + Math.random() * 2;
-    const sz = 14 + Math.random() * 10;
-    return {
-      id: i, content: preset.emojis[i % preset.emojis.length], color: preset.color,
-      xStart, xDrift: xDriftVal, yEnd, duration: dur, delay: Math.random() * 2.5,
-      size: Math.round(sz), opacity: preset.baseOpacity * (0.7 + Math.random() * 0.3),
-    };
-  });
+  const p = PARTICLE_PRESETS[emotion]; if (!p) return [];
+  return Array.from({ length: p.count }, (_, i) => ({ id: i, content: p.emojis[i % p.emojis.length], color: p.color,
+    xStart: 25 + Math.random() * 50, xDrift: (Math.random() - 0.5) * 60, yEnd: -(80 + Math.random() * 120),
+    duration: 2.5 + Math.random() * 2, delay: Math.random() * 2.5, size: Math.round(14 + Math.random() * 10),
+    opacity: p.baseOpacity * (0.7 + Math.random() * 0.3) }));
 }
 
 const EmotionParticles = ({ emotion }) => {
@@ -136,12 +61,12 @@ const EmotionParticles = ({ emotion }) => {
   if (particles.length === 0) return null;
   return (
     <div className="absolute inset-0 pointer-events-none z-10 overflow-hidden">
-      {particles.map((p) => (
+      {particles.map(p => (
         <motion.span key={`${emotion}_p${p.id}`} className="absolute select-none"
           style={{ left: `${p.xStart}%`, bottom: "35%", fontSize: `${p.size}px`, color: p.color, textShadow: `0 0 ${p.size * 0.6}px ${p.color}` }}
           initial={{ opacity: 0, y: 0, x: 0, scale: 0.3 }}
-          animate={{ opacity: [0, p.opacity, p.opacity * 0.8, 0], y: [0, p.yEnd * 0.3, p.yEnd * 0.7, p.yEnd], x: [0, p.xDrift * 0.4, p.xDrift * 0.8, p.xDrift], scale: [0.3, 1, 1, 0.5], rotate: [0, (Math.random() - 0.5) * 30] }}
-          transition={{ duration: p.duration, delay: p.delay, repeat: Infinity, repeatDelay: Math.random() * 1.5, ease: "easeOut" }}
+          animate={{ opacity: [0, p.opacity, p.opacity * 0.8, 0], y: [0, p.yEnd * 0.3, p.yEnd * 0.7, p.yEnd], x: [0, p.xDrift * 0.4, p.xDrift * 0.8, p.xDrift], scale: [0.3, 1, 1, 0.5] }}
+          transition={{ duration: p.duration, delay: p.delay, repeat: Infinity, repeatDelay: Math.random() * 1.5 }}
         >{p.content}</motion.span>
       ))}
     </div>
@@ -153,135 +78,106 @@ const GlowLayer = ({ config }) => (
     <motion.div className="absolute left-1/2 -translate-x-1/2 rounded-full pointer-events-none"
       style={{ bottom: "12%", width: 320, height: 160, filter: "blur(60px)" }}
       animate={{ backgroundColor: config.glow, scale: [config.glowIntensity, config.glowIntensity * 1.12, config.glowIntensity], opacity: [0.5, 0.8, 0.5] }}
-      transition={{ backgroundColor: { duration: 0.8 }, scale: { duration: 4, repeat: Infinity, ease: "easeInOut" }, opacity: { duration: 4, repeat: Infinity, ease: "easeInOut" } }}
-    />
+      transition={{ backgroundColor: { duration: 0.8 }, scale: { duration: 4, repeat: Infinity }, opacity: { duration: 4, repeat: Infinity } }} />
     <motion.div className="absolute left-1/2 -translate-x-1/2 rounded-full pointer-events-none"
       style={{ bottom: "18%", width: 120, height: 80, filter: "blur(40px)" }}
       animate={{ backgroundColor: config.glow, opacity: [0.3, 0.6, 0.3] }}
-      transition={{ opacity: { duration: 3, repeat: Infinity, ease: "easeInOut", delay: 1 } }}
-    />
+      transition={{ opacity: { duration: 3, repeat: Infinity, delay: 1 } }} />
   </>
 );
 
 
-// ═══════════════════════════════════════════════════════════════
-//  [Phase 5.5-NPC] NPC 실루엣 컴포넌트
-//
-//  - 검은 인물 음영 (SVG)
-//  - 발화 시 밝아지고 커짐 (스포트라이트)
-//  - NPC 이름 표시
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+//  [Fix-UI-3] NPC 실루엣 — 더 크고, 이름표 개선
+// ═══════════════════════════════════════════════════════
 
 const NpcSilhouette = ({ name, isActive }) => (
   <motion.div
     className="relative flex flex-col items-center"
     animate={{
-      opacity: isActive ? 1 : 0.4,
-      scale: isActive ? 1.05 : 0.92,
-      y: isActive ? 0 : 8,
+      opacity: isActive ? 1 : 0.3,
+      scale: isActive ? 1.08 : 0.95,
+      y: isActive ? 0 : 6,
     }}
     transition={{ duration: 0.5, ease: "easeOut" }}
   >
     {/* NPC 이름 */}
     <AnimatePresence>
-      {isActive && name && (
+      {name && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={{ opacity: isActive ? 1 : 0.4, y: 0 }}
           exit={{ opacity: 0, y: 8 }}
-          className="absolute -top-8 whitespace-nowrap px-3 py-1 rounded-full text-xs font-bold
-                     bg-black/70 text-red-300/90 border border-red-500/30 backdrop-blur-sm
-                     shadow-[0_0_12px_rgba(239,68,68,0.2)]"
+          className="absolute -top-10 whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-bold
+                     bg-black/80 text-red-300/90 border border-red-500/30 backdrop-blur-sm
+                     shadow-[0_0_15px_rgba(239,68,68,0.2)]"
         >
-          {name}
+          👤 {name}
         </motion.div>
       )}
     </AnimatePresence>
 
-    {/* 실루엣 SVG */}
-    <svg width="140" height="280" viewBox="0 0 140 280" className="drop-shadow-2xl"
+    {/* [Fix-UI-3] 실루엣 SVG — 180x360으로 확대 */}
+    <svg width="180" height="360" viewBox="0 0 180 360" className="drop-shadow-2xl"
       style={{
         filter: isActive
-          ? "drop-shadow(0 0 20px rgba(239,68,68,0.3)) brightness(1.1)"
-          : "drop-shadow(0 4px 10px rgba(0,0,0,0.5)) brightness(0.6)",
+          ? "drop-shadow(0 0 25px rgba(239,68,68,0.35)) brightness(1.15)"
+          : "drop-shadow(0 4px 12px rgba(0,0,0,0.5)) brightness(0.5)",
       }}
     >
-      {/* 머리 */}
-      <ellipse cx="70" cy="48" rx="24" ry="28"
-        fill={isActive ? "rgba(30,15,40,0.95)" : "rgba(15,8,20,0.9)"}
-        stroke={isActive ? "rgba(239,68,68,0.25)" : "rgba(100,60,120,0.15)"}
-        strokeWidth="1"
-      />
-      {/* 목 */}
-      <rect x="62" y="74" width="16" height="14" rx="3"
-        fill={isActive ? "rgba(25,12,35,0.95)" : "rgba(12,6,18,0.9)"}
-      />
-      {/* 몸통 */}
-      <path d="M 30 88 Q 35 82 55 80 L 62 80 L 78 80 L 85 80 Q 105 82 110 88 L 115 160 Q 115 168 108 170 L 32 170 Q 25 168 25 160 Z"
-        fill={isActive ? "rgba(20,10,30,0.95)" : "rgba(10,5,15,0.9)"}
-        stroke={isActive ? "rgba(239,68,68,0.15)" : "rgba(80,40,100,0.1)"}
-        strokeWidth="1"
-      />
-      {/* 다리 */}
-      <rect x="38" y="170" width="26" height="90" rx="4"
-        fill={isActive ? "rgba(18,8,28,0.95)" : "rgba(8,4,12,0.9)"}
-      />
-      <rect x="76" y="170" width="26" height="90" rx="4"
-        fill={isActive ? "rgba(18,8,28,0.95)" : "rgba(8,4,12,0.9)"}
-      />
-      {/* 의문의 빛 (활성 시) */}
+      <ellipse cx="90" cy="58" rx="30" ry="35"
+        fill={isActive ? "rgba(30,15,40,0.95)" : "rgba(15,8,20,0.85)"}
+        stroke={isActive ? "rgba(239,68,68,0.3)" : "rgba(100,60,120,0.1)"} strokeWidth="1.5" />
+      <rect x="78" y="91" width="24" height="18" rx="4"
+        fill={isActive ? "rgba(25,12,35,0.95)" : "rgba(12,6,18,0.85)"} />
+      <path d="M 35 109 Q 42 100 70 97 L 80 97 L 100 97 L 110 97 Q 138 100 145 109 L 152 205 Q 152 215 143 218 L 37 218 Q 28 215 28 205 Z"
+        fill={isActive ? "rgba(20,10,30,0.95)" : "rgba(10,5,15,0.85)"}
+        stroke={isActive ? "rgba(239,68,68,0.2)" : "rgba(80,40,100,0.08)"} strokeWidth="1.5" />
+      <rect x="45" y="218" width="34" height="115" rx="5"
+        fill={isActive ? "rgba(18,8,28,0.95)" : "rgba(8,4,12,0.85)"} />
+      <rect x="101" y="218" width="34" height="115" rx="5"
+        fill={isActive ? "rgba(18,8,28,0.95)" : "rgba(8,4,12,0.85)"} />
       {isActive && (
         <>
-          <circle cx="60" cy="44" r="2.5" fill="rgba(255,120,120,0.7)">
-            <animate attributeName="opacity" values="0.4;0.9;0.4" dur="2s" repeatCount="indefinite" />
+          <circle cx="78" cy="53" r="3.5" fill="rgba(255,100,100,0.8)">
+            <animate attributeName="opacity" values="0.3;1;0.3" dur="2s" repeatCount="indefinite" />
           </circle>
-          <circle cx="80" cy="44" r="2.5" fill="rgba(255,120,120,0.7)">
-            <animate attributeName="opacity" values="0.4;0.9;0.4" dur="2s" repeatCount="indefinite" />
+          <circle cx="102" cy="53" r="3.5" fill="rgba(255,100,100,0.8)">
+            <animate attributeName="opacity" values="0.3;1;0.3" dur="2s" repeatCount="indefinite" />
           </circle>
         </>
       )}
     </svg>
 
-    {/* NPC 바닥 그림자 */}
-    <motion.div
-      className="absolute -bottom-2 rounded-full"
-      style={{ width: 100, height: 12, background: "rgba(0,0,0,0.3)", filter: "blur(6px)" }}
-      animate={{ opacity: isActive ? 0.6 : 0.2, scale: isActive ? 1.1 : 0.8 }}
-    />
+    <motion.div className="absolute -bottom-3 rounded-full"
+      style={{ width: 130, height: 14, background: "rgba(0,0,0,0.35)", filter: "blur(8px)" }}
+      animate={{ opacity: isActive ? 0.7 : 0.2, scale: isActive ? 1.1 : 0.8 }} />
   </motion.div>
 );
 
 
-// ═══════════════════════════════════════════════════════════════
-//  CharacterDisplay — 메인 컴포넌트
-//  [Phase 5.5-NPC] npcSpeaker / isNpcActive props 추가
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════
+//  CharacterDisplay — 메인
+// ═══════════════════════════════════════════════════════
 
 const CharacterDisplay = ({
-  emotion = "NEUTRAL",
-  outfit = "MAID",
-  characterSlug = "airi",
-  defaultOutfit,
-  // ── [Phase 5.5-NPC] NPC 시스템 ──
-  npcSpeaker = null,          // NPC 이름 (null이면 NPC 없음)
-  isNpcActive = false,        // true면 NPC에 스포트라이트, 메인 캐릭터 딤
+  emotion = "NEUTRAL", outfit = "MAID", characterSlug = "airi", defaultOutfit,
+  npcSpeaker = null, isNpcActive = false,
 }) => {
   const imagePath = resolveCharacterImage(characterSlug, outfit, emotion);
   const config = EMOTION_ANIM[emotion] || EMOTION_ANIM.NEUTRAL;
   const idleControls = useAnimation();
   const prevEmotionRef = useRef(emotion);
 
-  // NPC가 존재하는 상태인지 (이벤트 모드)
   const hasNpc = !!npcSpeaker;
-  // 메인 캐릭터가 활성(발화 중)인지
   const isMainActive = !isNpcActive;
 
   useEffect(() => {
     let cancelled = false;
-    const runSequence = async () => {
-      const isEmotionChange = prevEmotionRef.current !== emotion;
+    const run = async () => {
+      const changed = prevEmotionRef.current !== emotion;
       prevEmotionRef.current = emotion;
-      if (isEmotionChange && config.punch) {
+      if (changed && config.punch) {
         await idleControls.start(config.punch);
         if (cancelled) return;
         await idleControls.start({ x: 0, y: 0, rotate: 0, scale: 1, transition: { duration: 0.15 } });
@@ -289,38 +185,33 @@ const CharacterDisplay = ({
       }
       idleControls.start({ ...config.idle, transition: config.idleTx });
     };
-    runSequence();
+    run();
     return () => { cancelled = true; };
   }, [emotion, config, idleControls]);
 
   return (
     <div className="absolute inset-0 z-0 flex items-end justify-center pointer-events-none overflow-hidden">
 
-      {/* L1: 오라/글로우 (메인 캐릭터용) */}
-      <motion.div
-        animate={{ opacity: hasNpc && isNpcActive ? 0.3 : 1 }}
-        transition={{ duration: 0.5 }}
-      >
+      <motion.div animate={{ opacity: hasNpc && isNpcActive ? 0.3 : 1 }} transition={{ duration: 0.5 }}>
         <GlowLayer config={config} />
       </motion.div>
 
-      {/* ═══ [Phase 5.5-NPC] NPC가 있을 때: 2인 레이아웃 ═══ */}
       {hasNpc ? (
         <div className="relative w-full h-full max-w-5xl flex items-end justify-center pb-20 md:pb-28">
 
-          {/* 메인 캐릭터 — 좌측으로 시프트 */}
+          {/* [Fix-UI-3] 메인 캐릭터 — left 15% (기존 10%) */}
           <motion.div
             className="absolute bottom-20 md:bottom-28 flex items-end justify-center"
             animate={{
-              left: "10%",
-              opacity: isMainActive ? 1 : 0.5,
-              scale: isMainActive ? 1.0 : 0.88,
+              left: "15%",
+              opacity: isMainActive ? 1 : 0.45,
+              scale: isMainActive ? 1.0 : 0.85,
               filter: isMainActive
-                ? "brightness(1.05) drop-shadow(0 0 25px rgba(180,180,255,0.2))"
-                : "brightness(0.6) drop-shadow(0 0 8px rgba(0,0,0,0.3))",
+                ? `brightness(${config.imgBrightness}) drop-shadow(0 0 25px ${config.glow})`
+                : "brightness(0.55) drop-shadow(0 0 8px rgba(0,0,0,0.3))",
             }}
             transition={{ duration: 0.6, ease: "easeOut" }}
-            style={{ width: "45%", height: "80%" }}
+            style={{ width: "42%", height: "80%" }}
           >
             <motion.div
               animate={{ y: [0, -8, 0], scaleY: [1, 1.004, 1] }}
@@ -331,20 +222,14 @@ const CharacterDisplay = ({
                 <AnimatePresence mode="popLayout">
                   <motion.img
                     key={`${characterSlug}_${outfit}_${emotion}`}
-                    src={imagePath}
-                    alt={`${characterSlug} ${emotion}`}
-                    initial={{ opacity: 0, scale: 1.02 }}
-                    animate={{ opacity: 1, scale: 1.05 }}
-                    exit={{ opacity: 0, scale: 1.02 }}
-                    transition={{ duration: 0.5 }}
+                    src={imagePath} alt={`${characterSlug} ${emotion}`}
+                    initial={{ opacity: 0, scale: 1.02 }} animate={{ opacity: 1, scale: 1.05 }}
+                    exit={{ opacity: 0, scale: 1.02 }} transition={{ duration: 0.5 }}
                     className="h-[85%] md:h-[90%] object-contain select-none pointer-events-none"
-                    style={{
-                      filter: `drop-shadow(0 0 25px ${config.glow}) drop-shadow(0 5px 15px rgba(0,0,0,0.4)) brightness(${isMainActive ? config.imgBrightness : 0.7})`,
-                    }}
+                    style={{ filter: `drop-shadow(0 0 25px ${config.glow}) drop-shadow(0 5px 15px rgba(0,0,0,0.4)) brightness(${isMainActive ? config.imgBrightness : 0.65})` }}
                     onError={(e) => {
-                      const fallback = resolveCharacterImage(characterSlug, "MAID", emotion);
-                      if (!e.target.src.endsWith(fallback)) e.target.src = fallback;
-                      else e.target.style.display = "none";
+                      const fb = resolveCharacterImage(characterSlug, "MAID", emotion);
+                      if (!e.target.src.endsWith(fb)) e.target.src = fb; else e.target.style.display = "none";
                     }}
                   />
                 </AnimatePresence>
@@ -352,34 +237,31 @@ const CharacterDisplay = ({
             </motion.div>
           </motion.div>
 
-          {/* NPC 실루엣 — 우측 */}
+          {/* [Fix-UI-3] NPC 실루엣 — right 15% (기존 8%), height 68% (기존 55%) */}
+          {/* 항상 표시 (hasNpc이면), isNpcActive에 따라 밝기만 변경 */}
           <motion.div
-            className="absolute bottom-20 md:bottom-28 right-[8%] flex items-end justify-center"
-            initial={{ opacity: 0, x: 60 }}
+            className="absolute bottom-20 md:bottom-28 flex items-end justify-center"
+            style={{ right: "15%", height: "68%" }}
+            initial={{ opacity: 0, x: 50 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 60 }}
-            transition={{ duration: 0.6, ease: "easeOut" }}
-            style={{ height: "55%" }}
+            transition={{ duration: 0.7, ease: "easeOut" }}
           >
             <NpcSilhouette name={npcSpeaker} isActive={isNpcActive} />
           </motion.div>
 
-          {/* NPC 바닥 글로우 (활성 시) */}
-          <AnimatePresence>
-            {isNpcActive && (
-              <motion.div
-                className="absolute rounded-full pointer-events-none"
-                style={{ bottom: "10%", right: "10%", width: 160, height: 80, filter: "blur(50px)" }}
-                initial={{ opacity: 0 }}
-                animate={{ backgroundColor: "rgba(239,68,68,0.15)", opacity: [0.3, 0.5, 0.3] }}
-                exit={{ opacity: 0 }}
-                transition={{ opacity: { duration: 3, repeat: Infinity, ease: "easeInOut" } }}
-              />
-            )}
-          </AnimatePresence>
+          {/* NPC 바닥 글로우 */}
+          <motion.div
+            className="absolute rounded-full pointer-events-none"
+            style={{ bottom: "10%", right: "18%", width: 180, height: 90, filter: "blur(50px)" }}
+            animate={{
+              backgroundColor: isNpcActive ? "rgba(239,68,68,0.18)" : "rgba(100,50,80,0.05)",
+              opacity: isNpcActive ? [0.3, 0.5, 0.3] : 0.1,
+            }}
+            transition={{ opacity: { duration: 3, repeat: Infinity, ease: "easeInOut" } }}
+          />
         </div>
       ) : (
-        /* ═══ 일반 모드: 캐릭터 단독 (기존 100% 동일) ═══ */
+        /* 일반 모드 (기존) */
         <motion.div
           animate={{ y: [0, -8, 0], scaleY: [1, 1.004, 1], scaleX: [1, 1.001, 1] }}
           transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
@@ -389,25 +271,16 @@ const CharacterDisplay = ({
             <AnimatePresence mode="popLayout">
               <motion.img
                 key={`${characterSlug}_${outfit}_${emotion}`}
-                src={imagePath}
-                alt={`${characterSlug} ${outfit} ${emotion}`}
-                initial={{ opacity: 0, scale: 1.02 }}
-                animate={{ opacity: 1, scale: 1.05 }}
-                exit={{ opacity: 0, scale: 1.02 }}
-                transition={{ duration: 0.5, ease: "easeInOut" }}
-                className="h-[85%] md:h-[90%] object-contain outline-none border-none ring-0 select-none pointer-events-none"
-                style={{
-                  filter: `drop-shadow(0 0 25px ${config.glow}) drop-shadow(0 5px 15px rgba(0,0,0,0.4)) brightness(${config.imgBrightness})`,
-                }}
+                src={imagePath} alt={`${characterSlug} ${outfit} ${emotion}`}
+                initial={{ opacity: 0, scale: 1.02 }} animate={{ opacity: 1, scale: 1.05 }}
+                exit={{ opacity: 0, scale: 1.02 }} transition={{ duration: 0.5 }}
+                className="h-[85%] md:h-[90%] object-contain select-none pointer-events-none"
+                style={{ filter: `drop-shadow(0 0 25px ${config.glow}) drop-shadow(0 5px 15px rgba(0,0,0,0.4)) brightness(${config.imgBrightness})` }}
                 onError={(e) => {
-                  const defaultOutfitFallback = resolveCharacterImage(characterSlug, outfit, "NEUTRAL");
-                  const ultimateFallback = resolveCharacterImage(characterSlug, "MAID", emotion);
-                  if (e.target.src !== window.location.origin + defaultOutfitFallback &&
-                      e.target.src !== window.location.origin + ultimateFallback) {
-                    e.target.src = ultimateFallback;
-                  } else {
-                    e.target.style.display = "none";
-                  }
+                  const fb1 = resolveCharacterImage(characterSlug, outfit, "NEUTRAL");
+                  const fb2 = resolveCharacterImage(characterSlug, "MAID", emotion);
+                  if (e.target.src !== window.location.origin + fb1 && e.target.src !== window.location.origin + fb2) e.target.src = fb2;
+                  else e.target.style.display = "none";
                 }}
               />
             </AnimatePresence>
@@ -415,7 +288,6 @@ const CharacterDisplay = ({
         </motion.div>
       )}
 
-      {/* L5: 감정 파티클 */}
       <EmotionParticles emotion={emotion} />
     </div>
   );
