@@ -230,6 +230,15 @@ const ModeSelectOverlay = ({ character, onSelect, onClose }) => {
   );
 };
 
+// ── [Phase 5.5-Fix] 스탯 메타 (지배 스탯 아이콘/색상) ──
+const STAT_META = {
+  intimacy:    { label: "친밀도", icon: "💬", color: "#60a5fa", gradient: "from-blue-500/60 to-blue-400/60" },
+  affection:   { label: "호감도", icon: "💕", color: "#f472b6", gradient: "from-rose-500/60 to-pink-400/60" },
+  dependency:  { label: "의존도", icon: "🫂", color: "#a78bfa", gradient: "from-violet-500/60 to-purple-400/60" },
+  playfulness: { label: "장난기", icon: "😜", color: "#34d399", gradient: "from-emerald-500/60 to-teal-400/60" },
+  trust:       { label: "신뢰도", icon: "🤝", color: "#fbbf24", gradient: "from-amber-500/60 to-yellow-400/60" },
+};
+
 // ── 기억의 끈 사이드바 ──
 const ContinuePanel = ({ rooms, onSelect, onClose }) => {
   const getStatusColor = (s) => ({ LOVER: "text-rose-400", FRIEND: "text-amber-400", ACQUAINTANCE: "text-emerald-400" }[s] || "text-white/50");
@@ -274,6 +283,11 @@ const ContinuePanel = ({ rooms, onSelect, onClose }) => {
           )}
           {rooms.map((room) => {
             const badge = getModeBadge(room.chatMode);
+            // [Phase 5.5-Fix] 지배 스탯 정보 — 레거시 호환 (dominantStatName 없으면 affection 폴백)
+            const domStatKey = room.dominantStatName || "affection";
+            const domStatMeta = STAT_META[domStatKey] || STAT_META.affection;
+            const domStatValue = room.dominantStatValue !== undefined ? room.dominantStatValue : room.affectionScore;
+            const displayRelation = room.dynamicRelationTag || null;
             return (
               <motion.div
                 key={room.roomId}
@@ -300,14 +314,29 @@ const ContinuePanel = ({ rooms, onSelect, onClose }) => {
                       <span className="font-semibold text-white text-sm">{room.characterName}</span>
                       <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${badge.cls}`}>{badge.label}</span>
                     </div>
+                    {/* [Phase 5.5-Fix] 지배 스탯 진척도 바 — 레거시 호감도 대체 */}
                     <div className="flex items-center gap-2 mt-2">
-                      <Heart size={10} className={getStatusColor(room.statusLevel)} />
+                      <span className="text-xs leading-none" title={domStatMeta.label}>{domStatMeta.icon}</span>
                       <div className="flex-1 h-1 rounded-full bg-white/5 overflow-hidden">
-                        <motion.div className="h-full rounded-full bg-gradient-to-r from-rose-500/60 to-pink-400/60" initial={{ width: 0 }} animate={{ width: `${Math.max(room.affectionScore, 0)}%` }} transition={{ duration: 0.8, delay: 0.1 }} />
+                        <motion.div
+                          className={`h-full rounded-full bg-gradient-to-r ${domStatMeta.gradient}`}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${Math.max(Math.abs(domStatValue), 0)}%` }}
+                          transition={{ duration: 0.8, delay: 0.1 }}
+                        />
                       </div>
-                      <span className="text-[10px] text-white/30 w-6 text-right">{room.affectionScore}</span>
+                      <span className="text-[10px] text-white/30 w-6 text-right tabular-nums">{domStatValue}</span>
                     </div>
+                    {/* [Phase 5.5-Fix] 동적 관계 태그 + 마지막 대화 시간 */}
                     <div className="flex items-center gap-2 mt-1.5">
+                      {displayRelation ? (
+                        <span className="text-[10px] font-medium truncate max-w-[120px]" style={{ color: domStatMeta.color + "99" }}>
+                          {displayRelation}
+                        </span>
+                      ) : (
+                        <Heart size={10} className={getStatusColor(room.statusLevel)} />
+                      )}
+                      <span className="text-[10px] text-white/15 mx-0.5">·</span>
                       <Clock size={10} className="text-white/20" />
                       <span className="text-[11px] text-white/25">{formatTime(room.lastActiveAt)}</span>
                       {room.endingReached && <span className="text-[10px] text-white/40 ml-auto italic">{room.endingTitle || (room.endingType === "HAPPY" ? "해피엔딩" : "배드엔딩")}</span>}

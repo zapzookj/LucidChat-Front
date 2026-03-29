@@ -1,17 +1,16 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Heart, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity, MessageSquare, Eye, Clock, EyeIcon } from "lucide-react";
+import { Send, Heart, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity, MessageSquare, Eye, Clock, EyeIcon, Gem } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 
 /**
- * [Phase 5.5-IT] DialogueBox
+ * [Phase 5.5-Fix] DialogueBox
  *
- * 변경점 vs Phase 5.5-v3:
- * 1. 속마음 토글 탭 추가 — [🗣️ 대사] / [💭 속마음]
- * 2. 속마음 뷰: slide 전환 + 보라색 이탤릭체
- * 3. 해금되지 않은 상태의 빈 속마음 뷰 없음 (해금 후에만 탭 노출)
+ * 변경점:
+ * 1. [Fix #1] 에너지 UI 분리 — freeEnergy/paidEnergy 별도 표시 (paidEnergy > 0일 때)
+ * 2. [Fix #5] 이벤트 진행 중 뱃지 + 속마음 토글 → 네임 플레이트 옆으로 이동 (에너지 UI와 겹침 해소)
+ * 3. [Fix #4 동기화] BPM 툴팁에 현재 구간 하이라이트
  *
  * ⚠️ 대사 출력 로직(타이핑/씬 전환)은 원본과 100% 동일 — 수정 없음
- * ⚠️ 상단 정보바(부스트/BPM/에너지/상태창)도 100% 동일
  */
 
 // ── 자립형 HeartPulse (외부 import 없이 동작) ──
@@ -46,13 +45,10 @@ const StatChangeToasts = ({ changes }) => {
   const [queue, setQueue] = useState([]);
   const showTimersRef = useRef([]);
  
-  // changes가 null/빈 배열이 되면 큐 즉시 정리 (안전장치)
   useEffect(() => {
     if (!changes || changes.length === 0) {
-      // 진행 중인 show 타이머 취소
       showTimersRef.current.forEach(t => clearTimeout(t));
       showTimersRef.current = [];
-      // 큐 비우기 (잔류 토스트 강제 제거)
       setQueue([]);
       return;
     }
@@ -60,25 +56,17 @@ const StatChangeToasts = ({ changes }) => {
     const filtered = changes.filter(c => c.value !== 0);
     if (filtered.length === 0) return;
  
-    // 각 스탯 변화를 순차적으로 큐에 추가
     filtered.forEach((change, i) => {
       const showTimer = setTimeout(() => {
-        const id = Date.now() + Math.random(); // 고유 ID (동일 타임스탬프 방지)
- 
+        const id = Date.now() + Math.random();
         setQueue(prev => [...prev, { ...change, id }]);
- 
-        // ⭐ 핵심 수정: 제거 타이머를 useEffect cleanup과 무관하게 독립 실행
-        // 이 타이머는 showTimersRef에 포함되지 않으므로 cleanup에 영향 없음
         setTimeout(() => {
           setQueue(prev => prev.filter(item => item.id !== id));
         }, 2200);
- 
       }, i * 600);
- 
       showTimersRef.current.push(showTimer);
     });
  
-    // cleanup: show 타이머만 취소 (제거 타이머는 독립적으로 실행됨)
     return () => {
       showTimersRef.current.forEach(t => clearTimeout(t));
       showTimersRef.current = [];
@@ -149,15 +137,12 @@ const InnerThoughtView = ({ text, characterName }) => {
       transition={{ duration: 0.35, ease: "easeOut" }}
       className="min-h-[3.5rem] flex flex-col justify-center py-2"
     >
-      {/* 속마음 라벨 */}
       <div className="flex items-center gap-2 mb-2 opacity-50">
         <span className="text-xs">💭</span>
         <span className="text-[10px] text-purple-300 uppercase tracking-widest font-bold">
           {characterName}의 속마음
         </span>
       </div>
-
-      {/* 속마음 텍스트 */}
       <p
         className="text-lg leading-relaxed font-medium tracking-wide"
         style={{
@@ -184,35 +169,46 @@ const InnerThoughtView = ({ text, characterName }) => {
 
 
 // ═══════════════════════════════════════════════════════════════
-//  토글 탭 컴포넌트
+//  토글 탭 컴포넌트 — [Fix #5] 인라인 축소 버전 (네임 플레이트 옆)
 // ═══════════════════════════════════════════════════════════════
 
 const ThoughtToggleTabs = ({ activeTab, onTabChange }) => (
-  <div className="flex gap-1 mb-3">
+  <div className="flex gap-1">
     <button
-      onClick={() => onTabChange("dialogue")}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+      onClick={(e) => { e.stopPropagation(); onTabChange("dialogue"); }}
+      className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all ${
         activeTab === "dialogue"
           ? "bg-white/10 text-white/80 border border-white/15 shadow-sm"
           : "text-white/25 hover:text-white/40 hover:bg-white/[0.03]"
       }`}
     >
-      <MessageSquare size={12} />
+      <MessageSquare size={10} />
       <span>대사</span>
     </button>
     <button
-      onClick={() => onTabChange("thought")}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+      onClick={(e) => { e.stopPropagation(); onTabChange("thought"); }}
+      className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all ${
         activeTab === "thought"
           ? "bg-purple-500/15 text-purple-300 border border-purple-500/25 shadow-[0_0_8px_rgba(168,85,247,0.15)]"
           : "text-purple-400/30 hover:text-purple-400/50 hover:bg-purple-500/[0.05]"
       }`}
     >
-      <Eye size={12} />
+      <Eye size={10} />
       <span>속마음</span>
     </button>
   </div>
 );
+
+
+// ═══════════════════════════════════════════════════════════════
+//  [Fix #4 동기화] BPM 구간 정의
+// ═══════════════════════════════════════════════════════════════
+
+const BPM_RANGES = [
+  { min: 60, max: 85, label: "평온", color: "#f9a8d4" },
+  { min: 86, max: 120, label: "두근거림", color: "#f472b6" },
+  { min: 121, max: 180, label: "쿵쾅거림", color: "#ef4444" },
+];
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -240,18 +236,21 @@ const DialogueBox = ({
   onOpenStatusPanel,
   statChanges = null,
   // ── [Phase 5.5-IT] 속마음 props ──
-  innerThought = null,           // 해금된 속마음 텍스트 (null이면 미해금 or 없음)
-  hasInnerThought = false,       // 속마음 존재 여부 (해금과 무관)
-  thoughtUnlocked = false,       // 해금 완료 여부
+  innerThought = null,
+  hasInnerThought = false,
+  thoughtUnlocked = false,
   // ── [Phase 5.5-EV] 이벤트 시스템 강화 ──
-  topicConcluded = false,         // 주제 종료 플래그
-  eventStatus = null,              // "ONGOING" | "RESOLVED" | null
-  onWatch,                         // 👀 계속 지켜보기 콜백
+  topicConcluded = false,
+  eventStatus = null,
+  onWatch,
   // [Phase 5.5-NPC]
-  speaker = null,          // 현재 씬의 화자 이름 (null → 메인 캐릭터)
-  onTimeSkip,                      // ⏭ 시간 넘기기 콜백
-  // [Phase 5.5-Fix] SSE 응답 대기 플래그 — final_result 도착 전 premature 입력창 방지
+  speaker = null,
+  onTimeSkip,
+  // [Phase 5.5-Fix] SSE 응답 대기 플래그
   awaitingFinalResult = false,
+  // ── [Fix #1] 에너지 분리 ──
+  freeEnergy = null,       // null이면 레거시 모드 (energy만 사용)
+  paidEnergy = 0,
 }) => {
   const [input, setInput] = useState("");
   const [displayedText, setDisplayedText] = useState("");
@@ -319,7 +318,6 @@ const DialogueBox = ({
 
   // ━━━ 클릭 핸들러 (원본 100% 동일) ━━━
   const handleBoxClick = () => {
-    // 속마음 탭이 활성화되어 있으면 클릭으로 씬 넘기지 않음
     if (activeTab === "thought") return;
 
     if (scene?.dialogue && !isTextFullyDisplayed) {
@@ -344,6 +342,15 @@ const DialogueBox = ({
  
   // [Phase 5.5-EV] 시간 넘기기 버튼 표시 조건
   const canTimeSkip = topicConcluded && !isDirectorOngoing && energy >= 1;
+
+  // [Fix #1] 에너지 분리 계산
+  const hasPaidEnergy = paidEnergy > 0;
+  // freeEnergy가 null이면 레거시 모드 — energy를 그대로 freeEnergy로 취급
+  const displayFreeEnergy = freeEnergy !== null ? freeEnergy : energy;
+  const displayPaidEnergy = paidEnergy || 0;
+
+  // [Fix #4 동기화] 현재 BPM 구간
+  const currentBpmRange = BPM_RANGES.find(r => bpm >= r.min && bpm <= r.max);
 
   return (
     <div className="absolute bottom-0 w-full z-20 p-4 pb-8 flex justify-center select-none">
@@ -405,38 +412,97 @@ const DialogueBox = ({
               <span className="text-sm font-bold text-white ml-1 tabular-nums">{bpm}</span>
             </div>
 
-            {/* BPM 툴팁 */}
+            {/* [Fix #4 동기화] BPM 툴팁 — 현재 구간 하이라이트 */}
             <div className="absolute bottom-full right-0 mb-3 w-56 bg-black/95 border border-rose-500/30 p-4 rounded-xl text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
               <p className="font-bold text-rose-400 mb-2 text-sm">{characterName}의 심박수</p>
-              <p className="leading-relaxed text-gray-400">대화 텐션과 감정에 따라 실시간으로 변화합니다.</p>
-              <div className="mt-2 space-y-1 text-[10px] text-gray-500">
-                <p>60~85 : 평온</p>
-                <p>86~120 : 두근거림</p>
-                <p>121~180 : 쿵쾅거림</p>
+              <p className="leading-relaxed text-gray-400 mb-3">대화 텐션과 감정에 따라 실시간으로 변화합니다.</p>
+              <div className="space-y-1">
+                {BPM_RANGES.map((range) => {
+                  const isCurrent = bpm >= range.min && bpm <= range.max;
+                  return (
+                    <div key={range.label} className={`flex items-center justify-between px-2 py-1 rounded-lg transition-all ${
+                      isCurrent ? "bg-white/[0.06]" : ""
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        {isCurrent && (
+                          <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: range.color }} />
+                        )}
+                        <span className={`text-[11px] ${isCurrent ? "text-white/80 font-bold" : "text-gray-500"}`}>
+                          {range.label}
+                        </span>
+                      </div>
+                      <span className={`text-[10px] tabular-nums ${isCurrent ? "text-white/50" : "text-gray-600"}`}>
+                        {range.min}~{range.max}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
 
-          {/* 에너지 */}
+          {/* ━━━ [Fix #1] 에너지 표시 — freeEnergy/paidEnergy 분리 ━━━ */}
           <div className="relative group cursor-help">
             <div className="flex items-center gap-3 bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-yellow-500/40 shadow-[0_0_15px_rgba(234,179,8,0.3)] hover:bg-black/80 transition-colors">
               <Zap size={20} className={`text-yellow-400 ${energy < 20 ? 'animate-pulse' : ''}`} fill={energy > 0 ? "currentColor" : "none"} />
               <div className="flex flex-col w-12">
                 <span className="text-[10px] text-yellow-400 font-bold uppercase leading-none mb-0.5">에너지</span>
-                <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden flex">
+                  {/* Free 에너지 바 */}
                   <div
-                    className={`h-full transition-all duration-500 ${energy < 20 ? 'bg-red-500' : 'bg-yellow-400'}`}
-                    style={{ width: `${Math.min(100, (energy / freeEnergyMax) * 100)}%` }}
+                    className={`h-full transition-all duration-500 ${displayFreeEnergy < 10 ? 'bg-red-500' : 'bg-yellow-400'}`}
+                    style={{ width: `${Math.min(100, (displayFreeEnergy / freeEnergyMax) * 100)}%` }}
                   />
+                  {/* Paid 에너지 바 (존재할 때만 표시) */}
+                  {hasPaidEnergy && (
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all duration-500"
+                      style={{ width: `${Math.min(100 - (displayFreeEnergy / freeEnergyMax) * 100, (displayPaidEnergy / freeEnergyMax) * 100)}%` }}
+                    />
+                  )}
                 </div>
               </div>
-              <span className="text-sm font-bold text-white ml-1">{energy}</span>
+              {/* [Fix #1] 에너지 수치 — paid가 있으면 합산 + 분리 표시 */}
+              <div className="flex items-center gap-1 ml-1">
+                <span className="text-sm font-bold text-white tabular-nums">{energy}</span>
+                {hasPaidEnergy && (
+                  <span className="text-[9px] text-emerald-400/70 font-bold tabular-nums">
+                    +{displayPaidEnergy}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* 에너지 툴팁 */}
             <div className="absolute bottom-full right-0 mb-3 w-72 bg-black/95 border border-yellow-500/30 p-4 rounded-xl text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
               <p className="font-bold text-yellow-400 mb-2 text-sm">에너지</p>
               <p className="leading-relaxed text-gray-400 mb-3">대화를 보낼 때마다 에너지가 소모됩니다.</p>
+
+              {/* [Fix #1] Free/Paid 분리 표시 */}
+              {hasPaidEnergy && (
+                <div className="mb-3 space-y-1.5 p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
+                      <span className="text-[11px] text-gray-400">자연 에너지</span>
+                    </div>
+                    <span className="text-[11px] text-yellow-300 font-bold tabular-nums">{displayFreeEnergy} / {freeEnergyMax}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400" />
+                      <span className="text-[11px] text-gray-400">충전 에너지</span>
+                    </div>
+                    <span className="text-[11px] text-emerald-300 font-bold tabular-nums">{displayPaidEnergy}</span>
+                  </div>
+                  <div className="h-px bg-white/5 my-1" />
+                  <div className="flex justify-between items-center">
+                    <span className="text-[11px] text-gray-500">소모 우선순위</span>
+                    <span className="text-[10px] text-white/40">자연 → 충전</span>
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-1.5 text-[11px]">
                 <div className="flex justify-between">
                   <span className="text-gray-500">자유 모드</span>
@@ -488,46 +554,45 @@ const DialogueBox = ({
                 : 'bg-black/50 border-white/10 backdrop-blur-xl hover:bg-black/60'
           }`}
         >
-          {/* ═══ [Phase 5.5-NPC] 화자 이름표 ═══ */}
+          {/* ═══ [Fix #5] 네임 플레이트 + 뱃지 영역 — 한 줄로 통합 ═══ */}
           {!isEventScene && (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={displaySpeakerName}
-                initial={{ opacity: 0, y: -4, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 4, scale: 0.95 }}
-                transition={{ duration: 0.3 }}
-                className={`absolute -top-5 left-8 font-bold px-8 py-2 rounded-2xl shadow-lg border transform -rotate-1 z-20 ${
-                  isNpcSpeaking
-                    ? 'bg-gradient-to-r from-red-800 to-rose-900 text-red-200 border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2)]'
-                    : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white border-white/20'
-                }`}
-              >
-                {isNpcSpeaking && <span className="mr-1.5 text-sm">👤</span>}
-                {displaySpeakerName}
-              </motion.div>
-            </AnimatePresence>
-          )}
+            <div className="absolute -top-5 left-8 right-8 flex items-center gap-2 z-20">
+              {/* 화자 이름표 */}
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={displaySpeakerName}
+                  initial={{ opacity: 0, y: -4, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 4, scale: 0.95 }}
+                  transition={{ duration: 0.3 }}
+                  className={`font-bold px-8 py-2 rounded-2xl shadow-lg border transform -rotate-1 shrink-0 ${
+                    isNpcSpeaking
+                      ? 'bg-gradient-to-r from-red-800 to-rose-900 text-red-200 border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2)]'
+                      : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white border-white/20'
+                  }`}
+                >
+                  {isNpcSpeaking && <span className="mr-1.5 text-sm">👤</span>}
+                  {displaySpeakerName}
+                </motion.div>
+              </AnimatePresence>
 
-          {/* [Phase 5.5-EV] 디렉터 모드 진행 중 뱃지 */}
-          {isDirectorOngoing && !isEventScene && (
-            <div className="absolute -top-5 right-8 z-20">
-              <motion.div
-                initial={{ scale: 0 }} animate={{ scale: 1 }}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-2xl bg-gradient-to-r from-amber-600 to-orange-600 border border-amber-400/30 shadow-lg"
-              >
-                <motion.span animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1.5, repeat: Infinity }}>
-                  🎬
-                </motion.span>
-                <span className="text-xs font-bold text-white">이벤트 진행 중</span>
-              </motion.div>
-            </div>
-          )}
+              {/* [Fix #5] 속마음 토글 — 네임 플레이트 바로 옆 */}
+              {showThoughtTabs && (
+                <ThoughtToggleTabs activeTab={activeTab} onTabChange={setActiveTab} />
+              )}
 
-          {/* ━━━ [Phase 5.5-IT] 속마음 토글 탭 ━━━ */}
-          {showThoughtTabs && !isEventScene && (
-            <div className="absolute -top-5 right-8 z-20">
-              <ThoughtToggleTabs activeTab={activeTab} onTabChange={setActiveTab} />
+              {/* [Fix #5] 이벤트 진행 중 뱃지 — 네임 플레이트 옆 (우측 끝) */}
+              {isDirectorOngoing && (
+                <motion.div
+                  initial={{ scale: 0 }} animate={{ scale: 1 }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-gradient-to-r from-amber-600 to-orange-600 border border-amber-400/30 shadow-lg ml-auto shrink-0"
+                >
+                  <motion.span animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1.5, repeat: Infinity }} className="text-sm">
+                    🎬
+                  </motion.span>
+                  <span className="text-[11px] font-bold text-white">이벤트 진행 중</span>
+                </motion.div>
+              )}
             </div>
           )}
 
@@ -549,7 +614,6 @@ const DialogueBox = ({
           {/* ━━━ 텍스트 출력 영역 ━━━ */}
           <AnimatePresence mode="wait">
             {activeTab === "dialogue" ? (
-              /* ── 대사 뷰 (원본 100% 동일) ── */
               <motion.div
                 key="dialogue-view"
                 initial={false}
@@ -584,7 +648,6 @@ const DialogueBox = ({
                 )}
               </motion.div>
             ) : (
-              /* ── 속마음 뷰 ── */
               <InnerThoughtView
                 key="thought-view"
                 text={innerThought}
@@ -604,40 +667,32 @@ const DialogueBox = ({
             </motion.div>
           )}
 
-          {/* [Phase 5.5-Fix] final_result 대기 중 인디케이터 — first_scene은 도착했지만 나머지 씬이 아직 없을 때 */}
+          {/* [Phase 5.5-Fix] final_result 대기 중 인디케이터 */}
           {activeTab === "dialogue" && !hasNextScene && !isEventScene && awaitingFinalResult && isTextFullyDisplayed && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               className="mt-4 flex items-center justify-center gap-2 py-3"
             >
-              <motion.div
-                className="w-1.5 h-1.5 rounded-full bg-white/30"
+              <motion.div className="w-1.5 h-1.5 rounded-full bg-white/30"
                 animate={{ scale: [1, 1.4, 1], opacity: [0.3, 0.7, 0.3] }}
-                transition={{ duration: 1.2, repeat: Infinity, delay: 0 }}
-              />
-              <motion.div
-                className="w-1.5 h-1.5 rounded-full bg-white/30"
+                transition={{ duration: 1.2, repeat: Infinity, delay: 0 }} />
+              <motion.div className="w-1.5 h-1.5 rounded-full bg-white/30"
                 animate={{ scale: [1, 1.4, 1], opacity: [0.3, 0.7, 0.3] }}
-                transition={{ duration: 1.2, repeat: Infinity, delay: 0.2 }}
-              />
-              <motion.div
-                className="w-1.5 h-1.5 rounded-full bg-white/30"
+                transition={{ duration: 1.2, repeat: Infinity, delay: 0.2 }} />
+              <motion.div className="w-1.5 h-1.5 rounded-full bg-white/30"
                 animate={{ scale: [1, 1.4, 1], opacity: [0.3, 0.7, 0.3] }}
-                transition={{ duration: 1.2, repeat: Infinity, delay: 0.4 }}
-              />
+                transition={{ duration: 1.2, repeat: Infinity, delay: 0.4 }} />
             </motion.div>
           )}
 
           {/* ═══ 입력 영역 ═══ */}
-          {/* [Phase 5.5-Fix] awaitingFinalResult: first_scene 도착 후 final_result 도착 전까지 입력창 숨김 */}
           {activeTab === "dialogue" && !hasNextScene && !isEventScene && !awaitingFinalResult && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 relative z-10">
  
               {/* ━━━ [Phase 5.5-EV] 디렉터 모드 진행 중: 지켜보기 + 난입 UI ━━━ */}
               {isDirectorOngoing ? (
                 <div className="flex flex-col gap-3">
-                  {/* 👀 계속 지켜보기 버튼 */}
                   <motion.button
                     onClick={onWatch}
                     disabled={isTyping || noEnergy || lowEnergy}
@@ -662,7 +717,6 @@ const DialogueBox = ({
                     </span>
                   </motion.button>
  
-                  {/* 난입용 채팅 입력 */}
                   <form onSubmit={handleSubmit} className="flex gap-3">
                     <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
                       placeholder="직접 개입하기... (채팅을 입력하세요)"
@@ -693,7 +747,6 @@ const DialogueBox = ({
                     >
                       <Dices size={20} />
                     </button>
-                    {/* 이벤트 트리거 툴팁 */}
                     <div className="absolute right-full bottom-0 mr-3 w-64 bg-black/95 border border-indigo-500/30 p-4 rounded-xl text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
                       <p className="font-bold text-indigo-300 mb-2 text-sm flex items-center gap-2">
                         <Sparkles size={16} /> 이벤트 트리거
@@ -728,7 +781,6 @@ const DialogueBox = ({
                         >
                           <Clock size={20} />
                         </button>
-                        {/* 시간 넘기기 툴팁 */}
                         <div className="absolute right-full bottom-0 mr-3 w-56 bg-black/95 border border-sky-500/30 p-4 rounded-xl text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
                           <p className="font-bold text-sky-300 mb-2 text-sm flex items-center gap-2">
                             <Clock size={16} /> 시간 넘기기

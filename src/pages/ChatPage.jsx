@@ -57,6 +57,9 @@ const ChatPage = () => {
   // [상태 정보]
   const [affection, setAffection] = useState(0);
   const [energy, setEnergy] = useState(user?.energy || 100);
+  // [Phase 5.5-Fix #1] 에너지 분리 추적
+  const [freeEnergy, setFreeEnergy] = useState(user?.energy || 100);
+  const [paidEnergy, setPaidEnergy] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
 
   // 인트로 시퀀스 상태 ('none' | 'door' | 'greeting')
@@ -480,6 +483,9 @@ const ChatPage = () => {
         // [Fix] Energy sync - force sync with actual server energy value
         if (userRes.data.energy !== undefined) {
             setEnergy(userRes.data.energy);
+            // [Phase 5.5-Fix #1] 분리 에너지 동기화
+            if (userRes.data.freeEnergy !== undefined) setFreeEnergy(userRes.data.freeEnergy);
+            if (userRes.data.paidEnergy !== undefined) setPaidEnergy(userRes.data.paidEnergy);
         }
 
         // [Phase 5.5-EV] 이벤트 상태 복원
@@ -1298,6 +1304,8 @@ const ChatPage = () => {
   
           api.get("/users/me").then(res => {
             if (res.data.energy !== undefined) setEnergy(res.data.energy);
+            if (res.data.freeEnergy !== undefined) setFreeEnergy(res.data.freeEnergy);
+            if (res.data.paidEnergy !== undefined) setPaidEnergy(res.data.paidEnergy);
           }).catch(() => {});
         },
   
@@ -1664,6 +1672,8 @@ const ChatPage = () => {
                 try {
                     const freshUser = await api.get("/users/me");
                     if (freshUser.data.energy !== undefined) setEnergy(freshUser.data.energy);
+                    if (freshUser.data.freeEnergy !== undefined) setFreeEnergy(freshUser.data.freeEnergy);
+                    if (freshUser.data.paidEnergy !== undefined) setPaidEnergy(freshUser.data.paidEnergy);
                 } catch (_) { /* ignore energy sync failure */ }
                 showToast("초기화되었습니다. 새로운 만남을 시작합니다.", "success");
                 closeConfirm();
@@ -1941,6 +1951,8 @@ const ChatPage = () => {
         onTimeSkip={handleTimeSkip}
         speaker={currentSpeaker}
         awaitingFinalResult={awaitingFinalResult}
+        freeEnergy={freeEnergy}
+        paidEnergy={paidEnergy}
       />
 
       {/* ================= Event Selection Modal (3-Branch) ================= */}
@@ -2916,8 +2928,8 @@ const ChatPage = () => {
         initialTab={storeInitialTab}
         userInfo={{
           ...userInfo,
-          freeEnergy: energy,
-          paidEnergy: 0,
+          freeEnergy: freeEnergy,
+          paidEnergy: paidEnergy,
           subscriptionTier: userInfo.subscriptionTier,
         }}
         characters={characters}
@@ -2932,6 +2944,9 @@ const ChatPage = () => {
           api.get("/users/me").then(res => {
             if (res.data.energy !== undefined)
               setEnergy(res.data.energy);
+            // [Phase 5.5-Fix #1] 분리 에너지 동기화
+            if (res.data.freeEnergy !== undefined) setFreeEnergy(res.data.freeEnergy);
+            if (res.data.paidEnergy !== undefined) setPaidEnergy(res.data.paidEnergy);
 
             setBoostMode(res.data.boostMode || false);
             setIsSubscriber(!!res.data.subscriptionTier);

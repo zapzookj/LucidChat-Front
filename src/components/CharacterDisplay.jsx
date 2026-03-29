@@ -9,11 +9,17 @@ import { useEffect, useRef, useMemo } from "react";
 //  2. NPC 크기: height 55% → 68%, SVG 140x280 → 180x360 (더 크게)
 //  3. NPC 지속 표시: isNpcActive가 false여도 hasNpc이면 표시 (딤 처리)
 //  4. 메인 캐릭터 위치: left 10% → 15% (NPC와 더 균형있는 배치)
+//
+//  [Phase 5.5-Fix] 감정 태그 3종 추가:
+//  - DUMBFOUNDED: 황당/어이없음 — 가벼운 뒤로 젖힘 + 흔들림
+//  - SULKING: 삐짐/뾰루퉁 — 고개 돌림 + 살짝 움츠림
+//  - PLEADING: 애원/간절 — 미세 떨림 + 앞으로 기울어짐
 // ═══════════════════════════════════════════════════════════════
 
 const EMOTION_LIST = [
   "NEUTRAL", "JOY", "SAD", "ANGRY", "SHY", "SURPRISE",
-  "PANIC", "RELAX", "DISGUST", "FRIGHTENED", "FLIRTATIOUS", "HEATED"
+  "PANIC", "RELAX", "DISGUST", "FRIGHTENED", "FLIRTATIOUS", "HEATED",
+  "DUMBFOUNDED", "SULKING", "PLEADING"
 ];
 
 function resolveCharacterImage(characterSlug, outfit, emotion) {
@@ -36,6 +42,38 @@ const EMOTION_ANIM = {
   FRIGHTENED: { punch: { x: [-3, 3, -2, 2, 0], y: [-4, 0], scale: [1, 0.97, 1], transition: { duration: 0.5 } }, idle: { x: [0, 1.5, -1.5, 0], y: [0, -1, 0] }, idleTx: { duration: 2, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(100, 100, 180, 0.18)", glowIntensity: 1.1, imgBrightness: 0.9 },
   FLIRTATIOUS: { punch: { rotate: [0, 3, 1], scale: [1, 1.03, 1], transition: { duration: 0.6 } }, idle: { rotate: [0, 1, 0, -1, 0], y: [0, -2, 0] }, idleTx: { duration: 4, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(255, 100, 200, 0.3)", glowIntensity: 1.5, imgBrightness: 1.12 },
   HEATED: { punch: { scale: [1, 1.05, 1.02], y: [0, -8, -3], transition: { duration: 0.5 } }, idle: { scale: [1, 1.02, 1], y: [0, -3, 0] }, idleTx: { duration: 3, repeat: Infinity, ease: "easeInOut" }, glow: "rgba(255, 50, 100, 0.35)", glowIntensity: 1.6, imgBrightness: 1.15 },
+
+  // ── [Phase 5.5-Fix] 새 감정 3종 ──
+
+  /** DUMBFOUNDED (황당/어이없음): 살짝 뒤로 젖혀지며 좌우 미세 흔들림 */
+  DUMBFOUNDED: {
+    punch: { y: [0, 8, 3], rotate: [0, -2, 1, 0], scale: [1, 0.97, 1], transition: { duration: 0.5 } },
+    idle: { rotate: [0, -0.8, 0, 0.8, 0], y: [0, 1, 0] },
+    idleTx: { duration: 3.5, repeat: Infinity, ease: "easeInOut" },
+    glow: "rgba(251, 191, 36, 0.18)",
+    glowIntensity: 1.1,
+    imgBrightness: 1.02,
+  },
+
+  /** SULKING (삐짐/뾰루퉁): 고개를 살짝 돌리며 움츠린 듯한 느낌 */
+  SULKING: {
+    punch: { x: [0, -6, -4], rotate: [0, -2.5, -1.5], scale: [1, 0.98, 0.99], transition: { duration: 0.6 } },
+    idle: { x: [0, -2, -1, -2, 0], rotate: [0, -1, -0.5, -1, 0], y: [0, 1.5, 0] },
+    idleTx: { duration: 5, repeat: Infinity, ease: "easeInOut" },
+    glow: "rgba(253, 164, 175, 0.2)",
+    glowIntensity: 1.0,
+    imgBrightness: 0.98,
+  },
+
+  /** PLEADING (애원/간절): 미세 떨림 + 앞으로 살짝 기울어짐 */
+  PLEADING: {
+    punch: { y: [0, -6, -2], scale: [1, 1.02, 1.01], transition: { duration: 0.5 } },
+    idle: { x: [0, 0.8, -0.8, 0.5, -0.5, 0], y: [0, -2, 0], rotate: [0, 0.3, -0.3, 0] },
+    idleTx: { duration: 2.5, repeat: Infinity, ease: "easeInOut" },
+    glow: "rgba(196, 181, 253, 0.25)",
+    glowIntensity: 1.3,
+    imgBrightness: 1.06,
+  },
 };
 
 const PARTICLE_PRESETS = {
@@ -46,6 +84,10 @@ const PARTICLE_PRESETS = {
   SAD: { emojis: ["💧", "🌧️"], count: 3, color: "#93c5fd", baseOpacity: 0.5 },
   ANGRY: { emojis: ["💢", "⚡"], count: 4, color: "#f87171", baseOpacity: 0.6 },
   SURPRISE: { emojis: ["❗", "⭐", "💫"], count: 5, color: "#fcd34d", baseOpacity: 0.6 },
+  // [Phase 5.5-Fix] 새 감정 3종 파티클
+  DUMBFOUNDED: { emojis: ["❓", "⁉️", "😦"], count: 4, color: "#fbbf24", baseOpacity: 0.55 },
+  SULKING: { emojis: ["💢", "💨", "😤"], count: 3, color: "#fda4af", baseOpacity: 0.5 },
+  PLEADING: { emojis: ["🥺", "💦", "✨"], count: 5, color: "#c4b5fd", baseOpacity: 0.6 },
 };
 
 function generateParticles(emotion) {
@@ -137,21 +179,11 @@ const NpcSilhouette = ({ name, isActive }) => (
         fill={isActive ? "rgba(18,8,28,0.95)" : "rgba(8,4,12,0.85)"} />
       <rect x="101" y="218" width="34" height="115" rx="5"
         fill={isActive ? "rgba(18,8,28,0.95)" : "rgba(8,4,12,0.85)"} />
-      {isActive && (
-        <>
-          <circle cx="78" cy="53" r="3.5" fill="rgba(255,100,100,0.8)">
-            <animate attributeName="opacity" values="0.3;1;0.3" dur="2s" repeatCount="indefinite" />
-          </circle>
-          <circle cx="102" cy="53" r="3.5" fill="rgba(255,100,100,0.8)">
-            <animate attributeName="opacity" values="0.3;1;0.3" dur="2s" repeatCount="indefinite" />
-          </circle>
-        </>
-      )}
+      <ellipse cx="52" cy="338" rx="22" ry="6"
+        fill={isActive ? "rgba(15,5,25,0.9)" : "rgba(5,2,10,0.7)"} />
+      <ellipse cx="128" cy="338" rx="22" ry="6"
+        fill={isActive ? "rgba(15,5,25,0.9)" : "rgba(5,2,10,0.7)"} />
     </svg>
-
-    <motion.div className="absolute -bottom-3 rounded-full"
-      style={{ width: 130, height: 14, background: "rgba(0,0,0,0.35)", filter: "blur(8px)" }}
-      animate={{ opacity: isActive ? 0.7 : 0.2, scale: isActive ? 1.1 : 0.8 }} />
   </motion.div>
 );
 
@@ -237,8 +269,7 @@ const CharacterDisplay = ({
             </motion.div>
           </motion.div>
 
-          {/* [Fix-UI-3] NPC 실루엣 — right 15% (기존 8%), height 68% (기존 55%) */}
-          {/* 항상 표시 (hasNpc이면), isNpcActive에 따라 밝기만 변경 */}
+          {/* [Fix-UI-3] NPC 실루엣 */}
           <motion.div
             className="absolute bottom-20 md:bottom-28 flex items-end justify-center"
             style={{ right: "15%", height: "68%" }}
