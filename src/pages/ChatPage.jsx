@@ -158,6 +158,9 @@ const ChatPage = () => {
   // ─── [Phase 5.5-Fix] SSE 응답 대기 플래그 ───
   const [awaitingFinalResult, setAwaitingFinalResult] = useState(false);
 
+  // [Phase 5.5-Sep] 모드별 기능 플래그 (roomInfo 로드 후 갱신)
+  const isStoryMode = roomInfo?.chatMode === "STORY";
+
   const logsEndRef = useRef(null);
 
   // ================= Helper Functions =================
@@ -936,18 +939,20 @@ const ChatPage = () => {
           setCharacterThought(newThought);
         }
 
-        // ── [Phase 5.5-EV] 이벤트 상태 업데이트 (통합) ──
-        if (newTopicConcluded !== undefined) setTopicConcluded(newTopicConcluded);
+        // ── [Phase 5.5-Sep] 이벤트/주제 종료: 스토리 모드 전용 ──
+        if (isStoryMode) {
+            if (newTopicConcluded !== undefined) setTopicConcluded(newTopicConcluded);
 
-        if (newEventStatus) {
-          setEventStatus(newEventStatus);
-          setEventActive(newEventStatus === "ONGOING");
-          if (newEventStatus === "RESOLVED") {
-            setTimeout(() => {
-              setEventStatus(null);
-              setEventActive(false);
-              clearNpcState();
-            }, 2000);
+            if (newEventStatus) {
+            setEventStatus(newEventStatus);
+            setEventActive(newEventStatus === "ONGOING");
+            if (newEventStatus === "RESOLVED") {
+              setTimeout(() => {
+                setEventStatus(null);
+                setEventActive(false);
+                clearNpcState();
+              }, 2000);
+            }
           }
         } else if (eventActive && !data.eventStatus) {
           // 유저 개입으로 서버가 이벤트를 종료한 경우
@@ -971,11 +976,16 @@ const ChatPage = () => {
           setSceneQueue(scenes);
         }
  
-        // ── [Phase 5.5-IT] 속마음 상태 업데이트 ──
-        setHasInnerThought(!!resHasThought);
-        setThoughtUnlocked(false);
-        setCurrentInnerThought(null);
-        setCurrentAssistantLogId(resLogId || null);
+        // ── [Phase 5.5-Sep] 속마음: 스토리 모드 전용 ──
+        if (isStoryMode) {
+          setHasInnerThought(!!resHasThought);
+          setThoughtUnlocked(false);
+          setCurrentInnerThought(null);
+          setCurrentAssistantLogId(resLogId || null);
+        } else {
+          setHasInnerThought(false);
+          setCurrentAssistantLogId(null);
+        }
  
         // ── [Phase 5.5-Fix] 히스토리 추가 (통합 — 이벤트/일반 구분 없음) ──
         const entries = buildHistoryEntries(scenes, resLogId, resHasThought);
@@ -993,8 +1003,8 @@ const ChatPage = () => {
           setEndingTrigger(endingTrig);
         }
  
-        // ── [Phase 4.4] 이스터에그 처리 ──
-        if (data.easterEgg) {
+        // ── [Phase 5.5-Sep] 이스터에그: 스토리 모드 전용 ──
+        if (isStoryMode && data.easterEgg) {
           const egg = data.easterEgg;
           setEasterEggEffect(egg.trigger);
  
@@ -1941,15 +1951,15 @@ const ChatPage = () => {
         bpm={currentBpm}
         onOpenStatusPanel={() => setShowStatusPanel(true)}
         statChanges={latestStatChanges}
-        // ── [Phase 5.5-IT] 속마음 props ──
-        innerThought={currentInnerThought}
-        hasInnerThought={hasInnerThought}
-        thoughtUnlocked={thoughtUnlocked}
-        topicConcluded={topicConcluded}
-        eventStatus={eventStatus}
-        onWatch={handleDirectorWatch}
-        onTimeSkip={handleTimeSkip}
-        speaker={currentSpeaker}
+        // ── [Phase 5.5-Sep] 스토리 전용 props 모드 가드 ──
+        innerThought={isStoryMode ? currentInnerThought : null}
+        hasInnerThought={isStoryMode ? hasInnerThought : false}
+        thoughtUnlocked={isStoryMode ? thoughtUnlocked : false}
+        topicConcluded={isStoryMode ? topicConcluded : false}
+        eventStatus={isStoryMode ? eventStatus : null}
+        onWatch={isStoryMode ? handleDirectorWatch : undefined}
+        onTimeSkip={isStoryMode ? handleTimeSkip : undefined}
+        speaker={isStoryMode ? currentSpeaker : null}
         awaitingFinalResult={awaitingFinalResult}
         freeEnergy={freeEnergy}
         paidEnergy={paidEnergy}
@@ -2433,13 +2443,25 @@ const ChatPage = () => {
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-xs text-gray-500 mb-1">Nickname</label>
-                                <input 
-                                    type="text" 
-                                    value={userInfo.nickname}
-                                    onChange={(e) => setUserInfo({...userInfo, nickname: e.target.value})}
-                                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white focus:border-indigo-500/50 outline-none transition"
-                                    placeholder="닉네임을 입력하세요"
-                                />
+                                <div className="relative">
+                                  <input 
+                                      type="text" 
+                                      value={userInfo.nickname}
+                                      maxLength={20}
+                                      onChange={(e) => {
+                                        if (e.target.value.length <= 20) setUserInfo({...userInfo, nickname: e.target.value});
+                                      }}
+                                      className={`w-full bg-white/5 border rounded-lg px-4 py-3 text-white outline-none transition
+                                        ${userInfo.nickname.length >= 20 ? 'border-rose-500/50 focus:border-rose-500/70' : 'border-white/10 focus:border-indigo-500/50'}`}
+                                      placeholder="닉네임을 입력하세요"
+                                  />
+                                  {userInfo.nickname.length > 0 && (
+                                    <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium
+                                      ${userInfo.nickname.length >= 20 ? 'text-rose-400' : 'text-white/20'}`}>
+                                      {userInfo.nickname.length}/20
+                                    </span>
+                                  )}
+                                </div>
                             </div>
                             
                             <div className="relative">
@@ -2450,21 +2472,34 @@ const ChatPage = () => {
                                       : <Lock size={12} className="text-gray-500"/>
                                     }
                                 </label>
-                                <textarea 
-                                    value={userInfo.profileDescription}
-                                    onChange={(e) => setUserInfo({...userInfo, profileDescription: e.target.value})}
-                                    disabled={!isSubscriber} 
-                                    className={`w-full h-32 bg-white/5 border rounded-lg px-4 py-3 text-white outline-none resize-none transition custom-scrollbar leading-relaxed
-                                        ${isSubscriber 
-                                            ? 'border-indigo-500/30 focus:border-indigo-500/60 bg-indigo-900/5' 
-                                            : 'border-white/10 opacity-50 cursor-not-allowed grayscale'
-                                        }`}
-                                    placeholder={
-                                        isSubscriber 
-                                        ? "캐릭터에게 보여질 나의 설정, 외모, 성격 등을 자유롭게 적어주세요.\n(예: 나는 키 188cm에 몸무게 88kg, 그리고 골격근량 48kg, 체지방 8%를 유지하고 있으며...)" 
-                                        : "🔒 루시드 패스를 구독하면 페르소나를 설정할 수 있습니다."
-                                    }
-                                />
+                                <div className="relative">
+                                  <textarea 
+                                      value={userInfo.profileDescription}
+                                      maxLength={500}
+                                      onChange={(e) => {
+                                        if (e.target.value.length <= 500) setUserInfo({...userInfo, profileDescription: e.target.value});
+                                      }}
+                                      disabled={!isSubscriber} 
+                                      className={`w-full h-32 bg-white/5 border rounded-lg px-4 py-3 pr-14 text-white outline-none resize-none transition custom-scrollbar leading-relaxed
+                                          ${!isSubscriber
+                                              ? 'border-white/10 opacity-50 cursor-not-allowed grayscale'
+                                              : userInfo.profileDescription.length >= 500
+                                                  ? 'border-rose-500/50 focus:border-rose-500/70 bg-indigo-900/5'
+                                                  : 'border-indigo-500/30 focus:border-indigo-500/60 bg-indigo-900/5'
+                                          }`}
+                                      placeholder={
+                                          isSubscriber 
+                                          ? "캐릭터에게 보여질 나의 설정, 외모, 성격 등을 자유롭게 적어주세요.\n(예: 나는 키 188cm에 몸무게 88kg, 그리고 골격근량 48kg, 체지방 8%를 유지하고 있으며...)" 
+                                          : "🔒 루시드 패스를 구독하면 페르소나를 설정할 수 있습니다."
+                                      }
+                                  />
+                                  {isSubscriber && userInfo.profileDescription.length > 0 && (
+                                    <span className={`absolute right-3 bottom-2 text-[10px] font-medium
+                                      ${userInfo.profileDescription.length >= 500 ? 'text-rose-400' : userInfo.profileDescription.length >= 400 ? 'text-amber-400/60' : 'text-white/20'}`}>
+                                      {userInfo.profileDescription.length}/500
+                                    </span>
+                                  )}
+                                </div>
                                 {!isSubscriber && (
                                   <button
                                     onClick={() => {

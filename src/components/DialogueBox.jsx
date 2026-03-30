@@ -264,9 +264,23 @@ const DialogueBox = ({
   // [Phase 5.5-EV] 디렉터 모드 진행 중 여부
   const isDirectorOngoing = eventStatus === "ONGOING";
 
+  // [Phase 5.5-Sep] 모드별 기능 플래그
+  const isStoryMode = chatMode === "STORY";
+
   // [Phase 5.5-NPC] 현재 화자가 NPC인지 판별
   const isNpcSpeaking = speaker && speaker !== characterName;
   const displaySpeakerName = speaker || characterName;
+
+  // [Phase 5.5-Guard] 메시지 최대 길이
+  const MAX_MESSAGE_LENGTH = 200;
+
+  // [Phase 5.5-Guard] 길이 제한이 적용된 입력 핸들러
+  const handleInputChange = (e) => {
+    const val = e.target.value;
+    if (val.length <= MAX_MESSAGE_LENGTH) {
+      setInput(val);
+    }
+  };
 
   // 새 씬이 오면 대사 탭으로 리셋
   useEffect(() => {
@@ -334,14 +348,12 @@ const DialogueBox = ({
   // BPM 게이지 퍼센트 (60~180 → 0~100%)
   const bpmPercent = Math.min(100, Math.max(0, ((bpm - 60) / 120) * 100));
 
-  // 속마음 토글 탭 표시 조건: 해금 완료 + 속마음 텍스트 존재
-  const showThoughtTabs = thoughtUnlocked && innerThought;
+  // [Phase 5.5-Sep] 속마음: 스토리 모드 전용
+  const showThoughtTabs = isStoryMode && thoughtUnlocked && innerThought;
 
-  // [Phase 5.5-EV] 이벤트 트리거 버튼 활성화 조건
-  const canTriggerEvent = topicConcluded && !isDirectorOngoing && energy >= 2;
- 
-  // [Phase 5.5-EV] 시간 넘기기 버튼 표시 조건
-  const canTimeSkip = topicConcluded && !isDirectorOngoing && energy >= 1;
+  // [Phase 5.5-Sep] 이벤트/시간넘기기: 스토리 모드 전용
+  const canTriggerEvent = isStoryMode && topicConcluded && !isDirectorOngoing && energy >= 2;
+  const canTimeSkip = isStoryMode && topicConcluded && !isDirectorOngoing && energy >= 1;
 
   // [Fix #1] 에너지 분리 계산
   const hasPaidEnergy = paidEnergy > 0;
@@ -691,7 +703,7 @@ const DialogueBox = ({
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 relative z-10">
  
               {/* ━━━ [Phase 5.5-EV] 디렉터 모드 진행 중: 지켜보기 + 난입 UI ━━━ */}
-              {isDirectorOngoing ? (
+              {isStoryMode && isDirectorOngoing ? (
                 <div className="flex flex-col gap-3">
                   <motion.button
                     onClick={onWatch}
@@ -718,12 +730,22 @@ const DialogueBox = ({
                   </motion.button>
  
                   <form onSubmit={handleSubmit} className="flex gap-3">
-                    <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
-                      placeholder="직접 개입하기... (채팅을 입력하세요)"
-                      disabled={isTyping || noEnergy || lowEnergy}
-                      className="flex-1 bg-white/5 border border-amber-500/20 rounded-xl px-5 py-3.5 text-white placeholder-amber-200/30
-                                 focus:bg-white/10 focus:border-amber-400/50 transition duration-300 shadow-inner"
-                    />
+                    <div className="flex-1 relative">
+                      <input type="text" value={input} onChange={handleInputChange}
+                        maxLength={MAX_MESSAGE_LENGTH}
+                        placeholder="직접 개입하기... (채팅을 입력하세요)"
+                        disabled={isTyping || noEnergy || lowEnergy}
+                        className={`w-full bg-white/5 border rounded-xl px-5 py-3.5 text-white placeholder-amber-200/30
+                                  focus:bg-white/10 transition duration-300 shadow-inner
+                                  ${input.length >= MAX_MESSAGE_LENGTH ? 'border-rose-500/60 focus:border-rose-500/80' : 'border-amber-500/20 focus:border-amber-400/50'}`}
+                      />
+                      {input.length > 0 && (
+                        <span className={`absolute right-3 bottom-1 text-[10px] font-medium transition-colors
+                          ${input.length >= MAX_MESSAGE_LENGTH ? 'text-rose-400' : input.length >= MAX_MESSAGE_LENGTH * 0.8 ? 'text-amber-400/60' : 'text-white/20'}`}>
+                          {input.length}/{MAX_MESSAGE_LENGTH}
+                        </span>
+                      )}
+                    </div>
                     <button type="submit" disabled={isTyping || !input.trim()}
                       className="bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500
                                  text-white p-3.5 rounded-xl transition shadow-lg disabled:opacity-50 disabled:grayscale transform active:scale-95"
@@ -797,11 +819,21 @@ const DialogueBox = ({
                     )}
                   </AnimatePresence>
  
-                  <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
-                    placeholder={noEnergy ? "에너지가 부족합니다" : lowEnergy ? `에너지가 부족합니다 (필요: ${energyCost})` : "대화를 입력하세요..."}
-                    disabled={isTyping || noEnergy || lowEnergy}
-                    className="flex-1 bg-white/5 border border-white/10 rounded-xl px-5 py-3.5 text-white placeholder-white/40 focus:bg-white/10 focus:border-pink-500/50 transition duration-300 shadow-inner"
-                  />
+                  <div className="flex-1 relative">
+                    <input type="text" value={input} onChange={handleInputChange}
+                      maxLength={MAX_MESSAGE_LENGTH}
+                      placeholder={noEnergy ? "에너지가 부족합니다" : lowEnergy ? `에너지가 부족합니다 (필요: ${energyCost})` : "대화를 입력하세요..."}
+                      disabled={isTyping || noEnergy || lowEnergy}
+                      className={`w-full bg-white/5 border rounded-xl px-5 py-3.5 text-white placeholder-white/40 focus:bg-white/10 transition duration-300 shadow-inner
+                        ${input.length >= MAX_MESSAGE_LENGTH ? 'border-rose-500/60 focus:border-rose-500/80' : 'border-white/10 focus:border-pink-500/50'}`}
+                    />
+                    {input.length > 0 && (
+                      <span className={`absolute right-3 bottom-1 text-[10px] font-medium transition-colors
+                        ${input.length >= MAX_MESSAGE_LENGTH ? 'text-rose-400' : input.length >= MAX_MESSAGE_LENGTH * 0.8 ? 'text-amber-400/60' : 'text-white/20'}`}>
+                        {input.length}/{MAX_MESSAGE_LENGTH}
+                      </span>
+                    )}
+                  </div>
  
                   {noEnergy || lowEnergy ? (
                     <motion.button type="button" onClick={() => onOpenStore?.("energy")}
