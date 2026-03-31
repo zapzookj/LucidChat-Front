@@ -43,7 +43,7 @@ const IllustrationModal = ({
     pollCountRef.current = 0;
 
     try {
-      const res = await api.post('/api/v1/illustrations/generate', { roomId });
+      const res = await api.post('/illustrations/generate', { roomId });
       const { requestId: reqId } = res.data;
       setRequestId(reqId);
       onEnergyUpdate?.(-10);

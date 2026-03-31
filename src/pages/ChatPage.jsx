@@ -171,6 +171,7 @@ const ChatPage = () => {
   // ─── [Phase 5.5-Illust] 장소 전환 시스템 ───
   const [locationTransition, setLocationTransition] = useState(null);
   // { active: true, locationName: "해변", backgroundUrl: "...", cacheHash: "...", isGenerating: true }
+  const [dynamicBackgroundUrl, setDynamicBackgroundUrl] = useState(null); // AI 생성 배경 S3 URL (enum 해상도 오버라이드)
 
   // ─── [Phase 5.5-Illust] 일러스트 갤러리 ───
   const [showIllustGallery, setShowIllustGallery] = useState(false);
@@ -518,6 +519,11 @@ const ChatPage = () => {
         setCurrentOutfit(roomRes.data.currentOutfit || roomRes.data.defaultOutfit || "MAID");
         if (roomRes.data.currentTimeOfDay) setCurrentTime(roomRes.data.currentTimeOfDay);
 
+        // [Phase 5.5-Fix] 동적 배경 복원 (AI 생성 배경이 있으면 정적 배경 대신 사용)
+        if (roomRes.data.currentDynamicBgUrl) {
+          setDynamicBackgroundUrl(roomRes.data.currentDynamicBgUrl);
+        }
+
         const logs = logsRes.data?.content || [];
 
         // [Phase 4 Fix] 히스토리 페이지네이션 초기화
@@ -665,6 +671,10 @@ const ChatPage = () => {
     if (currentScene.location) {
       const allowedLocs = roomInfo?.availableLocations || [];
       if (allowedLocs.length === 0 || allowedLocs.includes(currentScene.location)) {
+        // [Phase 5.5-Illust] enum 기반 장소가 실제로 변경되면 AI 생성 배경 오버라이드 해제
+        if (currentScene.location !== currentLocation) {
+          setDynamicBackgroundUrl(null);
+        }
         setCurrentLocation(currentScene.location);
       } else {
         console.warn(`🛡️ [Guard] Location "${currentScene.location}" not in allowed list for ${roomInfo?.characterSlug}, ignoring`);
@@ -1691,6 +1701,7 @@ const ChatPage = () => {
                 setCurrentTime("NIGHT");
                 setCurrentOutfit(roomInfo?.defaultOutfit || "MAID");
                 setCurrentBgmMode("DAILY");
+                setDynamicBackgroundUrl(null); // AI 생성 배경 클리어
                 // [Phase 4.2] 승급 이벤트 상태 초기화
                 setPromotionOverlay(null);
                 setPromotionProgress(null);
@@ -1794,7 +1805,12 @@ const ChatPage = () => {
     <div className="relative w-full h-screen font-sans overflow-hidden bg-gray-900">
       
       {/* [Phase 4] Dynamic Background */}
-      <BackgroundDisplay location={currentLocation} time={currentTime} characterSlug={roomInfo?.characterSlug} />
+      <BackgroundDisplay 
+        location={currentLocation} 
+        time={currentTime} 
+        characterSlug={roomInfo?.characterSlug}
+        dynamicBackgroundUrl={dynamicBackgroundUrl}
+      />
 
       {/* [Phase 4] Audio Engine (BGM + Ambience + SFX) */}
       <AudioEngine 
@@ -3086,7 +3102,37 @@ const ChatPage = () => {
         }}
       />
 
-      //   {/* ═══ [Phase 5.5-Illust] 장소 전환 연출 ═══ */}
+      {/* ═══ [Phase 5.5-Fix] 실시간 일러스트 생성 FAB ═══ */}
+      <AnimatePresence>
+        {illustrationAvailable && isStoryMode && !showIllustModal && !showEndingCredits && (
+          <motion.button
+            onClick={() => {
+              setShowIllustModal(true);
+              setIllustrationAvailable(false);
+            }}
+            className="fixed bottom-32 right-4 z-50 px-4 py-3 rounded-2xl
+                       bg-gradient-to-r from-violet-600/90 to-fuchsia-600/90
+                       shadow-lg shadow-violet-500/30 border border-violet-400/30
+                       backdrop-blur-sm flex items-center gap-2 text-white text-sm font-medium
+                       hover:from-violet-500/90 hover:to-fuchsia-500/90 transition-all"
+            initial={{ x: 100, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 100, opacity: 0 }}
+            transition={{ type: "spring", damping: 20, stiffness: 200 }}
+          >
+            <motion.div
+              animate={{ rotate: [0, 15, -15, 0] }}
+              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <Image size={16} />
+            </motion.div>
+            일러스트 생성
+            <Sparkles size={14} className="text-amber-300" />
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      {/* ═══ [Phase 5.5-Illust] 장소 전환 연출 ═══ */}
      <LocationTransition
         active={locationTransition?.active || false}
         locationName={locationTransition?.locationName}

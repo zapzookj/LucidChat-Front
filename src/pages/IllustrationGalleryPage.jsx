@@ -25,7 +25,7 @@ const IllustrationGalleryPage = ({ isOpen, onClose, characters = [] }) => {
     setLoading(true);
     try {
       const params = characterId ? { characterId } : {};
-      const res = await api.get('/api/v1/illustrations/gallery', { params });
+      const res = await api.get('/illustrations/gallery', { params });
       setIllustrations(res.data || []);
     } catch (err) {
       console.error('Gallery load failed:', err);

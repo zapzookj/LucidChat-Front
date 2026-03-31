@@ -47,17 +47,21 @@ function getTimeOverlay(time) {
   }
 }
 
-const BackgroundDisplay = ({ location, time, characterSlug }) => {
+/**
+ * [Phase 5.5-Illust] dynamicBackgroundUrl 지원
+ *   - AI 생성 배경(S3 URL)이 제공되면 enum 기반 해상도를 무시하고 직접 표시
+ *   - null이면 기존 enum 기반 정적 배경으로 폴백
+ */
+const BackgroundDisplay = ({ location, time, characterSlug, dynamicBackgroundUrl }) => {
   const defaultBg = getDefaultBg(characterSlug);
   const [currentBg, setCurrentBg] = useState(defaultBg);
   const [bgKey, setBgKey] = useState(0);
   const prevBgRef = useRef(defaultBg);
-  const dynamicBackgroundUrl = null;
 
   // [Phase 5] characterSlug 변경 시 기본 배경 갱신
   useEffect(() => {
     const newDefault = getDefaultBg(characterSlug);
-    if (!location && newDefault !== prevBgRef.current) {
+    if (!location && !dynamicBackgroundUrl && newDefault !== prevBgRef.current) {
       prevBgRef.current = newDefault;
       setCurrentBg(newDefault);
       setBgKey(prev => prev + 1);
@@ -65,8 +69,18 @@ const BackgroundDisplay = ({ location, time, characterSlug }) => {
   }, [characterSlug]);
 
   useEffect(() => {
+    // [Phase 5.5-Illust] AI 생성 배경이 있으면 최우선 적용
+    if (dynamicBackgroundUrl) {
+      if (dynamicBackgroundUrl !== prevBgRef.current) {
+        prevBgRef.current = dynamicBackgroundUrl;
+        setCurrentBg(dynamicBackgroundUrl);
+        setBgKey(prev => prev + 1);
+      }
+      return;
+    }
+
+    // enum 기반 정적 배경 해상도
     const newBg = resolveBackground(location, time, characterSlug);
-    if (dynamicBackgroundUrl) return dynamicBackgroundUrl;
     if (newBg && newBg !== prevBgRef.current) {
       prevBgRef.current = newBg;
       setCurrentBg(newBg);
