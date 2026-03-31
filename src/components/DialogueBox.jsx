@@ -251,6 +251,8 @@ const DialogueBox = ({
   // ── [Fix #1] 에너지 분리 ──
   freeEnergy = null,       // null이면 레거시 모드 (energy만 사용)
   paidEnergy = 0,
+  illustrationAvailable = false,
+  onGenerateIllustration,
 }) => {
   const [input, setInput] = useState("");
   const [displayedText, setDisplayedText] = useState("");
@@ -697,6 +699,32 @@ const DialogueBox = ({
                 transition={{ duration: 1.2, repeat: Infinity, delay: 0.4 }} />
             </motion.div>
           )}
+
+          {/* [Phase 5.5-Illust] 일러스트 생성 버튼 */}
+          <AnimatePresence>
+            {illustrationAvailable && !isTyping && isTextFullyDisplayed && (
+              <motion.button
+                initial={{ opacity: 0, y: 10, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -10, scale: 0.9 }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={onGenerateIllustration}
+                className="w-full py-3 px-4 rounded-xl text-sm font-medium
+                  bg-gradient-to-r from-purple-600/20 to-pink-600/20
+                  border border-purple-500/30 text-purple-200
+                  hover:from-purple-600/30 hover:to-pink-600/30
+                  transition-all flex items-center justify-center gap-2"
+                style={{
+                  boxShadow: '0 0 20px rgba(168,85,247,0.1)',
+                }}
+              >
+                <Sparkles size={16} className="text-purple-300" />
+                이 순간을 일러스트로 남기기
+                <span className="text-purple-400/50 text-xs ml-1">⚡10</span>
+              </motion.button>
+            )}
+          </AnimatePresence>
 
           {/* ═══ 입력 영역 ═══ */}
           {activeTab === "dialogue" && !hasNextScene && !isEventScene && !awaitingFinalResult && (

@@ -52,6 +52,7 @@ const BackgroundDisplay = ({ location, time, characterSlug }) => {
   const [currentBg, setCurrentBg] = useState(defaultBg);
   const [bgKey, setBgKey] = useState(0);
   const prevBgRef = useRef(defaultBg);
+  const dynamicBackgroundUrl = null;
 
   // [Phase 5] characterSlug 변경 시 기본 배경 갱신
   useEffect(() => {
@@ -65,12 +66,13 @@ const BackgroundDisplay = ({ location, time, characterSlug }) => {
 
   useEffect(() => {
     const newBg = resolveBackground(location, time, characterSlug);
+    if (dynamicBackgroundUrl) return dynamicBackgroundUrl;
     if (newBg && newBg !== prevBgRef.current) {
       prevBgRef.current = newBg;
       setCurrentBg(newBg);
       setBgKey(prev => prev + 1);
     }
-  }, [location, time, characterSlug]);
+  }, [dynamicBackgroundUrl, location, time, characterSlug]);
 
   const overlayClass = getTimeOverlay(time);
 

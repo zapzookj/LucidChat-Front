@@ -18,6 +18,9 @@ import AdultVerificationModal from "../components/AdultVerificationModal";
 import BoostToggle from "../components/BoostToggle";
 import BiometricStatusPanel from "../components/BiometricStatusPanel";
 import InnerThoughtBubble from "../components/InnerThoughtBubble";
+import IllustrationModal from "../components/IllustrationModal";
+import LocationTransition from "../components/LocationTransition";
+import IllustrationGalleryPage from "./IllustrationGalleryPage";
 import {
   sendMessageStream,
   sendEventSelectStream,
@@ -30,7 +33,7 @@ import {
   LogOut, User as UserIcon, Gamepad2, Save, Sparkles, Lock, Unlock,
   CheckCircle, AlertTriangle, Info, Zap, Play, SkipForward,
   Heart, Crown, MapPin, Shirt, Award, ChevronRight, ChevronLeft, Gem, Rocket, ShoppingBag,
-  ThumbsUp, ThumbsDown, MoreHorizontal
+  ThumbsUp, ThumbsDown, MoreHorizontal, Image
 } from "lucide-react";
 
 const ChatPage = () => {
@@ -160,6 +163,17 @@ const ChatPage = () => {
 
   // [Phase 5.5-Sep] 모드별 기능 플래그 (roomInfo 로드 후 갱신)
   const isStoryMode = roomInfo?.chatMode === "STORY";
+
+  //   // ─── [Phase 5.5-Illust] 실시간 일러스트 시스템 ───
+  const [showIllustModal, setShowIllustModal] = useState(false);
+  const [illustrationAvailable, setIllustrationAvailable] = useState(false);
+
+  // ─── [Phase 5.5-Illust] 장소 전환 시스템 ───
+  const [locationTransition, setLocationTransition] = useState(null);
+  // { active: true, locationName: "해변", backgroundUrl: "...", cacheHash: "...", isGenerating: true }
+
+  // ─── [Phase 5.5-Illust] 일러스트 갤러리 ───
+  const [showIllustGallery, setShowIllustGallery] = useState(false);
 
   const logsEndRef = useRef(null);
 
@@ -725,6 +739,16 @@ const ChatPage = () => {
     }
   };
 
+  const handleLocationTransitionComplete = useCallback((bgUrl) => {
+    setLocationTransition(null);
+    if (bgUrl) {
+      // 새 배경 URL을 BackgroundDisplay에 전달
+      // 기존 BackgroundDisplay가 S3 URL을 직접 사용하도록 확장
+      setDynamicBackgroundUrl(bgUrl);
+      // 일정 시간 후 리셋 (다음 정적 배경 전환 시까지 유지)
+    }
+  }, []);
+
   // [Phase 4.3] 엔딩 트리거 감지 후 씬 재생 완료 시 엔딩 생성
   // [Fix #6] endingTrigger 수신 즉시 BGM 전환 + 백그라운드 API 호출
   useEffect(() => {
@@ -937,6 +961,24 @@ const ChatPage = () => {
         if (newRelTag) setDynamicRelationTag(newRelTag);
         if (newThought !== undefined && newThought !== null) {
           setCharacterThought(newThought);
+        }
+        //   // ── [Phase 5.5-Illust] 일러스트 생성 트리거 ──
+        if (data.generateIllustration) {
+          setIllustrationAvailable(true);
+          // 일정 시간 후 자동 소멸 (유저가 놓칠 경우)
+          setTimeout(() => setIllustrationAvailable(false), 30000);
+        }
+
+        // ── [Phase 5.5-Illust] 장소 전환 처리 ──
+        if (data.locationTransition && data.locationTransition.isNewLocation) {
+          const lt = data.locationTransition;
+          setLocationTransition({
+            active: true,
+            locationName: lt.locationName,
+            backgroundUrl: lt.backgroundUrl || null,
+            cacheHash: lt.cacheHash,
+            isGenerating: lt.isGenerating,
+          });
         }
 
         // ── [Phase 5.5-Sep] 이벤트/주제 종료: 스토리 모드 전용 ──
@@ -2650,6 +2692,19 @@ const ChatPage = () => {
                         <ChevronRight size={16} className="text-white/20 group-hover:text-white/40 transition" />
                       </button>
                     </section>
+
+                    <button onClick={() => { setShowSettings(false); setShowIllustGallery(true); }}
+                      className="w-full flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">🎨</span>
+                        <div className="text-left">
+                          <p className="text-sm text-purple-200 font-bold">일러스트 갤러리</p>
+                          <p className="text-xs text-gray-500">생성된 일러스트를 모아봅니다.</p>
+                        </div>
+                      </div>
+                      <ChevronRight size={16} className="text-white/20 group-hover:text-white/40 transition" />
+                    </button>
                 </div>
 
                 <div className="p-6 border-t border-white/10 bg-white/5">
@@ -3029,6 +3084,33 @@ const ChatPage = () => {
             showToast("성인 인증이 완료되었습니다!", "success");
           });
         }}
+      />
+
+      //   {/* ═══ [Phase 5.5-Illust] 장소 전환 연출 ═══ */}
+     <LocationTransition
+        active={locationTransition?.active || false}
+        locationName={locationTransition?.locationName}
+        backgroundUrl={locationTransition?.backgroundUrl}
+        cacheHash={locationTransition?.cacheHash}
+        isGenerating={locationTransition?.isGenerating || false}
+        onTransitionComplete={handleLocationTransitionComplete}
+      />
+
+      {/* ═══ [Phase 5.5-Illust] 일러스트 생성 모달 ═══ */}
+      <IllustrationModal
+        isOpen={showIllustModal}
+        onClose={() => setShowIllustModal(false)}
+        roomId={roomId}
+        characterName={roomInfo?.characterName || "캐릭터"}
+        energy={energy}
+        onEnergyUpdate={(delta) => setEnergy(prev => prev + delta)}
+      />
+
+      {/* ═══ [Phase 5.5-Illust] 일러스트 갤러리 ═══ */}
+      <IllustrationGalleryPage
+        isOpen={showIllustGallery}
+        onClose={() => setShowIllustGallery(false)}
+        characters={characters}
       />
 
       {/* ━━━━━━━ [Phase 4.3] 엔딩 로딩 오버레이 ━━━━━━━ */}
