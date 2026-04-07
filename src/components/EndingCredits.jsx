@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Heart, Sparkles, MessageSquare, Calendar, Star, Clock } from "lucide-react";
+import { Heart, Sparkles, MessageSquare, Calendar, Star, Clock, Activity } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4] EndingCredits — 시네마틱 엔딩 크레딧
@@ -631,7 +631,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange, characterName = 
           </motion.div>
         )}
 
-        {/* ═══ Phase 6: Stats ═══ */}
+        {/* ═══ Phase 6: Stats — [Bug #2 Fix] Phase 5.5 입체적 스탯 반영 ═══ */}
         {phase === PHASES.STATS && endingData.stats && (
           <motion.div
             key="stats"
@@ -641,7 +641,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange, characterName = 
             exit={{ opacity: 0 }}
             transition={revealTransition(1)}
           >
-            <motion.div className="w-full max-w-xs space-y-5">
+            <motion.div className="w-full max-w-sm space-y-5">
               {/* 타이틀 */}
               <motion.h3
                 className={`text-center text-sm tracking-[0.15em] mb-6 ${subtitleColor}`}
@@ -652,12 +652,10 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange, characterName = 
                 PLAY RECORD
               </motion.h3>
 
-              {/* 스탯 아이템들 */}
+              {/* ── 기본 통계 ── */}
               {[
                 { icon: MessageSquare, label: "나눈 대화", value: `${endingData.stats.totalMessages}회` },
                 { icon: Calendar, label: "함께한 시간", value: `${endingData.stats.totalDays}일` },
-                { icon: Heart, label: "최종 호감도", value: `${endingData.stats.finalAffection}` },
-                { icon: Star, label: "최종 관계", value: endingData.stats.finalRelation },
                 { icon: Clock, label: "첫 만남", value: endingData.stats.firstMessageDate },
               ].map((stat, idx) => (
                 <motion.div
@@ -665,7 +663,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange, characterName = 
                   className="flex items-center gap-4"
                   initial={{ opacity: 0, x: -15 }}
                   animate={{ opacity: 1, x: 0 }}
-                  transition={revealTransition(0.6, 0.5 + idx * 0.4)}
+                  transition={revealTransition(0.6, 0.5 + idx * 0.3)}
                 >
                   <stat.icon className="w-4 h-4 flex-shrink-0" style={{ color: `${accentColor}99` }} />
                   <span className={`text-xs tracking-wider flex-1 ${subtitleColor}`}
@@ -678,6 +676,103 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange, characterName = 
                   </span>
                 </motion.div>
               ))}
+
+              {/* ── 동적 관계 & BPM ── */}
+              <motion.div
+                className="flex items-center justify-between pt-3 border-t"
+                style={{ borderColor: `${accentColor}15` }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={revealTransition(0.6, 1.6)}
+              >
+                <div className="flex items-center gap-2">
+                  <Star className="w-4 h-4" style={{ color: `${accentColor}99` }} />
+                  <span className={`text-xs ${subtitleColor}`} style={{ fontFamily: "'Noto Sans KR', sans-serif" }}>
+                    최종 관계
+                  </span>
+                </div>
+                <span className={`text-sm font-medium ${textColor}`}
+                      style={{ fontFamily: "'Noto Serif KR', serif" }}>
+                  {endingData.stats.dynamicRelationTag || endingData.stats.finalRelation}
+                </span>
+              </motion.div>
+
+              <motion.div
+                className="flex items-center justify-between"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={revealTransition(0.6, 1.9)}
+              >
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4" style={{ color: `${accentColor}99` }} />
+                  <span className={`text-xs ${subtitleColor}`} style={{ fontFamily: "'Noto Sans KR', sans-serif" }}>
+                    마지막 심박수
+                  </span>
+                </div>
+                <span className={`text-sm ${textColor}`}
+                      style={{ fontFamily: "'Noto Serif KR', serif" }}>
+                  {endingData.stats.finalBpm || 65} BPM
+                </span>
+              </motion.div>
+
+              {/* ── 5종 스탯 바 차트 ── */}
+              <motion.div
+                className="pt-4 space-y-2.5"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={revealTransition(0.8, 2.2)}
+              >
+                <p className={`text-[10px] tracking-[0.2em] uppercase mb-3 ${subtitleColor}`}>
+                  FINAL STATUS
+                </p>
+                {[
+                  { label: "친밀도", value: endingData.stats.intimacy, icon: "💬", color: "#60a5fa" },
+                  { label: "호감도", value: endingData.stats.affection, icon: "💕", color: "#f472b6" },
+                  { label: "의존도", value: endingData.stats.dependency, icon: "🫂", color: "#a78bfa" },
+                  { label: "장난기", value: endingData.stats.playfulness, icon: "😜", color: "#34d399" },
+                  { label: "신뢰도", value: endingData.stats.trust, icon: "🤝", color: "#fbbf24" },
+                  // 시크릿 스탯 (null이면 렌더링 제외)
+                  ...(endingData.stats.lust != null ? [
+                    { label: "음란도", value: endingData.stats.lust, icon: "🔥", color: "#ef4444" },
+                  ] : []),
+                  ...(endingData.stats.corruption != null ? [
+                    { label: "타락도", value: endingData.stats.corruption, icon: "🌑", color: "#8b5cf6" },
+                  ] : []),
+                  ...(endingData.stats.obsession != null ? [
+                    { label: "집착도", value: endingData.stats.obsession, icon: "⛓️", color: "#ec4899" },
+                  ] : []),
+                ].map((stat, idx) => {
+                  const pct = Math.min(100, Math.max(0, stat.value));
+                  return (
+                    <motion.div
+                      key={stat.label}
+                      className="flex items-center gap-2"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={revealTransition(0.5, 2.4 + idx * 0.15)}
+                    >
+                      <span className="text-xs w-4 text-center">{stat.icon}</span>
+                      <span className={`text-[11px] w-12 ${subtitleColor}`}
+                            style={{ fontFamily: "'Noto Sans KR', sans-serif" }}>
+                        {stat.label}
+                      </span>
+                      <div className="flex-1 h-1.5 rounded-full overflow-hidden"
+                           style={{ background: `${stat.color}15` }}>
+                        <motion.div
+                          className="h-full rounded-full"
+                          style={{ background: stat.color }}
+                          initial={{ width: 0 }}
+                          animate={{ width: `${pct}%` }}
+                          transition={{ duration: 1.2, delay: 2.6 + idx * 0.15, ease: "easeOut" }}
+                        />
+                      </div>
+                      <span className={`text-[11px] w-8 text-right ${textColor}`}>
+                        {stat.value}
+                      </span>
+                    </motion.div>
+                  );
+                })}
+              </motion.div>
             </motion.div>
           </motion.div>
         )}
