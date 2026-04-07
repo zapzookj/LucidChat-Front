@@ -688,6 +688,7 @@ const ChatPage = () => {
             cleanContent: content.join('\n'),
             speaker: scene.speaker || roomInfo?.characterName || "캐릭터",
             logId: (i === scenes.length - 1) ? log.logId : null,
+            parentLogId: log.logId,  // [Bug #1 Fix] 모든 씬에 원본 logId 공유 — 일괄 삭제용
             hasInnerThought: (i === scenes.length - 1) ? log.hasInnerThought : false,
             thoughtUnlocked: log.thoughtUnlocked || false,
             innerThought: log.innerThought || null,
@@ -2099,6 +2100,7 @@ const ChatPage = () => {
   }, [sceneQueue, currentScene]);
 
   // ━━━ [Phase 5.1] 단건 메시지 삭제 핸들러 ━━━
+  // [Bug #1 Fix] 씬 분리된 메시지의 전체 씬을 일괄 삭제 (parentLogId 기반)
   const handleDeleteLog = (logId, role) => {
     const label = role === 'USER' ? '내 메시지' : '캐릭터 응답';
     openConfirm(
@@ -2106,7 +2108,9 @@ const ChatPage = () => {
       async () => {
         try {
           await api.delete(`/chat/rooms/${roomId}/logs/${logId}`);
-          setMessages(prev => prev.filter(msg => msg.logId !== logId));
+          setMessages(prev => prev.filter(msg =>
+            msg.logId !== logId && msg.parentLogId !== logId
+          ));
           showToast("삭제되었습니다.", "success");
           closeConfirm();
         } catch (err) {
