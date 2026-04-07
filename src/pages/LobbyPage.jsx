@@ -417,6 +417,11 @@ const LobbyPage = () => {
   const [showStore, setShowStore] = useState(false);
   const [storeInitialTab, setStoreInitialTab] = useState("energy");
 
+  // [BETA] 베타 테스터 이스터에그 — 로고 5회 클릭
+  const betaClickRef = useRef(0);
+  const betaTimerRef = useRef(null);
+  const [betaToast, setBetaToast] = useState(null); // { message, type: 'success'|'info' }
+
   const bgmRef = useRef(null);
 
   const stars = useMemo(() => Array.from({ length: 60 }, () => ({ left: `${Math.random() * 100}%`, top: `${Math.random() * 60}%` })), []);
@@ -514,6 +519,33 @@ const LobbyPage = () => {
     navigate("/login");
   };
 
+  // [BETA] 로고 5회 클릭 → 베타 테스터 혜택 지급
+  const handleLogoClick = async () => {
+    betaClickRef.current += 1;
+
+    // 2초 내 연속 클릭만 카운트
+    clearTimeout(betaTimerRef.current);
+    betaTimerRef.current = setTimeout(() => { betaClickRef.current = 0; }, 2000);
+
+    if (betaClickRef.current < 5) return;
+    betaClickRef.current = 0;
+
+    try {
+      const res = await api.post("/users/beta-activate");
+      if (res.data.alreadyActivated) {
+        setBetaToast({ message: "✨ 이미 베타 테스터 혜택이 적용되어 있어요!", type: "info" });
+      } else {
+        setBetaToast({ message: "🎉 베타 테스터 혜택 적용 완료! 루시드 미드나잇 패스 + 에너지 300 지급", type: "success" });
+        fetchUserInfo(); // 에너지/구독 정보 갱신
+      }
+      setTimeout(() => setBetaToast(null), 5000);
+    } catch (e) {
+      console.error("[BETA] Activation failed:", e);
+      setBetaToast({ message: "혜택 적용에 실패했습니다.", type: "error" });
+      setTimeout(() => setBetaToast(null), 3000);
+    }
+  };
+
   const displayEnergy = userInfo?.energy ?? user?.energy ?? 0;
   const displayNickname = userInfo?.nickname ?? user?.nickname ?? "";
 
@@ -592,12 +624,13 @@ const LobbyPage = () => {
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.5 }}
           >
-            {/* [Fix #5] 서비스 로고 이미지 */}
-            <motion.div className="mb-10" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.6 }}>
+            {/* [Fix #5] 서비스 로고 이미지 — [BETA] 5회 클릭 이스터에그 */}
+            <motion.div className="mb-10 cursor-pointer" onClick={handleLogoClick} initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.6 }}>
               <img
                 src="/logo.png"
                 alt="Lucid Chat"
-                className="h-28 sm:h-40 md:h-48 drop-shadow-[0_0_40px_rgba(255,255,255,0.25)] object-contain"
+                className="h-28 sm:h-40 md:h-48 drop-shadow-[0_0_40px_rgba(255,255,255,0.25)] object-contain select-none"
+                draggable={false}
                 onError={(e) => { e.target.style.display = "none"; if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = "block"; }}
               />
               <p className="text-white/25 text-xs sm:text-sm tracking-[0.3em] uppercase text-center hidden">Lucid Station</p>
@@ -721,6 +754,27 @@ const LobbyPage = () => {
       }}
       />
       <AnimatePresence>{showSettings && <SettingsModal onClose={() => setShowSettings(false)} onLogout={handleLogout} bgmMuted={bgmMuted} onToggleBgm={() => setBgmMuted((m) => !m)} />}</AnimatePresence>
+
+      {/* [BETA] 베타 테스터 토스트 알림 */}
+      <AnimatePresence>
+        {betaToast && (
+          <motion.div
+            className={`fixed bottom-8 left-1/2 z-[9999] px-6 py-3.5 rounded-2xl backdrop-blur-xl border shadow-2xl text-sm font-medium
+              ${betaToast.type === "success"
+                ? "bg-emerald-900/80 border-emerald-400/30 text-emerald-200 shadow-emerald-500/20"
+                : betaToast.type === "info"
+                  ? "bg-violet-900/80 border-violet-400/30 text-violet-200 shadow-violet-500/20"
+                  : "bg-rose-900/80 border-rose-400/30 text-rose-200 shadow-rose-500/20"
+              }`}
+            initial={{ x: "-50%", y: 30, opacity: 0, scale: 0.9 }}
+            animate={{ x: "-50%", y: 0, opacity: 1, scale: 1 }}
+            exit={{ x: "-50%", y: 30, opacity: 0, scale: 0.9 }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+          >
+            {betaToast.message}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

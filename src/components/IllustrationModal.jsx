@@ -69,7 +69,7 @@ const IllustrationModal = ({
       }
 
       try {
-        const res = await api.get(`/api/v1/illustrations/status/${reqId}`);
+        const res = await api.get(`/illustrations/status/${reqId}`);
         const { status: s, imageUrl: url } = res.data;
 
         if (s === 'COMPLETED' && url) {

@@ -45,6 +45,131 @@ export async function sendTimeSkipStream(roomId, callbacks, abortController) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  5. [Phase 5.5-Director] 디렉터 Directive 확인 (Peek)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+/**
+ * 대기 중인 Directive를 확인한다 (소비하지 않음).
+ * 유저가 메시지를 보내려 할 때, 먼저 이 함수를 호출하여
+ * 디렉터 인터루드가 대기 중인지 확인.
+ *
+ * @returns {DirectorDirective|null} Directive가 있으면 JSON, 없으면 null
+ */
+export async function peekDirectorDirective(roomId) {
+  // const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
+  const token = localStorage.getItem('accessToken');
+ 
+  try {
+    const res = await fetch(`${BASE_URL}/story/rooms/${roomId}/director/peek`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+ 
+    if (res.status === 204) return null; // No directive
+    if (!res.ok) return null;
+ 
+    return await res.json();
+  } catch (err) {
+    console.warn('[Director] Peek failed:', err);
+    return null;
+  }
+}
+ 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  6. [Phase 5.5-Director] 디렉터 Directive 소비 + 적용
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+/**
+ * Directive를 소비하고 ChatRoom에 적용한다.
+ * 프론트에서 인터루드 나레이션을 유저에게 보여준 뒤 호출.
+ *
+ * @returns {DirectorDirective|null} 소비된 Directive 또는 null (이미 소비/만료)
+ */
+export async function consumeDirectorDirective(roomId) {
+  // const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
+  const token = localStorage.getItem('accessToken');
+ 
+  try {
+    const res = await fetch(`${BASE_URL}/story/rooms/${roomId}/director/consume`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+ 
+    if (res.status === 404) return null;
+    if (!res.ok) return null;
+ 
+    return await res.json();
+  } catch (err) {
+    console.warn('[Director] Consume failed:', err);
+    return null;
+  }
+}
+ 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  7. [Phase 5.5-Director] 유저 수동 디렉터 호출
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+/**
+ * 유저가 직접 디렉터에게 개입을 요청한다.
+ * 기존 "이벤트 트리거" 버튼의 대체.
+ *
+ * @returns {DirectorDirective} PASS일 수 있음 → 프론트에서 분기 처리 필요
+ */
+export async function requestDirectorIntervention(roomId) {
+  // const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
+  const token = localStorage.getItem('accessToken');
+ 
+  try {
+    const res = await fetch(`${BASE_URL}/story/rooms/${roomId}/director/request`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+ 
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `HTTP ${res.status}`);
+    }
+ 
+    return await res.json();
+  } catch (err) {
+    console.error('[Director] Request failed:', err);
+    throw err;
+  }
+}
+ 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  8. [Phase 5.5-Director] BRANCH 선택 → SSE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+export async function sendDirectorBranchStream(roomId, detail, energyCost, callbacks, abortController) {
+  // const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
+  const url = `${BASE_URL}/story/rooms/${roomId}/director/apply-branch`;
+  return _ssePost(url, { detail, energyCost }, callbacks, abortController);
+}
+ 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  9. [Phase 5.5-Director] TRANSITION 적용 → SSE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+export async function sendDirectorTransitionStream(roomId, callbacks, abortController) {
+  // const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
+  const url = `${BASE_URL}/story/rooms/${roomId}/director/apply-transition`;
+  return _ssePost(url, {}, callbacks, abortController);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  공통 SSE POST 호출
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

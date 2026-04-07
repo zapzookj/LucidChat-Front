@@ -253,6 +253,9 @@ const DialogueBox = ({
   paidEnergy = 0,
   illustrationAvailable = false,
   onGenerateIllustration,
+  // ── [Phase 5.5-Director] 디렉터 통합 ──
+  onRequestDirector,      // 유저 수동 디렉터 호출 핸들러
+  directorLoading = false, // 디렉터 요청 로딩 중
 }) => {
   const [input, setInput] = useState("");
   const [displayedText, setDisplayedText] = useState("");
@@ -354,8 +357,8 @@ const DialogueBox = ({
   const showThoughtTabs = isStoryMode && thoughtUnlocked && innerThought;
 
   // [Phase 5.5-Sep] 이벤트/시간넘기기: 스토리 모드 전용
-  const canTriggerEvent = isStoryMode && topicConcluded && !isDirectorOngoing && energy >= 2;
-  const canTimeSkip = isStoryMode && topicConcluded && !isDirectorOngoing && energy >= 1;
+  const canRequestDirector = isStoryMode && topicConcluded && !isDirectorOngoing
+                             && !awaitingFinalResult && !isTyping && energy >= 1;
 
   // [Fix #1] 에너지 분리 계산
   const hasPaidEnergy = paidEnergy > 0;
@@ -785,35 +788,10 @@ const DialogueBox = ({
               ) : (
                 /* ━━━ 일반 모드: 기존 입력 UI + 시간 넘기기 ━━━ */
                 <form onSubmit={handleSubmit} className="flex gap-3">
-                  {/* 이벤트 트리거 버튼 */}
-                  <div className="relative group">
-                    <button type="button" onClick={onTriggerEvent}
-                      disabled={isTyping || !canTriggerEvent}
-                      className={`h-full px-4 rounded-xl border transition flex items-center justify-center
-                        ${canTriggerEvent
-                          ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-300 hover:bg-indigo-600/40 hover:text-white'
-                          : 'bg-white/[0.02] border-white/5 text-white/15 cursor-not-allowed'
-                        }`}
-                    >
-                      <Dices size={20} />
-                    </button>
-                    <div className="absolute right-full bottom-0 mr-3 w-64 bg-black/95 border border-indigo-500/30 p-4 rounded-xl text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
-                      <p className="font-bold text-indigo-300 mb-2 text-sm flex items-center gap-2">
-                        <Sparkles size={16} /> 이벤트 트리거
-                      </p>
-                      {canTriggerEvent ? (
-                        <p className="leading-relaxed text-gray-400">랜덤 이벤트를 발생시킵니다.<br/>운명의 흐름이 바뀔 수도 있어요.</p>
-                      ) : (
-                        <p className="leading-relaxed text-amber-400/80">
-                          현재 대화가 마무리되면 활성화됩니다.
-                        </p>
-                      )}
-                    </div>
-                  </div>
- 
-                  {/* [Phase 5.5-EV] 시간 넘기기 버튼 */}
+                  {/* ── [Phase 5.5-Director] 디렉터 호출 버튼 (기존 이벤트 트리거 + 시간 넘기기 통합) ── */}
+
                   <AnimatePresence>
-                    {canTimeSkip && (
+                    {canRequestDirector && (
                       <motion.div
                         className="relative group"
                         initial={{ scale: 0, opacity: 0 }}
@@ -823,25 +801,35 @@ const DialogueBox = ({
                       >
                         <button
                           type="button"
-                          onClick={onTimeSkip}
-                          disabled={isTyping}
-                          className="h-full px-4 rounded-xl bg-sky-600/20 border border-sky-500/50 text-sky-300
-                                     hover:bg-sky-600/40 hover:text-white transition flex items-center justify-center
-                                     disabled:opacity-30 disabled:cursor-not-allowed"
+                          onClick={onRequestDirector}
+                          disabled={directorLoading}
+                          className={`h-full px-4 rounded-xl border transition flex items-center justify-center
+                            ${directorLoading
+                              ? 'bg-white/[0.02] border-white/5 text-white/15 cursor-wait'
+                              : 'bg-gradient-to-br from-amber-600/20 to-purple-600/20 border-amber-500/40 text-amber-300 hover:from-amber-600/40 hover:to-purple-600/40 hover:text-white'
+                            }`}
                         >
-                          <Clock size={20} />
+                          {directorLoading ? (
+                            <motion.div
+                              className="w-5 h-5 border-2 border-white/20 border-t-amber-400 rounded-full"
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                            />
+                          ) : (
+                            <Sparkles size={20} />
+                          )}
                         </button>
-                        <div className="absolute right-full bottom-0 mr-3 w-56 bg-black/95 border border-sky-500/30 p-4 rounded-xl text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
-                          <p className="font-bold text-sky-300 mb-2 text-sm flex items-center gap-2">
-                            <Clock size={16} /> 시간 넘기기
+ 
+                        {/* 툴팁 */}
+                        <div className="absolute right-full bottom-0 mr-3 w-56 bg-black/95 border border-amber-500/30 p-4 rounded-xl text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
+                          <p className="font-bold text-amber-300 mb-2 text-sm flex items-center gap-2">
+                            <Sparkles size={16} /> 다음 씬
                           </p>
                           <p className="leading-relaxed text-gray-400">
-                            시간을 흘려보내 새로운 상황으로<br/>전환합니다.
+                            감독에게 다음 씬을 요청합니다.<br/>
+                            이벤트, 장소 전환, 선택지 등<br/>
+                            다양한 연출이 펼쳐질 수 있어요.
                           </p>
-                          <div className="mt-3 flex items-center justify-between text-[11px]">
-                            <span className="text-gray-500">소모</span>
-                            <span className="text-yellow-300 font-bold">-1 에너지</span>
-                          </div>
                         </div>
                       </motion.div>
                     )}
