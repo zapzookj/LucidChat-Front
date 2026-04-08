@@ -273,7 +273,7 @@ const BiometricStatusPanel = ({
           className="fixed left-3 sm:left-5 z-[65] flex flex-col"
           style={{
             top: "72px",
-            bottom: "210px",
+            bottom: "72px",
             width: "min(310px, 40vw)",
             willChange: "transform, opacity",
             transform: "translateZ(0)",

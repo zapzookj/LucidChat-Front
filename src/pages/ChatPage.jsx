@@ -92,6 +92,7 @@ const ChatPage = () => {
       profileDescription: "", 
       isSecretMode: false 
   });
+  const [roomPersona, setRoomPersona] = useState("");  // [Bug #3 Fix] 채팅방 전용 페르소나
   const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   // [BGM Volume]
@@ -735,7 +736,7 @@ const ChatPage = () => {
   // 캐릭터별 독립 세계관 — 서버에서 받은 허용 복장/장소 기반 프리로딩
   const { preloadEndingAssets } = useResourcePreloader(
     roomInfo?.statusLevel,
-    userInfo.isSecretMode,
+    roomInfo?.secretModeActive,
     roomInfo?.characterSlug,
     roomInfo?.availableOutfits || [],
     roomInfo?.availableLocations || []
@@ -811,11 +812,11 @@ const ChatPage = () => {
   const handleUpdateProfile = async () => {
     setIsSavingProfile(true);
     try {
-      // [Phase 5 Fix] isSecretMode 제거 — 전용 엔드포인트로 분리됨
-      await api.patch("/users/update", {
-        nickname: userInfo.nickname,
-        profileDescription: userInfo.profileDescription
-      });
+      // [Bug #3 Fix] 닉네임은 유저 레벨, 페르소나는 방 레벨로 분리
+      await Promise.all([
+        api.patch("/users/update", { nickname: userInfo.nickname }),
+        api.patch(`/chat/rooms/${roomId}/persona`, { persona: roomPersona })
+      ]);
       showToast("프로필이 성공적으로 저장되었습니다.", "success");
     } catch (err) {
       console.error(err);
@@ -825,17 +826,14 @@ const ChatPage = () => {
     }
   };
 
-  const toggleSecretMode = async (characterId) => {
-      const nextValue = !userInfo.isSecretMode;
-      setUserInfo(prev => ({ ...prev, isSecretMode: nextValue }));
+  // [Bug #3 Fix] 시크릿 모드 토글 — 채팅방 단위
+  const toggleSecretMode = async () => {
+      const nextValue = !roomInfo?.secretModeActive;
+      setRoomInfo(prev => prev ? { ...prev, secretModeActive: nextValue } : prev);
       try {
-          // [Phase 5 Fix] 전용 엔드포인트 사용 — 캐릭터별 접근 권한 검증
-          await api.patch("/users/secret-mode", {
-              enabled: nextValue,
-              characterId: characterId || roomInfo?.characterId
-          });
+          await api.patch(`/chat/rooms/${roomId}/secret-mode`, { enabled: nextValue });
       } catch (err) {
-          setUserInfo(prev => ({ ...prev, isSecretMode: !nextValue }));
+          setRoomInfo(prev => prev ? { ...prev, secretModeActive: !nextValue } : prev);
           const errMsg = err.response?.data?.message || "설정 변경에 실패했습니다.";
           showToast(errMsg, "error");
       }
@@ -924,6 +922,8 @@ const ChatPage = () => {
         setCharacters(charsRes.data || []);
 
         setRoomInfo(roomRes.data);
+        // [Bug #3 Fix] 채팅방 전용 페르소나 초기화
+        setRoomPersona(roomRes.data.userPersona || userRes.data.profileDescription || "");
         // [Phase 5.5] 상태창 데이터 복원
         if (roomRes.data.stats) setCharacterStats(roomRes.data.stats);
         if (roomRes.data.bpm !== undefined) setCurrentBpm(roomRes.data.bpm);
@@ -1727,7 +1727,7 @@ const ChatPage = () => {
       return;
     }
 
-    if (option.type === 'SECRET' && !userInfo.isSecretMode) {
+    if (option.type === 'SECRET' && !roomInfo?.secretModeActive) {
       showToast("시크릿 모드 활성화가 필요합니다.", "info");
       return;
     }
@@ -2381,7 +2381,7 @@ const ChatPage = () => {
         characterThought={characterThought}
         characterName={roomInfo?.characterName || "캐릭터"}
         statusLevel={roomInfo?.statusLevel || "STRANGER"}
-        isSecretMode={userInfo.isSecretMode}
+        isSecretMode={roomInfo?.secretModeActive}
       />
 
       {/* ━━━ [Phase 5] Promotion IN_PROGRESS Banner ━━━ */}
@@ -2470,7 +2470,7 @@ const ChatPage = () => {
             title="설정"
         >
             <Settings size={20} />
-            {userInfo.isSecretMode && <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-black/50" />}
+            {roomInfo?.secretModeActive && <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-black/50" />}
         </button>
 
         <button 
@@ -2528,7 +2528,7 @@ const ChatPage = () => {
                     className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-3 gap-4"
                 >
                     {eventOptions.map((opt, idx) => {
-                        const isLocked = opt.type === 'SECRET' && !userInfo.isSecretMode;
+                        const isLocked = opt.type === 'SECRET' && !roomInfo?.secretModeActive;
                         const isNoEnergy = energy < opt.energyCost;
                         
                         return (
@@ -2600,7 +2600,7 @@ const ChatPage = () => {
           setDirectorDirective(null);
         }}
         characterName={roomInfo?.characterName}
-        isSecretMode={userInfo?.isSecretMode}
+        isSecretMode={roomInfo?.secretModeActive}
       />  
 
       {/* ━━━━━━━ [Phase 5] PROMOTION STARTED Overlay ━━━━━━━ */}
@@ -2987,10 +2987,10 @@ const ChatPage = () => {
                 className="fixed inset-y-0 right-0 w-full md:w-[420px] bg-black/95 backdrop-blur-2xl z-50 shadow-2xl border-l border-white/10 flex flex-col"
             >
                 {/* Header */}
-                <div className={`flex justify-between items-center p-6 border-b transition-colors duration-500 ${userInfo.isSecretMode ? 'border-red-900/50 bg-red-950/20' : 'border-white/10 bg-white/5'}`}>
-                    <h2 className={`text-xl font-bold flex items-center gap-2 ${userInfo.isSecretMode ? 'text-red-400' : 'text-white'}`}>
-                        {userInfo.isSecretMode ? <Unlock size={20}/> : <Settings size={20} className="text-indigo-400"/>}
-                        {userInfo.isSecretMode ? "Secret Settings" : "Settings"}
+                <div className={`flex justify-between items-center p-6 border-b transition-colors duration-500 ${roomInfo?.secretModeActive ? 'border-red-900/50 bg-red-950/20' : 'border-white/10 bg-white/5'}`}>
+                    <h2 className={`text-xl font-bold flex items-center gap-2 ${roomInfo?.secretModeActive ? 'text-red-400' : 'text-white'}`}>
+                        {roomInfo?.secretModeActive ? <Unlock size={20}/> : <Settings size={20} className="text-indigo-400"/>}
+                        {roomInfo?.secretModeActive ? "Secret Settings" : "Settings"}
                     </h2>
                     <button onClick={() => setShowSettings(false)} className="p-2 rounded-full hover:bg-white/10 transition">
                         <X size={24} className="text-white/70" />
@@ -3038,29 +3038,29 @@ const ChatPage = () => {
                                 </label>
                                 <div className="relative">
                                   <textarea 
-                                      value={userInfo.profileDescription}
+                                      value={roomPersona}
                                       maxLength={500}
                                       onChange={(e) => {
-                                        if (e.target.value.length <= 500) setUserInfo({...userInfo, profileDescription: e.target.value});
+                                        if (e.target.value.length <= 500) setRoomPersona(e.target.value);
                                       }}
                                       disabled={!isSubscriber} 
                                       className={`w-full h-32 bg-white/5 border rounded-lg px-4 py-3 pr-14 text-white outline-none resize-none transition custom-scrollbar leading-relaxed
                                           ${!isSubscriber
                                               ? 'border-white/10 opacity-50 cursor-not-allowed grayscale'
-                                              : userInfo.profileDescription.length >= 500
+                                              : roomPersona.length >= 500
                                                   ? 'border-rose-500/50 focus:border-rose-500/70 bg-indigo-900/5'
                                                   : 'border-indigo-500/30 focus:border-indigo-500/60 bg-indigo-900/5'
                                           }`}
                                       placeholder={
                                           isSubscriber 
-                                          ? "캐릭터에게 보여질 나의 설정, 외모, 성격 등을 자유롭게 적어주세요.\n(예: 나는 키 188cm에 몸무게 88kg, 그리고 골격근량 48kg, 체지방 8%를 유지하고 있으며...)" 
+                                          ? "이 캐릭터와의 대화에서 사용할 나의 설정을 적어주세요.\n(캐릭터마다 다른 페르소나를 설정할 수 있습니다.)" 
                                           : "🔒 루시드 패스를 구독하면 페르소나를 설정할 수 있습니다."
                                       }
                                   />
-                                  {isSubscriber && userInfo.profileDescription.length > 0 && (
+                                  {isSubscriber && roomPersona.length > 0 && (
                                     <span className={`absolute right-3 bottom-2 text-[10px] font-medium
-                                      ${userInfo.profileDescription.length >= 500 ? 'text-rose-400' : userInfo.profileDescription.length >= 400 ? 'text-amber-400/60' : 'text-white/20'}`}>
-                                      {userInfo.profileDescription.length}/500
+                                      ${roomPersona.length >= 500 ? 'text-rose-400' : roomPersona.length >= 400 ? 'text-amber-400/60' : 'text-white/20'}`}>
+                                      {roomPersona.length}/500
                                     </span>
                                   )}
                                 </div>
@@ -3115,9 +3115,9 @@ const ChatPage = () => {
                             {/* Secret Mode Toggle (Phase 5 Flow 연동) */}
                             <div className="flex items-center justify-between p-4 rounded-xl bg-white/5 border border-white/10 relative group">
                               <div className="flex flex-col">
-                                <span className={`text-sm font-bold flex items-center gap-2 ${userInfo.isSecretMode ? 'text-red-400' : 'text-gray-300'}`}>
+                                <span className={`text-sm font-bold flex items-center gap-2 ${roomInfo?.secretModeActive ? 'text-red-400' : 'text-gray-300'}`}>
                                   Secret Mode (NSFW)
-                                  {userInfo.isSecretMode && (
+                                  {roomInfo?.secretModeActive && (
                                     <span className="text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded border border-red-500/30">
                                       ON
                                     </span>
@@ -3130,17 +3130,17 @@ const ChatPage = () => {
 
                               <button
                                 onClick={() => {
-                                  if (userInfo.isSecretMode) {
+                                  if (roomInfo?.secretModeActive) {
                                     toggleSecretMode();
                                   } else {
                                     setShowSecretFlow(true);
                                   }
                                 }}
-                                className={`w-12 h-7 rounded-full transition-colors duration-300 relative ${userInfo.isSecretMode ? 'bg-red-600' : 'bg-gray-700'}`}
+                                className={`w-12 h-7 rounded-full transition-colors duration-300 relative ${roomInfo?.secretModeActive ? 'bg-red-600' : 'bg-gray-700'}`}
                               >
                                 <div
                                   className={`w-5 h-5 bg-white rounded-full shadow-md absolute top-1 left-1 transition-transform duration-300 ${
-                                    userInfo.isSecretMode ? 'translate-x-5' : 'translate-x-0'
+                                    roomInfo?.secretModeActive ? 'translate-x-5' : 'translate-x-0'
                                   }`}
                                 />
                               </button>
@@ -3580,7 +3580,7 @@ const ChatPage = () => {
         isOpen={showSecretFlow}
         onClose={() => setShowSecretFlow(false)}
         onGranted={() => {
-          toggleSecretMode(roomInfo?.characterId);
+          toggleSecretMode();  // [Bug #3 Fix] Room-level — characterId 불필요
           showToast("시크릿 모드가 활성화되었습니다!", "success");
         }}
         onOpenStore={(tab) => {
