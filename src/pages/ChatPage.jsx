@@ -55,6 +55,9 @@ const ChatPage = () => {
   const [sceneQueue, setSceneQueue] = useState([]);
   const [currentScene, setCurrentScene] = useState(null);
   const [displayedEmotion, setDisplayedEmotion] = useState("NEUTRAL");
+
+  // [Issue #1+#2 Fix] 씬 활성 상태 추적 (setTimeout 내에서 stale closure 방지)
+  const sceneActiveRef = useRef(false);
   
   // [Phase 4] 씬 디렉션 상태
   // [Phase 5] 초기값은 roomInfo 로드 후 캐릭터별 기본값으로 세팅
@@ -160,6 +163,7 @@ const ChatPage = () => {
   const [topicConcluded, setTopicConcluded] = useState(false);      // 주제 종료 플래그
   const [eventStatus, setEventStatus] = useState(null);              // "ONGOING" | "RESOLVED" | null
   const [eventActive, setEventActive] = useState(false);             // 디렉터 모드 진행 중
+  const [isObserverEvent, setIsObserverEvent] = useState(false);     // [Issue #3 Fix] 관찰자 모드 이벤트 여부
 
   // ─── [Phase 5.5-NPC] NPC 스피커 시스템 ───
   const [currentSpeaker, setCurrentSpeaker] = useState(null);    // 현재 씬의 화자 이름
@@ -282,9 +286,11 @@ const ChatPage = () => {
           // ── 관찰자 모드: 이벤트 시작 + 자동 지켜보기 ──
           setEventActive(true);
           setEventStatus("ONGOING");
+          setIsObserverEvent(true);  // [Issue #3 Fix] 관찰자 이벤트 마킹
           handleDirectorWatch(); // 기존 지켜보기 함수 재사용
         } else {
           // ── 자유 개입: 입력창 활성화 ──
+          setIsObserverEvent(false); // [Issue #3 Fix] 자유 개입은 관찰자 아님
           showToast("상황이 발생했습니다. 반응을 입력하세요.", "info");
         }
         return;
@@ -301,6 +307,7 @@ const ChatPage = () => {
         setIsTyping(true);
         setEventActive(true);
         setEventStatus("ONGOING");
+        setIsObserverEvent(false); // [Issue #3 Fix] BRANCH는 유저 참여형
  
         // 상황 나레이션을 현재 씬으로 표시
         if (consumed.branch?.situation) {
@@ -417,6 +424,7 @@ const ChatPage = () => {
               setEnergy(prev => prev + energyCost);
               setCurrentScene(null);
               setEventActive(false);
+              setIsObserverEvent(false); // [Issue #3 Fix]
               setEventStatus(null);
               showToast(error.message || "이벤트 처리 중 오류가 발생했습니다.", "error");
             },
@@ -427,6 +435,7 @@ const ChatPage = () => {
           setEnergy(prev => prev + energyCost);
           setCurrentScene(null);
           setEventActive(false);
+              setIsObserverEvent(false); // [Issue #3 Fix]
           setEventStatus(null);
           showToast("이벤트 처리 중 오류가 발생했습니다.", "error");
         }
@@ -590,35 +599,62 @@ const ChatPage = () => {
    * - 인터루드가 이미 표시 중이 아님
    * - 유저가 이미 다음 메시지를 타이핑하고 있지 않음
    */
+  /**
+   * [Issue #1+#2 Fix] 디렉터 자동 체크 — 리트라이 폴링 + 씬 읽기 대기
+   *
+   * Issue #1: 첫 씬을 읽는 동안 인터루드가 뜨는 문제
+   *   → sceneActiveRef로 씬 큐가 비어질 때까지 대기
+   *
+   * Issue #2: 디렉터 LLM 비동기 응답(3~8초)이 4초 타이머보다 느린 문제
+   *   → 단일 타이머 대신 최대 3회 리트라이 (6초 + 5초 + 5초 = 총 16초 커버)
+   */
   const scheduleDirectorAutoCheck = useCallback(() => {
-    // 이전 타이머 클리어
     if (directorAutoCheckTimer.current) {
       clearTimeout(directorAutoCheckTimer.current);
     }
- 
-    // 스토리 모드가 아니면 스킵
+
     if (!isStoryMode) return;
- 
-    directorAutoCheckTimer.current = setTimeout(async () => {
-      // 타이머 발동 시점에서 조건 재확인
-      // (4초 사이에 유저가 메시지를 보내거나 이벤트가 시작되었을 수 있음)
-      if (showDirectorInterlude) return;
-      if (eventActive) return;
-      if (awaitingFinalResult) return;
-      if (isTyping) return;
- 
+
+    const INITIAL_DELAY = 6000;  // 첫 체크: 6초 (씬 읽기 시간 확보)
+    const RETRY_DELAY = 5000;    // 리트라이: 5초 간격
+    const MAX_RETRIES = 2;       // 최대 리트라이 횟수 (총 3회 시도)
+
+    const attemptCheck = async (retryCount) => {
+      // 씬이 아직 표시 중이면 → 씬 완료 후 재시도
+      if (sceneActiveRef.current) {
+        if (retryCount < MAX_RETRIES) {
+          console.log("[Director] Scenes still active, deferring check...");
+          directorAutoCheckTimer.current = setTimeout(
+            () => attemptCheck(retryCount), RETRY_DELAY);
+        }
+        return;
+      }
+
+      // 이미 인터루드 표시 중이거나 다른 조건 위반
+      if (showDirectorInterlude || eventActive || awaitingFinalResult || isTyping) return;
+
       try {
         const directive = await peekDirectorDirective(roomId);
         if (directive && directive.decision !== "PASS") {
           console.log("[Director] Auto-check: Directive found →", directive.decision);
           setDirectorDirective(directive);
           setShowDirectorInterlude(true);
+          return; // 발견 → 리트라이 종료
         }
       } catch (err) {
         console.warn("[Director] Auto-check failed:", err);
       }
-    }, 4000); // 4초 딜레이 — 디렉터 LLM 응답 대기 + 유저 읽기 시간
- 
+
+      // Directive 미발견 → 리트라이 (디렉터 LLM이 아직 응답 중일 수 있음)
+      if (retryCount < MAX_RETRIES) {
+        directorAutoCheckTimer.current = setTimeout(
+          () => attemptCheck(retryCount + 1), RETRY_DELAY);
+      }
+    };
+
+    // 첫 체크 스케줄
+    directorAutoCheckTimer.current = setTimeout(() => attemptCheck(0), INITIAL_DELAY);
+
   }, [roomId, isStoryMode, showDirectorInterlude, eventActive, awaitingFinalResult, isTyping]);
 
   // ━━━ [Phase 5.5-Fix] 3-Layer 통합 헬퍼 함수 ━━━
@@ -703,6 +739,12 @@ const ChatPage = () => {
     }
     return [log];
   }, [roomInfo]);
+
+  // [Issue #1 Fix] sceneActiveRef — 씬 큐 활성 상태를 ref로 추적
+  // setTimeout 내에서 stale closure 없이 현재 씬 상태 확인 가능
+  useEffect(() => {
+    sceneActiveRef.current = sceneQueue.length > 0 || currentScene !== null;
+  }, [sceneQueue, currentScene]);
 
   // [Phase 4.4] 투명인간 이스터에그 — 10분 방치 감지
   useInvisibleMan({
@@ -1451,6 +1493,7 @@ const ChatPage = () => {
               setTimeout(() => {
                 setEventStatus(null);
                 setEventActive(false);
+              setIsObserverEvent(false); // [Issue #3 Fix]
                 clearNpcState();
               }, 2000);
             }
@@ -1459,6 +1502,7 @@ const ChatPage = () => {
           // 유저 개입으로 서버가 이벤트를 종료한 경우
           setEventStatus(null);
           setEventActive(false);
+              setIsObserverEvent(false); // [Issue #3 Fix]
           clearNpcState();
         }
 
@@ -1935,6 +1979,7 @@ const ChatPage = () => {
               setTimeout(() => {
                 setEventStatus(null);
                 setEventActive(false);
+              setIsObserverEvent(false); // [Issue #3 Fix]
                 clearNpcState();
               }, 2000);
             }
@@ -2039,6 +2084,7 @@ const ChatPage = () => {
           setTopicConcluded(false);
           setEventStatus(null);
           setEventActive(false);
+              setIsObserverEvent(false); // [Issue #3 Fix]
           clearNpcState();
   
           if (scenes && scenes.length > 1) {
@@ -2221,6 +2267,7 @@ const ChatPage = () => {
                 setHasMoreHistory(false);
                 setEventStatus(null);
                 setEventActive(false);
+              setIsObserverEvent(false); // [Issue #3 Fix]
                 setNpcSpeaker(null);
                 setCurrentSpeaker(null);
                 // [Fix] Energy re-sync - restore from server after clear
@@ -2507,6 +2554,7 @@ const ChatPage = () => {
         thoughtUnlocked={isStoryMode ? thoughtUnlocked : false}
         topicConcluded={isStoryMode ? topicConcluded : false}
         eventStatus={isStoryMode ? eventStatus : null}
+        isObserverEvent={isStoryMode ? isObserverEvent : false}
         onWatch={isStoryMode ? handleDirectorWatch : undefined}
         onTimeSkip={isStoryMode ? handleTimeSkip : undefined}
         speaker={isStoryMode ? currentSpeaker : null}

@@ -242,6 +242,7 @@ const DialogueBox = ({
   // ── [Phase 5.5-EV] 이벤트 시스템 강화 ──
   topicConcluded = false,
   eventStatus = null,
+  isObserverEvent = false,  // [Issue #3 Fix] 관찰자 모드 이벤트 여부
   onWatch,
   // [Phase 5.5-NPC]
   speaker = null,
@@ -733,16 +734,20 @@ const DialogueBox = ({
           {activeTab === "dialogue" && !hasNextScene && !isEventScene && !awaitingFinalResult && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 relative z-10">
  
-              {/* ━━━ [Phase 5.5-EV] 디렉터 모드 진행 중: 지켜보기 + 난입 UI ━━━ */}
+              {/* ━━━ [Issue #3 Fix] 디렉터 모드 진행 중: 관찰자/참여자 분기 ━━━ */}
               {isStoryMode && isDirectorOngoing ? (
                 <div className="flex flex-col gap-3">
+                  {/* ── 진행 버튼: 관찰자 → "계속 지켜보기", 참여자 → "계속 진행하기" ── */}
                   <motion.button
                     onClick={onWatch}
                     disabled={isTyping || noEnergy || lowEnergy}
-                    className="w-full py-4 rounded-xl bg-gradient-to-r from-amber-600/30 to-orange-600/30 border border-amber-500/40
-                               hover:from-amber-600/50 hover:to-orange-600/50 hover:border-amber-400/60
-                               transition-all shadow-lg disabled:opacity-30 disabled:cursor-not-allowed
-                               flex items-center justify-center gap-3 group"
+                    className={`w-full py-4 rounded-xl border transition-all shadow-lg
+                               disabled:opacity-30 disabled:cursor-not-allowed
+                               flex items-center justify-center gap-3 group
+                               ${isObserverEvent
+                                 ? 'bg-gradient-to-r from-amber-600/30 to-orange-600/30 border-amber-500/40 hover:from-amber-600/50 hover:to-orange-600/50 hover:border-amber-400/60'
+                                 : 'bg-gradient-to-r from-blue-600/20 to-indigo-600/20 border-blue-500/30 hover:from-blue-600/40 hover:to-indigo-600/40 hover:border-blue-400/50'
+                               }`}
                     whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
                   >
                     <motion.span
@@ -750,40 +755,44 @@ const DialogueBox = ({
                       transition={{ duration: 2, repeat: Infinity }}
                       className="text-xl"
                     >
-                      👀
+                      {isObserverEvent ? "👀" : "▶️"}
                     </motion.span>
-                    <span className="text-amber-200 font-bold text-sm group-hover:text-white transition">
-                      계속 지켜보기
+                    <span className={`font-bold text-sm group-hover:text-white transition
+                      ${isObserverEvent ? 'text-amber-200' : 'text-blue-200'}`}>
+                      {isObserverEvent ? "계속 지켜보기" : "계속 진행하기"}
                     </span>
-                    <span className="text-amber-400/50 text-xs">
+                    <span className={`text-xs ${isObserverEvent ? 'text-amber-400/50' : 'text-blue-400/50'}`}>
                       -{energyCost} ⚡
                     </span>
                   </motion.button>
  
-                  <form onSubmit={handleSubmit} className="flex gap-3">
-                    <div className="flex-1 relative">
-                      <input type="text" value={input} onChange={handleInputChange}
-                        maxLength={MAX_MESSAGE_LENGTH}
-                        placeholder="직접 개입하기... (채팅을 입력하세요)"
-                        disabled={isTyping || noEnergy || lowEnergy}
-                        className={`w-full bg-white/5 border rounded-xl px-5 py-3.5 text-white placeholder-amber-200/30
-                                  focus:bg-white/10 transition duration-300 shadow-inner
-                                  ${input.length >= MAX_MESSAGE_LENGTH ? 'border-rose-500/60 focus:border-rose-500/80' : 'border-amber-500/20 focus:border-amber-400/50'}`}
-                      />
-                      {input.length > 0 && (
-                        <span className={`absolute right-3 bottom-1 text-[10px] font-medium transition-colors
-                          ${input.length >= MAX_MESSAGE_LENGTH ? 'text-rose-400' : input.length >= MAX_MESSAGE_LENGTH * 0.8 ? 'text-amber-400/60' : 'text-white/20'}`}>
-                          {input.length}/{MAX_MESSAGE_LENGTH}
-                        </span>
-                      )}
-                    </div>
-                    <button type="submit" disabled={isTyping || !input.trim()}
-                      className="bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500
-                                 text-white p-3.5 rounded-xl transition shadow-lg disabled:opacity-50 disabled:grayscale transform active:scale-95"
-                    >
-                      <Send size={22} />
-                    </button>
-                  </form>
+                  {/* ── 난입 입력: 관찰자 모드에서만 표시 ── */}
+                  {isObserverEvent && (
+                    <form onSubmit={handleSubmit} className="flex gap-3">
+                      <div className="flex-1 relative">
+                        <input type="text" value={input} onChange={handleInputChange}
+                          maxLength={MAX_MESSAGE_LENGTH}
+                          placeholder="직접 개입하기... (채팅을 입력하세요)"
+                          disabled={isTyping || noEnergy || lowEnergy}
+                          className={`w-full bg-white/5 border rounded-xl px-5 py-3.5 text-white placeholder-amber-200/30
+                                    focus:bg-white/10 transition duration-300 shadow-inner
+                                    ${input.length >= MAX_MESSAGE_LENGTH ? 'border-rose-500/60 focus:border-rose-500/80' : 'border-amber-500/20 focus:border-amber-400/50'}`}
+                        />
+                        {input.length > 0 && (
+                          <span className={`absolute right-3 bottom-1 text-[10px] font-medium transition-colors
+                            ${input.length >= MAX_MESSAGE_LENGTH ? 'text-rose-400' : input.length >= MAX_MESSAGE_LENGTH * 0.8 ? 'text-amber-400/60' : 'text-white/20'}`}>
+                            {input.length}/{MAX_MESSAGE_LENGTH}
+                          </span>
+                        )}
+                      </div>
+                      <button type="submit" disabled={isTyping || !input.trim()}
+                        className="bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500
+                                   text-white p-3.5 rounded-xl transition shadow-lg disabled:opacity-50 disabled:grayscale transform active:scale-95"
+                      >
+                        <Send size={22} />
+                      </button>
+                    </form>
+                  )}
                 </div>
               ) : (
                 /* ━━━ 일반 모드: 기존 입력 UI + 시간 넘기기 ━━━ */
