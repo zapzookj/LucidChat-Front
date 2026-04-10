@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Heart, EyeOff, Brain, X, Info } from "lucide-react";
+import { Heart, EyeOff, Brain, X, Info, Lock } from "lucide-react";
 
 // ═══════════════════════════════════════════════════════════════════
 //  [Phase 5.5-Fix] Biometric Status Panel — 화려한 리뉴얼
@@ -230,10 +230,12 @@ const BiometricStatusPanel = ({
   characterName = "캐릭터",
   statusLevel = "STRANGER",
   isSecretMode = false,
+  chatMode = "STORY",  // [Feature #2] 스토리 전용 섹션 블러용
 }) => {
   const panelRef = useRef(null);
   const [hoveredStat, setHoveredStat] = useState(null);
   const theme = RELATION_THEME[statusLevel] || RELATION_THEME.STRANGER;
+  const isStoryMode = chatMode === "STORY";  // [Feature #2]
 
   const safeStats = {
     intimacy: stats?.intimacy ?? 0, affection: stats?.affection ?? 0,
@@ -359,20 +361,32 @@ const BiometricStatusPanel = ({
                 </div>
 
                 {/* ══════════ Section 2: 캐릭터의 마음 (동적 관계) ══════════ */}
-                <div className="px-5 py-3 border-b border-white/[0.04]">
-                  <SectionTitle sectionKey="relationship">Relationship</SectionTitle>
-                  <div className="mt-2">
-                    <motion.span
-                      key={dynamicRelationTag}
-                      initial={{ opacity: 0, y: 4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="text-base font-bold bg-clip-text text-transparent leading-tight"
-                      style={{ backgroundImage: `linear-gradient(135deg, ${theme.accent}, ${theme.accentAlt}, white)` }}
-                    >
-                      {dynamicRelationTag || "낯선 사람"}
-                    </motion.span>
-                    <p className="text-[10px] text-white/20 mt-0.5">{characterName}의 당신을 향한 마음</p>
+                {/* [Feature #2] 스토리 모드 전용 — 샌드박스에서는 블러 처리 */}
+                <div className="px-5 py-3 border-b border-white/[0.04] relative">
+                  <div className={!isStoryMode ? "pointer-events-none select-none filter blur-[6px] opacity-60" : ""}>
+                    <SectionTitle sectionKey="relationship">Relationship</SectionTitle>
+                    <div className="mt-2">
+                      <motion.span
+                        key={dynamicRelationTag}
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="text-base font-bold bg-clip-text text-transparent leading-tight"
+                        style={{ backgroundImage: `linear-gradient(135deg, ${theme.accent}, ${theme.accentAlt}, white)` }}
+                      >
+                        {dynamicRelationTag || "낯선 사람"}
+                      </motion.span>
+                      <p className="text-[10px] text-white/20 mt-0.5">{characterName}의 당신을 향한 마음</p>
+                    </div>
                   </div>
+
+                  {!isStoryMode && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/50 border border-white/10 backdrop-blur-sm">
+                        <Lock size={12} className="text-indigo-400/80" />
+                        <span className="text-[11px] text-white/70 font-medium">스토리 모드에서만 제공</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* ══════════ Section 3: 레이더 차트 + 스탯 ══════════ */}
@@ -465,21 +479,33 @@ const BiometricStatusPanel = ({
                 </div>
 
                 {/* ══════════ Section 4: 캐릭터의 생각 ══════════ */}
-                <div className="px-5 py-3">
-                  <SectionTitle sectionKey="thought">Inner Thought</SectionTitle>
-                  {characterThought ? (
-                    <motion.p
-                      key={characterThought}
-                      initial={{ opacity: 0, y: 4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.5 }}
-                      className="text-sm text-white/40 leading-relaxed italic mt-2"
-                      style={{ fontFamily: "'Noto Serif KR', serif" }}
-                    >
-                      "{characterThought}"
-                    </motion.p>
-                  ) : (
-                    <p className="text-[11px] text-white/15 mt-2 italic">아직 뚜렷한 생각이 없는 것 같다...</p>
+                {/* [Feature #2] 스토리 모드 전용 — 샌드박스에서는 블러 처리 */}
+                <div className="px-5 py-3 relative">
+                  <div className={!isStoryMode ? "pointer-events-none select-none filter blur-[6px] opacity-60" : ""}>
+                    <SectionTitle sectionKey="thought">Inner Thought</SectionTitle>
+                    {characterThought ? (
+                      <motion.p
+                        key={characterThought}
+                        initial={{ opacity: 0, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5 }}
+                        className="text-sm text-white/40 leading-relaxed italic mt-2"
+                        style={{ fontFamily: "'Noto Serif KR', serif" }}
+                      >
+                        "{characterThought}"
+                      </motion.p>
+                    ) : (
+                      <p className="text-[11px] text-white/15 mt-2 italic">아직 뚜렷한 생각이 없는 것 같다...</p>
+                    )}
+                  </div>
+
+                  {!isStoryMode && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/50 border border-white/10 backdrop-blur-sm">
+                        <Lock size={12} className="text-amber-400/80" />
+                        <span className="text-[11px] text-white/70 font-medium">스토리 모드에서만 제공</span>
+                      </div>
+                    </div>
                   )}
                 </div>
 

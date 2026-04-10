@@ -2429,6 +2429,7 @@ const ChatPage = () => {
         characterName={roomInfo?.characterName || "캐릭터"}
         statusLevel={roomInfo?.statusLevel || "STRANGER"}
         isSecretMode={roomInfo?.secretModeActive}
+        chatMode={roomInfo?.chatMode}
       />
 
       {/* ━━━ [Phase 5] Promotion IN_PROGRESS Banner ━━━ */}
@@ -3391,13 +3392,37 @@ const ChatPage = () => {
                     <div className={`px-5 py-3 rounded-2xl max-w-[85%] text-sm leading-relaxed shadow-sm ${
                     isMe ? 'bg-pink-600 text-white rounded-tr-sm' : 'bg-[#2a2a35] text-gray-100 rounded-tl-sm border border-white/5'
                     }`}>
-                        {msg.cleanContent?.split('\n').map((line, li) => (
-                            <span key={li} className={line.startsWith('*')
-                                ? 'text-indigo-300/40 text-xs italic block mb-1'
-                                : 'block'}>
+                        {/* [Feature #1] 나레이션/대사 분리 렌더링 — *...* 패턴 파싱 */}
+                        {msg.cleanContent?.split('\n').map((line, li) => {
+                          // 라인 전체가 *...*로 감싸진 경우 → 순수 나레이션 (기존 동작 유지)
+                          if (line.trim().startsWith('*') && !line.includes(' ')) {
+                            return (
+                              <span key={li} className={`block mb-1 text-xs italic
+                                ${isMe ? 'text-pink-200/60' : 'text-indigo-300/40'}`}>
                                 {line.replace(/^\*|\*$/g, '')}
+                              </span>
+                            );
+                          }
+                          // 인라인 파싱 — *narration* text *more narration* 패턴 분리
+                          const segments = line.split(/(\*[^*]+\*)/g).filter(Boolean);
+                          if (segments.length === 0) return <span key={li} className="block">&nbsp;</span>;
+                          return (
+                            <span key={li} className="block">
+                              {segments.map((seg, si) => {
+                                const isNarration = seg.startsWith('*') && seg.endsWith('*') && seg.length > 2;
+                                if (isNarration) {
+                                  return (
+                                    <span key={si} className={`italic text-xs
+                                      ${isMe ? 'text-pink-200/60' : 'text-indigo-300/50'}`}>
+                                      {seg.slice(1, -1)}
+                                    </span>
+                                  );
+                                }
+                                return <span key={si}>{seg}</span>;
+                              })}
                             </span>
-                        ))}
+                          );
+                        })}
                     </div>
 
                        {/* [Phase 5.5-IT] 속마음 히스토리 표시 */}

@@ -845,15 +845,41 @@ const DialogueBox = ({
                   </AnimatePresence>
  
                   <div className="flex-1 relative">
+                    {/* [Feature #1] 유저 디렉터 모드 — *로 시작하면 상황 설명 입력 모드 */}
                     <input type="text" value={input} onChange={handleInputChange}
                       maxLength={MAX_MESSAGE_LENGTH}
-                      placeholder={noEnergy ? "에너지가 부족합니다" : lowEnergy ? `에너지가 부족합니다 (필요: ${energyCost})` : "대화를 입력하세요..."}
+                      placeholder={noEnergy ? "에너지가 부족합니다" : lowEnergy ? `에너지가 부족합니다 (필요: ${energyCost})` : "대화를 입력하세요... ( * 로 상황 설명 )"}
                       disabled={isTyping || noEnergy || lowEnergy}
-                      className={`w-full bg-white/5 border rounded-xl px-5 py-3.5 text-white placeholder-white/40 focus:bg-white/10 transition duration-300 shadow-inner
-                        ${input.length >= MAX_MESSAGE_LENGTH ? 'border-rose-500/60 focus:border-rose-500/80' : 'border-white/10 focus:border-pink-500/50'}`}
+                      style={input.trimStart().startsWith('*') ? {
+                        fontStyle: 'italic',
+                        color: 'rgba(196, 181, 253, 0.85)',  // 부드러운 퍼플
+                        letterSpacing: '0.02em',
+                      } : undefined}
+                      className={`w-full bg-white/5 border rounded-xl px-5 py-3.5 pr-10 text-white placeholder-white/40 focus:bg-white/10 transition duration-300 shadow-inner
+                        ${input.trimStart().startsWith('*') ? 'border-indigo-400/40 focus:border-indigo-400/70 bg-indigo-950/10' : ''}
+                        ${input.length >= MAX_MESSAGE_LENGTH ? 'border-rose-500/60 focus:border-rose-500/80' : !input.trimStart().startsWith('*') ? 'border-white/10 focus:border-pink-500/50' : ''}`}
                     />
+
+                    {/* [Feature #1] 상황 설명 도움말 툴팁 */}
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 group/help">
+                      <div className="w-5 h-5 rounded-full bg-white/10 border border-white/20 flex items-center justify-center cursor-help hover:bg-indigo-500/30 hover:border-indigo-400/50 transition">
+                        <span className="text-[11px] text-white/60 group-hover/help:text-white font-bold">?</span>
+                      </div>
+                      <div className="absolute right-0 bottom-full mb-2 w-64 bg-black/95 border border-indigo-500/30 p-3 rounded-xl text-[11px] text-gray-300 opacity-0 group-hover/help:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
+                        <p className="font-bold text-indigo-300 mb-1.5 flex items-center gap-1.5">
+                          <span>✨</span> 상황 설명 입력
+                        </p>
+                        <p className="leading-relaxed text-gray-400 mb-1.5">
+                          메시지 앞에 <span className="text-indigo-300 font-mono">*</span>를 붙이면 상황 설명이 됩니다.
+                        </p>
+                        <p className="text-gray-500 italic text-[10px]">
+                          예: <span className="text-indigo-300">*</span>창밖을 바라보며<span className="text-indigo-300">*</span> 오늘 날씨 좋네요
+                        </p>
+                      </div>
+                    </div>
+
                     {input.length > 0 && (
-                      <span className={`absolute right-3 bottom-1 text-[10px] font-medium transition-colors
+                      <span className={`absolute right-10 bottom-1 text-[10px] font-medium transition-colors
                         ${input.length >= MAX_MESSAGE_LENGTH ? 'text-rose-400' : input.length >= MAX_MESSAGE_LENGTH * 0.8 ? 'text-amber-400/60' : 'text-white/20'}`}>
                         {input.length}/{MAX_MESSAGE_LENGTH}
                       </span>
