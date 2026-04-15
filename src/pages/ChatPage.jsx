@@ -58,6 +58,12 @@ const ChatPage = () => {
 
   // [Issue #1+#2 Fix] 씬 활성 상태 추적 (setTimeout 내에서 stale closure 방지)
   const sceneActiveRef = useRef(false);
+
+  // [Bug Fix] scheduleDirectorAutoCheck의 stale closure 방지용 ref 미러
+  const eventActiveRef = useRef(false);
+  const awaitingFinalResultRef = useRef(false);
+  const isTypingRef = useRef(false);
+  const showDirectorInterludeRef = useRef(false);
   
   // [Phase 4] 씬 디렉션 상태
   // [Phase 5] 초기값은 roomInfo 로드 후 캐릭터별 기본값으로 세팅
@@ -607,20 +613,25 @@ const ChatPage = () => {
    *
    * Issue #2: 디렉터 LLM 비동기 응답(3~8초)이 4초 타이머보다 느린 문제
    *   → 단일 타이머 대신 최대 3회 리트라이 (6초 + 5초 + 5초 = 총 16초 커버)
+   *
+   * [Bug Fix] stale closure 완전 해소:
+   *   → 가드 조건을 모두 ref로 읽어서 setTimeout 콜백이 항상 최신 값 참조
+   *   → 의존성 배열에서 state 변수 제거 (roomId, isStoryMode만 유지)
    */
   const scheduleDirectorAutoCheck = useCallback(() => {
     if (directorAutoCheckTimer.current) {
       clearTimeout(directorAutoCheckTimer.current);
+      directorAutoCheckTimer.current = null;
     }
 
     if (!isStoryMode) return;
 
-    const INITIAL_DELAY = 6000;  // 첫 체크: 6초 (씬 읽기 시간 확보)
-    const RETRY_DELAY = 5000;    // 리트라이: 5초 간격
-    const MAX_RETRIES = 2;       // 최대 리트라이 횟수 (총 3회 시도)
+    const INITIAL_DELAY = 6000;
+    const RETRY_DELAY = 5000;
+    const MAX_RETRIES = 2;
 
     const attemptCheck = async (retryCount) => {
-      // 씬이 아직 표시 중이면 → 씬 완료 후 재시도
+      // [Bug Fix] ref에서 최신 값 읽기 — stale closure 방지
       if (sceneActiveRef.current) {
         if (retryCount < MAX_RETRIES) {
           console.log("[Director] Scenes still active, deferring check...");
@@ -630,8 +641,15 @@ const ChatPage = () => {
         return;
       }
 
-      // 이미 인터루드 표시 중이거나 다른 조건 위반
-      if (showDirectorInterlude || eventActive || awaitingFinalResult || isTyping) return;
+      if (showDirectorInterludeRef.current || eventActiveRef.current
+          || awaitingFinalResultRef.current || isTypingRef.current) {
+        // 조건 미충족이지만 일시적일 수 있음 → 리트라이
+        if (retryCount < MAX_RETRIES) {
+          directorAutoCheckTimer.current = setTimeout(
+            () => attemptCheck(retryCount + 1), RETRY_DELAY);
+        }
+        return;
+      }
 
       try {
         const directive = await peekDirectorDirective(roomId);
@@ -639,23 +657,21 @@ const ChatPage = () => {
           console.log("[Director] Auto-check: Directive found →", directive.decision);
           setDirectorDirective(directive);
           setShowDirectorInterlude(true);
-          return; // 발견 → 리트라이 종료
+          return;
         }
       } catch (err) {
         console.warn("[Director] Auto-check failed:", err);
       }
 
-      // Directive 미발견 → 리트라이 (디렉터 LLM이 아직 응답 중일 수 있음)
       if (retryCount < MAX_RETRIES) {
         directorAutoCheckTimer.current = setTimeout(
           () => attemptCheck(retryCount + 1), RETRY_DELAY);
       }
     };
 
-    // 첫 체크 스케줄
     directorAutoCheckTimer.current = setTimeout(() => attemptCheck(0), INITIAL_DELAY);
 
-  }, [roomId, isStoryMode, showDirectorInterlude, eventActive, awaitingFinalResult, isTyping]);
+  }, [roomId, isStoryMode]); // [Bug Fix] state 의존성 제거 → ref로 대체
 
   // ━━━ [Phase 5.5-Fix] 3-Layer 통합 헬퍼 함수 ━━━
 
@@ -745,6 +761,12 @@ const ChatPage = () => {
   useEffect(() => {
     sceneActiveRef.current = sceneQueue.length > 0 || currentScene !== null;
   }, [sceneQueue, currentScene]);
+
+  // [Bug Fix] 디렉터 가드 조건 ref 동기화 — stale closure 방지
+  useEffect(() => { eventActiveRef.current = eventActive; }, [eventActive]);
+  useEffect(() => { awaitingFinalResultRef.current = awaitingFinalResult; }, [awaitingFinalResult]);
+  useEffect(() => { isTypingRef.current = isTyping; }, [isTyping]);
+  useEffect(() => { showDirectorInterludeRef.current = showDirectorInterlude; }, [showDirectorInterlude]);
 
   // [Phase 4.4] 투명인간 이스터에그 — 10분 방치 감지
   useInvisibleMan({
