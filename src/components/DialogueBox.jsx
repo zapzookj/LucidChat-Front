@@ -244,7 +244,6 @@ const DialogueBox = ({
   eventStatus = null,
   isObserverEvent = false,  // [Issue #3 Fix] 관찰자 모드 이벤트 여부
   onWatch,
-  onContinueEvent,          // [Bug Fix] 비관찰자 이벤트 계속 진행 핸들러
   // [Phase 5.5-NPC]
   speaker = null,
   onTimeSkip,
@@ -263,13 +262,7 @@ const DialogueBox = ({
   const [displayedText, setDisplayedText] = useState("");
   const [isTextFullyDisplayed, setIsTextFullyDisplayed] = useState(false);
 
-  /**
-   * [Bug Fix] 액션 모드 감지 개선
-   *
-   * 이전: startsWith('*')만 체크 → *닫아도 이탤릭 유지, 중간 *는 미감지
-   * 개선: 입력 중인 액션(*...작성중)에만 이탤릭 적용
-   *       완성된 액션(*완성*) 또는 일반 텍스트는 일반 스타일
-   */
+  // [Bug Fix #5] 액션 모드 감지 개선
   const isActionMode = (() => {
     const trimmed = input.trimStart();
     if (!trimmed.startsWith('*')) return false;
@@ -615,18 +608,7 @@ const DialogueBox = ({
                 <ThoughtToggleTabs activeTab={activeTab} onTabChange={setActiveTab} />
               )}
 
-              {/* [Fix #5] 이벤트 진행 중 뱃지 — 네임 플레이트 옆 (우측 끝) */}
-              {isDirectorOngoing && (
-                <motion.div
-                  initial={{ scale: 0 }} animate={{ scale: 1 }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-gradient-to-r from-amber-600 to-orange-600 border border-amber-400/30 shadow-lg ml-auto shrink-0"
-                >
-                  <motion.span animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 1.5, repeat: Infinity }} className="text-sm">
-                    🎬
-                  </motion.span>
-                  <span className="text-[11px] font-bold text-white">이벤트 진행 중</span>
-                </motion.div>
-              )}
+              {/* [v3] "이벤트 진행 중" 뱃지 제거 — 투명 디렉터 패턴 */}
             </div>
           )}
 
@@ -750,92 +732,10 @@ const DialogueBox = ({
           {activeTab === "dialogue" && !hasNextScene && !isEventScene && !awaitingFinalResult && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 relative z-10">
  
-              {/* ━━━ [Bug Fix] 디렉터 모드 진행 중: 관찰자/비관찰자 완전 분리 ━━━ */}
-              {isStoryMode && isDirectorOngoing ? (
-                <div className="flex flex-col gap-3">
-                  {isObserverEvent ? (
-                    <>
-                      {/* ── 관찰자 이벤트: "계속 진행하기" + 난입 입력 ── */}
-                      <motion.button
-                        onClick={onWatch}
-                        disabled={isTyping || noEnergy || lowEnergy}
-                        className="w-full py-4 rounded-xl border transition-all shadow-lg
-                                   disabled:opacity-30 disabled:cursor-not-allowed
-                                   flex items-center justify-center gap-3 group
-                                   bg-gradient-to-r from-amber-600/30 to-orange-600/30 border-amber-500/40 hover:from-amber-600/50 hover:to-orange-600/50 hover:border-amber-400/60"
-                        whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
-                      >
-                        <motion.span
-                          animate={{ scale: [1, 1.15, 1] }}
-                          transition={{ duration: 2, repeat: Infinity }}
-                          className="text-xl"
-                        >👀</motion.span>
-                        <span className="font-bold text-sm group-hover:text-white transition text-amber-200">
-                          계속 진행하기
-                        </span>
-                        <span className="text-xs text-amber-400/50">
-                          -{energyCost} ⚡
-                        </span>
-                      </motion.button>
-
-                      {/* ── 난입 입력 ── */}
-                      <form onSubmit={handleSubmit} className="flex gap-3">
-                        <div className="flex-1 relative">
-                          <input type="text" value={input} onChange={handleInputChange}
-                            maxLength={MAX_MESSAGE_LENGTH}
-                            placeholder="직접 개입하기... (채팅을 입력하세요)"
-                            disabled={isTyping || noEnergy || lowEnergy}
-                            className={`w-full bg-white/5 border rounded-xl px-5 py-3.5 text-white placeholder-amber-200/30
-                                      focus:bg-white/10 transition duration-300 shadow-inner
-                                      ${input.length >= MAX_MESSAGE_LENGTH ? 'border-rose-500/60 focus:border-rose-500/80' : 'border-amber-500/20 focus:border-amber-400/50'}`}
-                          />
-                          {input.length > 0 && (
-                            <span className={`absolute right-3 bottom-1 text-[10px] font-medium transition-colors
-                              ${input.length >= MAX_MESSAGE_LENGTH ? 'text-rose-400' : input.length >= MAX_MESSAGE_LENGTH * 0.8 ? 'text-amber-400/60' : 'text-white/20'}`}>
-                              {input.length}/{MAX_MESSAGE_LENGTH}
-                            </span>
-                          )}
-                        </div>
-                        <button type="submit" disabled={isTyping || !input.trim()}
-                          className="bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500
-                                     text-white p-3.5 rounded-xl transition shadow-lg disabled:opacity-50 disabled:grayscale transform active:scale-95"
-                        >
-                          <Send size={22} />
-                        </button>
-                      </form>
-                    </>
-                  ) : (
-                    /* ── 비관찰자 이벤트 (1:1 상황): 일반 입력 폼만 표시 ── */
-                    <form onSubmit={handleSubmit} className="flex gap-3">
-                      <div className="flex-1 relative">
-                        <input type="text" value={input} onChange={handleInputChange}
-                          maxLength={MAX_MESSAGE_LENGTH}
-                          placeholder="이벤트에 반응하세요..."
-                          disabled={isTyping || noEnergy || lowEnergy}
-                          className={`w-full bg-white/5 border rounded-xl px-5 py-3.5 text-white placeholder-blue-200/30
-                                    focus:bg-white/10 transition duration-300 shadow-inner
-                                    ${input.length >= MAX_MESSAGE_LENGTH ? 'border-rose-500/60 focus:border-rose-500/80' : 'border-blue-500/20 focus:border-blue-400/50'}`}
-                        />
-                        {input.length > 0 && (
-                          <span className={`absolute right-3 bottom-1 text-[10px] font-medium transition-colors
-                            ${input.length >= MAX_MESSAGE_LENGTH ? 'text-rose-400' : input.length >= MAX_MESSAGE_LENGTH * 0.8 ? 'text-amber-400/60' : 'text-white/20'}`}>
-                            {input.length}/{MAX_MESSAGE_LENGTH}
-                          </span>
-                        )}
-                      </div>
-                      <button type="submit" disabled={isTyping || !input.trim()}
-                        className="bg-gradient-to-br from-blue-500 to-indigo-600 hover:from-blue-400 hover:to-indigo-500
-                                   text-white p-3.5 rounded-xl transition shadow-lg disabled:opacity-50 disabled:grayscale transform active:scale-95"
-                      >
-                        <Send size={22} />
-                      </button>
-                    </form>
-                  )}
-                </div>
-              ) : (
-                /* ━━━ 일반 모드: 기존 입력 UI + 시간 넘기기 ━━━ */
+              {/* [v3] 투명 디렉터: 이벤트 중에도 일반 입력 폼만 표시 */}
+              {/* AWAY 이벤트: 유저가 채팅을 입력하면 자연스럽게 개입 */}
                 <form onSubmit={handleSubmit} className="flex gap-3">
-                  {/* ── [Phase 5.5-Director] 디렉터 호출 버튼 (기존 이벤트 트리거 + 시간 넘기기 통합) ── */}
+                  {/* ── "다음 씬" 디렉터 호출 버튼 ── */}
 
                   <AnimatePresence>
                     {canRequestDirector && (
@@ -938,7 +838,6 @@ const DialogueBox = ({
                     </button>
                   )}
                 </form>
-              )}
             </motion.div>
           )}
         </motion.div>

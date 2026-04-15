@@ -170,6 +170,15 @@ export async function sendDirectorTransitionStream(roomId, callbacks, abortContr
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  10. [v3] 투명 디렉터 자동 응답 → SSE
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export async function sendAutoDirectorResponse(roomId, directiveType, callbacks, abortController) {
+  const url = `${BASE_URL}/story/rooms/${roomId}/director/auto-respond`;
+  return _ssePost(url, { directiveType }, callbacks, abortController);
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  공통 SSE POST 호출
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

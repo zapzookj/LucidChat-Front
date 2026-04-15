@@ -31,8 +31,9 @@ import {
   requestDirectorIntervention,
   sendDirectorBranchStream,
   sendDirectorTransitionStream,
+  sendAutoDirectorResponse,
 } from "../api/UseChatStream";
-import DirectorInterlude from "../components/DirectorInterlude";
+// DirectorInterlude 제거 — 투명 디렉터 패턴으로 대체
 import { useParams, useNavigate } from "react-router-dom";
 import { 
   X, MessageSquare, Trash2, Settings, Music, VolumeX, 
@@ -58,12 +59,6 @@ const ChatPage = () => {
 
   // [Issue #1+#2 Fix] 씬 활성 상태 추적 (setTimeout 내에서 stale closure 방지)
   const sceneActiveRef = useRef(false);
-
-  // [Bug Fix] scheduleDirectorAutoCheck의 stale closure 방지용 ref 미러
-  const eventActiveRef = useRef(false);
-  const awaitingFinalResultRef = useRef(false);
-  const isTypingRef = useRef(false);
-  const showDirectorInterludeRef = useRef(false);
   
   // [Phase 4] 씬 디렉션 상태
   // [Phase 5] 초기값은 roomInfo 로드 후 캐릭터별 기본값으로 세팅
@@ -193,12 +188,16 @@ const ChatPage = () => {
   // ─── [Phase 5.5-Illust] 일러스트 갤러리 ───
   const [showIllustGallery, setShowIllustGallery] = useState(false);
 
-  // ─── [Phase 5.5-Director] 디렉터 인터루드 시스템 ───
-  const [directorDirective, setDirectorDirective] = useState(null);       // 현재 표시 중인 Directive
-  const [showDirectorInterlude, setShowDirectorInterlude] = useState(false); // 인터루드 표시 여부
-  const [directorLoading, setDirectorLoading] = useState(false);          // 디렉터 요청 로딩 중
-  const directorCheckedRef = useRef(false);  // 현재 턴에서 이미 체크했는지 (중복 방지)
+  // ─── [v3] 투명 디렉터 시스템 ───
+  const [directorLoading, setDirectorLoading] = useState(false);          // 수동 디렉터 요청 로딩 중
+  const [directorAutoProcessing, setDirectorAutoProcessing] = useState(false); // 자동 응답 처리 중
   const directorAutoCheckTimer = useRef(null);
+
+  // [Bug Fix #3] scheduleDirectorAutoCheck의 stale closure 방지용 ref 미러
+  const eventActiveRef = useRef(false);
+  const awaitingFinalResultRef = useRef(false);
+  const isTypingRef = useRef(false);
+  const directorAutoProcessingRef = useRef(false);
 
   const logsEndRef = useRef(null);
 
@@ -224,399 +223,298 @@ const ChatPage = () => {
    *
    * @returns {boolean} true면 인터루드 발동됨 (메시지 전송 보류)
    */
+  /**
+   * [v3] 투명 디렉터 — 유저 메시지를 차단하지 않음
+   *
+   * 이전: peek → directive 발견 → 메시지 전송 차단 → DirectorInterlude 오버레이
+   * 현재: 자동 체크에서 투명하게 처리. 유저 메시지 전송 시에는 차단 없음.
+   *       directive가 남아있으면 자동 소비하고 유저 메시지와 함께 처리.
+   */
   const checkDirectorInterlude = useCallback(async () => {
-    // 스토리 모드가 아니면 스킵
-    if (!isStoryMode) return false;
- 
-    // 이벤트 진행 중이면 스킵 (이벤트 중에는 디렉터 인터루드 불필요)
-    if (eventActive) return false;
- 
-    // 이미 인터루드 표시 중이면 스킵
-    if (showDirectorInterlude) return false;
- 
-    // 응답 대기 중이면 스킵
-    if (awaitingFinalResult || isTyping) return false;
- 
-    try {
-      const directive = await peekDirectorDirective(roomId);
-      if (directive && directive.decision !== "PASS") {
-        setDirectorDirective(directive);
-        setShowDirectorInterlude(true);
-        return true; // 인터루드 발동 → 메시지 전송 보류
-      }
-    } catch (err) {
-      console.warn("[Director] Peek failed:", err);
-    }
- 
-    return false; // 인터루드 없음 → 정상 진행
-  }, [roomId, isStoryMode, eventActive, showDirectorInterlude, awaitingFinalResult, isTyping]);
+    // [v3] 투명 디렉터: 유저 메시지를 절대 차단하지 않음
+    // 비동기 자동 체크(scheduleDirectorAutoCheck)에서 투명하게 처리
+    return false;
+  }, []);
 
   /**
    * DirectorInterlude 컴포넌트에서 유저가 행동을 선택했을 때 호출.
    */
-  const handleDirectorInterludeComplete = useCallback(async (result) => {
-    const { action, directiveType, selectedOption, isObserverMode } = result;
- 
-    setShowDirectorInterlude(false);
-    setDirectorDirective(null);
- 
+  /**
+   * [v3] 투명 디렉터 자동 처리
+   *
+   * DirectorInterlude 오버레이 없이, directive를 유형별로 투명하게 처리.
+   * INTERLUDE/TRANSITION/AWAY: 나레이션 인라인 삽입 → 캐릭터 자동 응답 SSE
+   * BRANCH_CHOICE: 나레이션 삽입 → 3장 카드 팝업
+   * BRANCH_SCENARIO: 3장 시나리오 카드 팝업 (수동 호출 시)
+   */
+  const handleTransparentDirective = useCallback(async (directive) => {
+    if (!directive || directive.decision === "PASS") return;
+
+    setDirectorAutoProcessing(true);
+
     try {
       // ── Directive 소비 + ChatRoom 적용 ──
       const consumed = await consumeDirectorDirective(roomId);
       if (!consumed) {
-        showToast("디렉터 지시가 만료되었습니다.", "info");
+        console.warn("[Director] Directive already consumed/expired");
+        setDirectorAutoProcessing(false);
         return;
       }
- 
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      //  INTERLUDE 처리
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- 
-      if (directiveType === "INTERLUDE") {
-        // 나레이션을 히스토리에 추가
-        if (consumed.interlude?.narration) {
+
+      const decision = consumed.decision;
+
+      // ━━━ INTERLUDE: 나레이션 삽입 → 자동 응답 ━━━
+      if (decision === "INTERLUDE" && consumed.interlude) {
+        if (consumed.interlude.narration) {
           setMessages(prev => [...prev, {
-            role: "SYSTEM",
-            cleanContent: consumed.interlude.narration,
-            isEvent: true,
-            isDirectorNarration: true,
+            role: "SYSTEM", cleanContent: consumed.interlude.narration,
+            isEvent: true, isDirectorNarration: true,
           }]);
+          // 나레이션을 현재 씬으로도 잠시 표시 (타자기 효과)
+          setCurrentScene({
+            dialogue: "", narration: consumed.interlude.narration,
+            emotion: "NEUTRAL", isEvent: true,
+          });
         }
- 
-        // BGM 변경
-        if (consumed.interlude?.environment?.bgm) {
+        if (consumed.interlude.environment?.bgm) {
           setCurrentBgmMode(consumed.interlude.environment.bgm);
         }
- 
-        if (action === "observe" && isObserverMode) {
-          // ── 관찰자 모드: 이벤트 시작 + 자동 지켜보기 ──
-          setEventActive(true);
-          setEventStatus("ONGOING");
-          setIsObserverEvent(true);  // [Issue #3 Fix] 관찰자 이벤트 마킹
-          handleDirectorWatch(); // 기존 지켜보기 함수 재사용
-        } else {
-          // ── 자유 개입: 입력창 활성화 ──
-          setIsObserverEvent(false); // [Issue #3 Fix] 자유 개입은 관찰자 아님
-          showToast("상황이 발생했습니다. 반응을 입력하세요.", "info");
-        }
+
+        // 나레이션 표시 후 자동 캐릭터 응답 요청
+        setTimeout(() => triggerAutoDirectorResponse("INTERLUDE"), 1500);
         return;
       }
- 
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      //  BRANCH 처리 (기존 handleEventSelect 패턴)
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- 
-      if (directiveType === "BRANCH" && selectedOption) {
-        const detail = selectedOption.detail;
-        const energyCost = selectedOption.energy_cost;
- 
-        setIsTyping(true);
-        setEventActive(true);
-        setEventStatus("ONGOING");
-        setIsObserverEvent(false); // [Issue #3 Fix] BRANCH는 유저 참여형
- 
-        // 상황 나레이션을 현재 씬으로 표시
-        if (consumed.branch?.situation) {
-          setCurrentScene({
-            dialogue: "",
-            narration: consumed.branch.situation,
-            emotion: "NEUTRAL",
-            isEvent: true,
-          });
-        }
- 
-        // 낙관적 에너지 차감
-        setEnergy(prev => Math.max(0, prev - energyCost));
- 
-        let firstSceneData = null;
- 
-        try {
-          await sendDirectorBranchStream(roomId, detail, energyCost, {
- 
-            onEventMeta: (meta) => {
-              if (meta.eventStatus) {
-                setEventStatus(meta.eventStatus);
-                setEventActive(meta.eventStatus === "ONGOING");
-              }
-            },
- 
-            onFirstScene: (scene) => {
-              firstSceneData = {
-                speaker: scene.speaker || null,
-                narration: scene.narration,
-                dialogue: scene.dialogue,
-                emotion: scene.emotion || "NEUTRAL",
-                location: scene.location,
-                time: scene.time,
-                outfit: scene.outfit,
-                bgmMode: scene.bgmMode,
-              };
-              setIsTyping(false);
-            },
- 
-            onFinalResult: (data) => {
-              setIsTyping(false);
-              setAwaitingFinalResult(false);
- 
-              const {
-                scenes, currentAffection, stats: newStats, bpm: newBpm,
-                dynamicRelationTag: newRelTag, eventStatus: newEventStatus,
-                topicConcluded: newTopicConcluded,
-                hasInnerThought: resHasThought, assistantLogId: resLogId,
-              } = data;
- 
-              setAffection(currentAffection);
-              if (newStats) {
-                const changes = [];
-                Object.keys(newStats).forEach(key => {
-                  const oldVal = characterStats[key] || 0;
-                  const newVal = newStats[key];
-                  if (newVal !== null && newVal !== undefined && newVal !== oldVal) {
-                    changes.push({ key, value: newVal - oldVal });
-                  }
-                });
-                if (changes.length > 0) {
-                  setLatestStatChanges(changes);
-                  setTimeout(() => setLatestStatChanges(null), 3500);
-                }
-                setCharacterStats(newStats);
-              }
-              if (newBpm !== undefined) setCurrentBpm(newBpm);
-              if (newRelTag) setDynamicRelationTag(newRelTag);
-              if (newEventStatus) {
-                setEventStatus(newEventStatus);
-                setEventActive(newEventStatus === "ONGOING");
-              }
-              if (newTopicConcluded !== undefined) setTopicConcluded(newTopicConcluded);
- 
-              setHasInnerThought(!!resHasThought);
-              setThoughtUnlocked(false);
-              setCurrentInnerThought(null);
-              setCurrentAssistantLogId(resLogId || null);
- 
-              const fullScenes = scenes || [];
-              const queue = fullScenes.map(s => ({
-                speaker: s.speaker || null,
-                narration: s.narration,
-                dialogue: s.dialogue,
-                emotion: s.emotion || "NEUTRAL",
-                location: s.location,
-                time: s.time,
-                outfit: s.outfit,
-                bgmMode: s.bgmMode,
-              }));
-              setSceneQueue(queue);
- 
-              // 히스토리 추가
-              const historyEntries = [
-                { role: 'SYSTEM', cleanContent: consumed.branch?.situation || detail },
-                ...buildHistoryEntries(fullScenes, resLogId, resHasThought),
-              ];
-              setMessages(prev => [...prev, ...historyEntries]);
- 
-              detectNpc(fullScenes);
- 
-              api.get("/users/me").then(res => {
-                if (res.data.energy !== undefined) setEnergy(res.data.energy);
-                if (res.data.freeEnergy !== undefined) setFreeEnergy(res.data.freeEnergy);
-                if (res.data.paidEnergy !== undefined) setPaidEnergy(res.data.paidEnergy);
-              }).catch(() => {});
-            },
- 
-            onError: (error) => {
-              console.error("[Director-Branch] SSE error:", error);
-              setIsTyping(false);
-              setAwaitingFinalResult(false);
-              setEnergy(prev => prev + energyCost);
-              setCurrentScene(null);
-              setEventActive(false);
-              setIsObserverEvent(false); // [Issue #3 Fix]
-              setEventStatus(null);
-              showToast(error.message || "이벤트 처리 중 오류가 발생했습니다.", "error");
-            },
-          });
-        } catch (err) {
-          setIsTyping(false);
-          setAwaitingFinalResult(false);
-          setEnergy(prev => prev + energyCost);
-          setCurrentScene(null);
-          setEventActive(false);
-              setIsObserverEvent(false); // [Issue #3 Fix]
-          setEventStatus(null);
-          showToast("이벤트 처리 중 오류가 발생했습니다.", "error");
-        }
-        return;
-      }
- 
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      //  TRANSITION 처리 (기존 handleTimeSkip 패턴)
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- 
-      if (directiveType === "TRANSITION") {
-        setIsTyping(true);
- 
-        // 전환 나레이션을 히스토리에 추가
-        if (consumed.transition?.narration) {
+
+      // ━━━ BRANCH_CHOICE: 나레이션 → 3장 반응 카드 ━━━
+      if (decision === "BRANCH" && consumed.branch) {
+        const isChoice = consumed.branch.branch_mode === "CHOICE" || consumed.branch.branchMode === "CHOICE";
+
+        if (isChoice && consumed.branch.situation) {
+          // 상황 나레이션 먼저 인라인 삽입
           setMessages(prev => [...prev, {
-            role: "SYSTEM",
-            cleanContent: consumed.transition.narration,
+            role: "SYSTEM", cleanContent: consumed.branch.situation,
+            isEvent: true, isDirectorNarration: true,
+          }]);
+          setCurrentScene({
+            dialogue: "", narration: consumed.branch.situation,
+            emotion: "NEUTRAL", isEvent: true,
+          });
+        }
+
+        // 3장 카드 팝업 표시 (기존 eventOptions UI 재활용)
+        const options = (consumed.branch.options || []).map(opt => ({
+          ...opt,
+          type: opt.tone?.toUpperCase() || "NORMAL",
+          detail: opt.detail,
+          label: opt.label,
+          energyCost: opt.energy_cost || opt.energyCost || 2,
+        }));
+
+        // 카드 팝업 표시 (나레이션 타자기 후 딜레이)
+        setTimeout(() => {
+          setEventOptions(options);
+          setDirectorAutoProcessing(false);
+        }, isChoice && consumed.branch.situation ? 2000 : 300);
+        return;
+      }
+
+      // ━━━ TRANSITION: 나레이션 → 전환 애니메이션 → 자동 응답 ━━━
+      if (decision === "TRANSITION" && consumed.transition) {
+        if (consumed.transition.narration) {
+          setMessages(prev => [...prev, {
+            role: "SYSTEM", cleanContent: consumed.transition.narration,
             isDirectorNarration: true,
           }]);
+          setCurrentScene({
+            dialogue: "", narration: consumed.transition.narration,
+            emotion: "NEUTRAL", isEvent: true,
+          });
         }
- 
+
         // 장소 전환 애니메이션
-        if (consumed.transition?.new_location_name) {
+        if (consumed.transition.new_location_name || consumed.transition.newLocationName) {
+          const locName = consumed.transition.new_location_name || consumed.transition.newLocationName;
           setLocationTransition({
-            active: true,
-            locationName: consumed.transition.new_location_name,
-            isGenerating: true,
+            active: true, locationName: locName, isGenerating: true,
           });
         }
- 
-        // 낙관적 에너지 차감 (시간 넘기기 비용)
-        const skipCost = 1;
-        setEnergy(prev => Math.max(0, prev - skipCost));
- 
-        let firstSceneData = null;
- 
-        try {
-          await sendDirectorTransitionStream(roomId, {
- 
-            onEventMeta: (meta) => {
-              if (meta.eventStatus) {
-                setEventStatus(meta.eventStatus);
-                setEventActive(meta.eventStatus === "ONGOING");
-              }
-            },
- 
-            onFirstScene: (scene) => {
-              firstSceneData = {
-                speaker: scene.speaker || null,
-                narration: scene.narration,
-                dialogue: scene.dialogue,
-                emotion: scene.emotion || "NEUTRAL",
-                location: scene.location,
-                time: scene.time,
-                outfit: scene.outfit,
-                bgmMode: scene.bgmMode,
-              };
-              setIsTyping(false);
-            },
- 
-            onFinalResult: (data) => {
-              setIsTyping(false);
-              setAwaitingFinalResult(false);
- 
-              const {
-                scenes, currentAffection, stats: newStats, bpm: newBpm,
-                dynamicRelationTag: newRelTag, eventStatus: newEventStatus,
-                topicConcluded: newTopicConcluded,
-                hasInnerThought: resHasThought, assistantLogId: resLogId,
-                locationTransition: resLocTransition,
-              } = data;
- 
-              setAffection(currentAffection);
-              if (newStats) setCharacterStats(newStats);
-              if (newBpm !== undefined) setCurrentBpm(newBpm);
-              if (newRelTag) setDynamicRelationTag(newRelTag);
-              if (newEventStatus) {
-                setEventStatus(newEventStatus);
-                setEventActive(newEventStatus === "ONGOING");
-              }
-              setTopicConcluded(false); // 전환 후 새 주제 시작
- 
-              setHasInnerThought(!!resHasThought);
-              setThoughtUnlocked(false);
-              setCurrentInnerThought(null);
-              setCurrentAssistantLogId(resLogId || null);
- 
-              const fullScenes = scenes || [];
-              const queue = fullScenes.map(s => ({
-                speaker: s.speaker || null,
-                narration: s.narration,
-                dialogue: s.dialogue,
-                emotion: s.emotion || "NEUTRAL",
-                location: s.location,
-                time: s.time,
-                outfit: s.outfit,
-                bgmMode: s.bgmMode,
-              }));
-              setSceneQueue(queue);
- 
-              const historyEntries = buildHistoryEntries(fullScenes, resLogId, resHasThought);
-              setMessages(prev => [...prev, ...historyEntries]);
- 
-              detectNpc(fullScenes);
- 
-              // 장소 전환 완료 처리
-              if (resLocTransition) {
-                setLocationTransition({
-                  active: true,
-                  locationName: resLocTransition.locationName,
-                  backgroundUrl: resLocTransition.backgroundUrl,
-                  cacheHash: resLocTransition.cacheHash,
-                  isGenerating: resLocTransition.isGenerating,
-                });
-                if (resLocTransition.backgroundUrl) {
-                  setDynamicBackgroundUrl(resLocTransition.backgroundUrl);
-                }
-              }
- 
-              api.get("/users/me").then(res => {
-                if (res.data.energy !== undefined) setEnergy(res.data.energy);
-                if (res.data.freeEnergy !== undefined) setFreeEnergy(res.data.freeEnergy);
-                if (res.data.paidEnergy !== undefined) setPaidEnergy(res.data.paidEnergy);
-              }).catch(() => {});
-            },
- 
-            onError: (error) => {
-              console.error("[Director-Transition] SSE error:", error);
-              setIsTyping(false);
-              setAwaitingFinalResult(false);
-              setEnergy(prev => prev + skipCost);
-              setLocationTransition(null);
-              showToast(error.message || "전환 처리 중 오류가 발생했습니다.", "error");
-            },
-          });
-        } catch (err) {
-          setIsTyping(false);
-          setAwaitingFinalResult(false);
-          setEnergy(prev => prev + skipCost);
-          setLocationTransition(null);
-          showToast("전환 처리 중 오류가 발생했습니다.", "error");
-        }
+
+        setTimeout(() => triggerAutoDirectorResponse("TRANSITION"), 2000);
         return;
       }
- 
+
+      // ━━━ AWAY: "한편..." 나레이션 → 자동 진행 ━━━
+      if (decision === "AWAY" && consumed.away) {
+        if (consumed.away.narration) {
+          setMessages(prev => [...prev, {
+            role: "SYSTEM", cleanContent: consumed.away.narration,
+            isEvent: true, isDirectorNarration: true,
+          }]);
+          setCurrentScene({
+            dialogue: "", narration: consumed.away.narration,
+            emotion: "NEUTRAL", isEvent: true,
+          });
+        }
+        if (consumed.away.environment?.bgm) {
+          setCurrentBgmMode(consumed.away.environment.bgm);
+        }
+
+        setEventActive(true);
+        setEventStatus("ONGOING");
+        setIsObserverEvent(true);
+
+        setTimeout(() => triggerAutoDirectorResponse("AWAY"), 2000);
+        return;
+      }
+
+      setDirectorAutoProcessing(false);
     } catch (err) {
-      console.error("[Director] Interlude complete error:", err);
-      showToast("처리 중 오류가 발생했습니다.", "error");
+      console.error("[Director] Transparent processing error:", err);
+      setDirectorAutoProcessing(false);
     }
-  }, [roomId, characterStats, boostMode, isSubscriber, roomInfo]);
+  }, [roomId]);
 
   /**
-   * [Phase 5.5-Director] 캐릭터 응답 완료 후 자동 Directive 체크
+   * [v3] 디렉터 자동 응답 SSE 트리거
    *
-   * final_result 수신 → 4초 후 → peek → Directive 있으면 인터루드 표시
-   *
-   * 조건:
-   * - 스토리 모드
-   * - 이벤트/승급 진행 중이 아님
-   * - 인터루드가 이미 표시 중이 아님
-   * - 유저가 이미 다음 메시지를 타이핑하고 있지 않음
+   * INTERLUDE/TRANSITION/AWAY에서 나레이션 표시 후 호출.
+   * 캐릭터가 상황에 자동으로 반응하는 응답을 생성.
    */
+  const triggerAutoDirectorResponse = useCallback(async (directiveType) => {
+    setIsTyping(true);
+    setCurrentScene(null);
+
+    const cost = 1;
+    setEnergy(prev => Math.max(0, prev - cost));
+
+    let firstSceneReceived = false;
+
+    try {
+      await sendAutoDirectorResponse(roomId, directiveType, {
+        onEventMeta: (meta) => {
+          if (meta.eventStatus) {
+            setEventStatus(meta.eventStatus);
+            setEventActive(meta.eventStatus === "ONGOING");
+          }
+        },
+
+        onFirstScene: (scene) => {
+          firstSceneReceived = true;
+          setIsTyping(false);
+          setCurrentScene({
+            speaker: scene.speaker || null,
+            narration: scene.narration, dialogue: scene.dialogue,
+            emotion: scene.emotion || "NEUTRAL",
+            location: scene.location, time: scene.time,
+            outfit: scene.outfit, bgmMode: scene.bgmMode,
+          });
+          if (scene.speaker && scene.speaker !== roomInfo?.characterName) {
+            setNpcSpeaker(scene.speaker);
+            setCurrentSpeaker(scene.speaker);
+          } else {
+            setCurrentSpeaker(scene.speaker || null);
+          }
+          setDisplayedEmotion(scene.emotion || "NEUTRAL");
+        },
+
+        onFinalResult: (data) => {
+          if (!firstSceneReceived) setIsTyping(false);
+          setDirectorAutoProcessing(false);
+
+          const { scenes, currentAffection, stats: newStats, bpm: newBpm,
+                  dynamicRelationTag: newRelTag, eventStatus: newEventStatus,
+                  topicConcluded: newTopicConcluded,
+                  locationTransition: resLocTransition,
+          } = data;
+
+          setAffection(currentAffection);
+          if (newStats) setCharacterStats(newStats);
+          if (newBpm !== undefined) setCurrentBpm(newBpm);
+          if (newRelTag) setDynamicRelationTag(newRelTag);
+
+          if (newEventStatus) {
+            setEventStatus(newEventStatus);
+            setEventActive(newEventStatus === "ONGOING");
+            if (newEventStatus === "RESOLVED") {
+              setTimeout(() => {
+                setEventStatus(null); setEventActive(false);
+                setIsObserverEvent(false); clearNpcState();
+              }, 2000);
+            }
+          }
+
+          if (newTopicConcluded !== undefined) setTopicConcluded(newTopicConcluded);
+
+          if (scenes && scenes.length > 1) setSceneQueue(scenes.slice(1));
+          detectNpc(scenes);
+
+          const entries = buildHistoryEntries(scenes, null, false);
+          if (entries.length > 0) setMessages(prev => [...prev, ...entries]);
+
+          // 장소 전환 처리
+          if (resLocTransition) {
+            if (resLocTransition.backgroundUrl) {
+              setDynamicBackgroundUrl(resLocTransition.backgroundUrl);
+              setLocationTransition(null);
+            } else if (resLocTransition.isGenerating) {
+              setLocationTransition({
+                active: true, locationName: resLocTransition.locationName,
+                cacheHash: resLocTransition.cacheHash, isGenerating: true,
+              });
+            }
+          }
+
+          // AWAY: 자동 진행 씬 스케줄
+          if (directiveType === "AWAY" && newEventStatus === "ONGOING") {
+            scheduleAwayAutoAdvance();
+          }
+
+          // 디렉터 자동 체크 재스케줄
+          scheduleDirectorAutoCheck();
+
+          api.get("/users/me").then(res => {
+            if (res.data.energy !== undefined) setEnergy(res.data.energy);
+            if (res.data.freeEnergy !== undefined) setFreeEnergy(res.data.freeEnergy);
+            if (res.data.paidEnergy !== undefined) setPaidEnergy(res.data.paidEnergy);
+          }).catch(() => {});
+        },
+
+        onError: (error) => {
+          console.error("[Director-Auto] SSE error:", error);
+          setIsTyping(false); setDirectorAutoProcessing(false);
+          setEnergy(prev => prev + cost);
+          showToast(error.message || "자동 응답 처리 중 오류가 발생했습니다.", "error");
+        },
+      });
+    } catch (err) {
+      setIsTyping(false); setDirectorAutoProcessing(false);
+      setEnergy(prev => prev + cost);
+      showToast("자동 응답 처리 중 오류가 발생했습니다.", "error");
+    }
+  }, [roomId, roomInfo]);
+
   /**
-   * [Issue #1+#2 Fix] 디렉터 자동 체크 — 리트라이 폴링 + 씬 읽기 대기
+   * [v3] AWAY 이벤트 자동 진행 스케줄러
    *
-   * Issue #1: 첫 씬을 읽는 동안 인터루드가 뜨는 문제
-   *   → sceneActiveRef로 씬 큐가 비어질 때까지 대기
+   * AWAY 이벤트에서 캐릭터 응답 후 3~4초 뒤 자동으로 다음 씬 요청.
+   * 유저가 채팅을 입력하면 개입으로 처리되어 자동 진행 취소.
+   */
+  const awayAutoAdvanceTimer = useRef(null);
+  const scheduleAwayAutoAdvance = useCallback(() => {
+    if (awayAutoAdvanceTimer.current) clearTimeout(awayAutoAdvanceTimer.current);
+    awayAutoAdvanceTimer.current = setTimeout(() => {
+      // 유저가 개입했거나 이벤트 종료됨 → 자동 진행 취소
+      if (!eventActiveRef.current || isTypingRef.current) return;
+      handleDirectorWatch();
+    }, 4000);
+  }, []);
+
+  /**
+   * [v3] 투명 디렉터 자동 체크 — directive 발견 시 투명하게 자동 처리
    *
-   * Issue #2: 디렉터 LLM 비동기 응답(3~8초)이 4초 타이머보다 느린 문제
-   *   → 단일 타이머 대신 최대 3회 리트라이 (6초 + 5초 + 5초 = 총 16초 커버)
-   *
-   * [Bug Fix] stale closure 완전 해소:
-   *   → 가드 조건을 모두 ref로 읽어서 setTimeout 콜백이 항상 최신 값 참조
-   *   → 의존성 배열에서 state 변수 제거 (roomId, isStoryMode만 유지)
+   * Bug #3 해결: ref 기반 가드 (stale closure 방지)
+   * 투명 디렉터: directive 발견 → handleTransparentDirective로 자동 처리
+   *   (유저에게 오버레이/버튼 없이 나레이션 삽입 + 카드 표시 + 자동 응답)
    */
   const scheduleDirectorAutoCheck = useCallback(() => {
     if (directorAutoCheckTimer.current) {
@@ -631,19 +529,17 @@ const ChatPage = () => {
     const MAX_RETRIES = 2;
 
     const attemptCheck = async (retryCount) => {
-      // [Bug Fix] ref에서 최신 값 읽기 — stale closure 방지
+      // [Bug Fix #3] ref에서 최신 값 읽기 — stale closure 방지
       if (sceneActiveRef.current) {
         if (retryCount < MAX_RETRIES) {
-          console.log("[Director] Scenes still active, deferring check...");
           directorAutoCheckTimer.current = setTimeout(
             () => attemptCheck(retryCount), RETRY_DELAY);
         }
         return;
       }
 
-      if (showDirectorInterludeRef.current || eventActiveRef.current
-          || awaitingFinalResultRef.current || isTypingRef.current) {
-        // 조건 미충족이지만 일시적일 수 있음 → 리트라이
+      if (eventActiveRef.current || awaitingFinalResultRef.current
+          || isTypingRef.current || directorAutoProcessingRef.current) {
         if (retryCount < MAX_RETRIES) {
           directorAutoCheckTimer.current = setTimeout(
             () => attemptCheck(retryCount + 1), RETRY_DELAY);
@@ -655,8 +551,8 @@ const ChatPage = () => {
         const directive = await peekDirectorDirective(roomId);
         if (directive && directive.decision !== "PASS") {
           console.log("[Director] Auto-check: Directive found →", directive.decision);
-          setDirectorDirective(directive);
-          setShowDirectorInterlude(true);
+          // [v3] 투명하게 자동 처리 — 오버레이 없음
+          handleTransparentDirective(directive);
           return;
         }
       } catch (err) {
@@ -671,7 +567,7 @@ const ChatPage = () => {
 
     directorAutoCheckTimer.current = setTimeout(() => attemptCheck(0), INITIAL_DELAY);
 
-  }, [roomId, isStoryMode]); // [Bug Fix] state 의존성 제거 → ref로 대체
+  }, [roomId, isStoryMode]); // state 의존성 제거 → ref로 대체
 
   // ━━━ [Phase 5.5-Fix] 3-Layer 통합 헬퍼 함수 ━━━
 
@@ -757,16 +653,15 @@ const ChatPage = () => {
   }, [roomInfo]);
 
   // [Issue #1 Fix] sceneActiveRef — 씬 큐 활성 상태를 ref로 추적
-  // setTimeout 내에서 stale closure 없이 현재 씬 상태 확인 가능
   useEffect(() => {
     sceneActiveRef.current = sceneQueue.length > 0 || currentScene !== null;
   }, [sceneQueue, currentScene]);
 
-  // [Bug Fix] 디렉터 가드 조건 ref 동기화 — stale closure 방지
+  // [Bug Fix #3] 디렉터 가드 조건 ref 동기화 — stale closure 방지
   useEffect(() => { eventActiveRef.current = eventActive; }, [eventActive]);
   useEffect(() => { awaitingFinalResultRef.current = awaitingFinalResult; }, [awaitingFinalResult]);
   useEffect(() => { isTypingRef.current = isTyping; }, [isTyping]);
-  useEffect(() => { showDirectorInterludeRef.current = showDirectorInterlude; }, [showDirectorInterlude]);
+  useEffect(() => { directorAutoProcessingRef.current = directorAutoProcessing; }, [directorAutoProcessing]);
 
   // [Phase 4.4] 투명인간 이스터에그 — 10분 방치 감지
   useInvisibleMan({
@@ -1374,10 +1269,23 @@ const ChatPage = () => {
     directorAutoCheckTimer.current = null;
   }
 
-  // [Phase 5.5-Director] 디렉터 인터루드 체크
+  // [v3] AWAY 자동 진행 취소 (유저 개입 시)
+  if (awayAutoAdvanceTimer.current) {
+    clearTimeout(awayAutoAdvanceTimer.current);
+    awayAutoAdvanceTimer.current = null;
+  }
+
+  // [v3] 투명 디렉터: 유저 메시지를 절대 차단하지 않음
+  // 미소비 directive가 있으면 자동 소비 (유저 메시지 우선)
   if (isStoryMode && !eventActive) {
-    const interludeTriggered = await checkDirectorInterlude();
-    if (interludeTriggered) return; // 인터루드 발동 → 전송 보류
+    try {
+      const directive = await peekDirectorDirective(roomId);
+      if (directive && directive.decision !== "PASS") {
+        // directive 폐기 — 유저 의도가 우선
+        await consumeDirectorDirective(roomId);
+        console.log("[Director] Discarded pending directive — user message takes priority");
+      }
+    } catch (err) { /* ignore */ }
   }
  
   // ── 낙관적 UI 업데이트 (기존과 동일) ──
@@ -1758,6 +1666,12 @@ const ChatPage = () => {
    * "감독님, 다음 씬 주세요" 버튼 핸들러
    * 기존 handleTriggerEvent를 대체/확장
    */
+  /**
+   * [v3] 수동 디렉터 호출 → BRANCH_SCENARIO 3장 카드 팝업
+   *
+   * "다음 씬" 버튼 클릭 시 호출.
+   * 디렉터가 3개의 시나리오를 생성하여 카드로 제시.
+   */
   const handleRequestDirector = useCallback(async () => {
     if (directorLoading) return;
  
@@ -1769,10 +1683,26 @@ const ChatPage = () => {
         showToast("지금은 적절한 타이밍이 아닌 것 같아요.", "info");
         return;
       }
- 
-      // 디렉터가 Directive를 즉시 반환 → 인터루드 표시
-      setDirectorDirective(directive);
-      setShowDirectorInterlude(true);
+
+      // [v3] BRANCH_SCENARIO → 3장 카드 팝업 (기존 eventOptions UI 재활용)
+      if (directive.decision === "BRANCH" && directive.branch?.options) {
+        // Directive 소비 (Redis에서 제거)
+        await consumeDirectorDirective(roomId);
+
+        const options = directive.branch.options.map(opt => ({
+          type: (opt.tone || "normal").toUpperCase(),
+          label: opt.label,
+          summary: opt.label,
+          detail: opt.detail,
+          energyCost: opt.energy_cost || opt.energyCost || 2,
+          isSecret: opt.is_secret || opt.isSecret || false,
+        }));
+
+        setEventOptions(options);
+      } else {
+        // BRANCH가 아닌 다른 유형이 반환된 경우 → 투명 처리
+        handleTransparentDirective(directive);
+      }
  
     } catch (err) {
       console.error("[Director] Manual request failed:", err);
@@ -2662,17 +2592,7 @@ const ChatPage = () => {
         )}
       </AnimatePresence>
 
-      {/* {/* ═══ [Phase 5.5-Director] 디렉터 인터루드 ═══ *\/} */}
-      <DirectorInterlude
-        directive={directorDirective}
-        onComplete={handleDirectorInterludeComplete}
-        onDismiss={() => {
-          setShowDirectorInterlude(false);
-          setDirectorDirective(null);
-        }}
-        characterName={roomInfo?.characterName}
-        isSecretMode={roomInfo?.secretModeActive}
-      />  
+      {/* [v3] DirectorInterlude 제거 — 투명 디렉터 패턴으로 대체 */}
 
       {/* ━━━━━━━ [Phase 5] PROMOTION STARTED Overlay ━━━━━━━ */}
       <AnimatePresence>
