@@ -193,6 +193,12 @@ const ChatPage = () => {
   const [directorAutoProcessing, setDirectorAutoProcessing] = useState(false); // 자동 응답 처리 중
   const directorAutoCheckTimer = useRef(null);
 
+  // [UX Fix] 나레이션 → 유저 클릭 대기 → 다음 플로우 진행
+  const pendingDirectorActionRef = useRef(null);
+
+  // [UX Fix Bug 1] 나레이션 표시 중인지 추적 — 캐릭터 첫 씬 자동 덮어쓰기 방지
+  const currentSceneRef = useRef(null);
+
   // [Bug Fix #3] scheduleDirectorAutoCheck의 stale closure 방지용 ref 미러
   const eventActiveRef = useRef(false);
   const awaitingFinalResultRef = useRef(false);
@@ -270,18 +276,21 @@ const ChatPage = () => {
             role: "SYSTEM", cleanContent: consumed.interlude.narration,
             isEvent: true, isDirectorNarration: true,
           }]);
-          // 나레이션을 현재 씬으로도 잠시 표시 (타자기 효과)
-          setCurrentScene({
+          // 나레이션을 현재 씬으로도 표시
+          const narrationScene = {
             dialogue: "", narration: consumed.interlude.narration,
             emotion: "NEUTRAL", isEvent: true,
-          });
+          };
+          setCurrentScene(narrationScene);
+          currentSceneRef.current = narrationScene;
         }
         if (consumed.interlude.environment?.bgm) {
           setCurrentBgmMode(consumed.interlude.environment.bgm);
         }
 
-        // 나레이션 표시 후 자동 캐릭터 응답 요청
-        setTimeout(() => triggerAutoDirectorResponse("INTERLUDE"), 1500);
+        // [UX Fix] 유저 클릭 대기 → handleNextScene에서 실행
+        pendingDirectorActionRef.current = { type: "AUTO_RESPOND", directiveType: "INTERLUDE" };
+        setDirectorAutoProcessing(false);
         return;
       }
 
@@ -295,10 +304,12 @@ const ChatPage = () => {
             role: "SYSTEM", cleanContent: consumed.branch.situation,
             isEvent: true, isDirectorNarration: true,
           }]);
-          setCurrentScene({
+          const narrationScene = {
             dialogue: "", narration: consumed.branch.situation,
             emotion: "NEUTRAL", isEvent: true,
-          });
+          };
+          setCurrentScene(narrationScene);
+          currentSceneRef.current = narrationScene;
         }
 
         // 3장 카드 팝업 표시 (기존 eventOptions UI 재활용)
@@ -310,11 +321,14 @@ const ChatPage = () => {
           energyCost: opt.energy_cost || opt.energyCost || 2,
         }));
 
-        // 카드 팝업 표시 (나레이션 타자기 후 딜레이)
-        setTimeout(() => {
+        if (isChoice && consumed.branch.situation) {
+          // [UX Fix] 나레이션 있으면 유저 클릭 대기 → 카드 표시
+          pendingDirectorActionRef.current = { type: "SHOW_CARDS", options };
+        } else {
+          // 나레이션 없으면 즉시 카드 표시
           setEventOptions(options);
-          setDirectorAutoProcessing(false);
-        }, isChoice && consumed.branch.situation ? 2000 : 300);
+        }
+        setDirectorAutoProcessing(false);
         return;
       }
 
@@ -325,21 +339,20 @@ const ChatPage = () => {
             role: "SYSTEM", cleanContent: consumed.transition.narration,
             isDirectorNarration: true,
           }]);
-          setCurrentScene({
+          const narrationScene = {
             dialogue: "", narration: consumed.transition.narration,
             emotion: "NEUTRAL", isEvent: true,
-          });
+          };
+          setCurrentScene(narrationScene);
+          currentSceneRef.current = narrationScene;
         }
 
-        // 장소 전환 애니메이션
-        if (consumed.transition.new_location_name || consumed.transition.newLocationName) {
-          const locName = consumed.transition.new_location_name || consumed.transition.newLocationName;
-          setLocationTransition({
-            active: true, locationName: locName, isGenerating: true,
-          });
-        }
-
-        setTimeout(() => triggerAutoDirectorResponse("TRANSITION"), 2000);
+        // [UX Fix] 전환 애니메이션 + 자동 응답은 유저 클릭 후 실행
+        const locName = consumed.transition.new_location_name || consumed.transition.newLocationName || null;
+        pendingDirectorActionRef.current = {
+          type: "AUTO_RESPOND", directiveType: "TRANSITION", locationName: locName,
+        };
+        setDirectorAutoProcessing(false);
         return;
       }
 
@@ -350,10 +363,12 @@ const ChatPage = () => {
             role: "SYSTEM", cleanContent: consumed.away.narration,
             isEvent: true, isDirectorNarration: true,
           }]);
-          setCurrentScene({
+          const narrationScene = {
             dialogue: "", narration: consumed.away.narration,
             emotion: "NEUTRAL", isEvent: true,
-          });
+          };
+          setCurrentScene(narrationScene);
+          currentSceneRef.current = narrationScene;
         }
         if (consumed.away.environment?.bgm) {
           setCurrentBgmMode(consumed.away.environment.bgm);
@@ -362,8 +377,9 @@ const ChatPage = () => {
         setEventActive(true);
         setEventStatus("ONGOING");
         setIsObserverEvent(true);
-
-        setTimeout(() => triggerAutoDirectorResponse("AWAY"), 2000);
+        // [UX Fix] 유저 클릭 대기 → AWAY 자동 진행 시작
+        pendingDirectorActionRef.current = { type: "AUTO_RESPOND", directiveType: "AWAY" };
+        setDirectorAutoProcessing(false);
         return;
       }
 
@@ -404,20 +420,28 @@ const ChatPage = () => {
           firstSceneReceived = true;
           setIsTyping(false);
           setAwaitingFinalResult(false);
-          setCurrentScene({
+          const sceneData = {
             speaker: scene.speaker || null,
             narration: scene.narration, dialogue: scene.dialogue,
             emotion: scene.emotion || "NEUTRAL",
             location: scene.location, time: scene.time,
             outfit: scene.outfit, bgmMode: scene.bgmMode,
-          });
-          if (scene.speaker && scene.speaker !== roomInfo?.characterName) {
-            setNpcSpeaker(scene.speaker);
-            setCurrentSpeaker(scene.speaker);
+          };
+
+          // [UX Fix Bug 1] 나레이션이 표시 중(isEvent=true)이면 큐로 추가
+          // → 유저가 나레이션 읽고 클릭할 때 첫 캐릭터 씬 재생
+          if (currentSceneRef.current?.isEvent) {
+            setSceneQueue(prev => [...prev, sceneData]);
           } else {
-            setCurrentSpeaker(scene.speaker || null);
+            setCurrentScene(sceneData);
+            if (scene.speaker && scene.speaker !== roomInfo?.characterName) {
+              setNpcSpeaker(scene.speaker);
+              setCurrentSpeaker(scene.speaker);
+            } else {
+              setCurrentSpeaker(scene.speaker || null);
+            }
+            setDisplayedEmotion(scene.emotion || "NEUTRAL");
           }
-          setDisplayedEmotion(scene.emotion || "NEUTRAL");
         },
 
         onFinalResult: (data) => {
@@ -468,9 +492,16 @@ const ChatPage = () => {
             }
           }
 
-          // AWAY: 자동 진행 씬 스케줄
-          if (directiveType === "AWAY" && newEventStatus === "ONGOING") {
-            scheduleAwayAutoAdvance();
+          // [UX Fix 2b] AWAY 이벤트 진행 중: 유저 클릭 대기 → 다음 씬
+          // RESOLVED: AWAY 종료 → 유저에게 "다음 씬" 버튼으로 복귀 유도
+          if (directiveType === "AWAY") {
+            if (newEventStatus === "RESOLVED") {
+              // AWAY 이벤트 종료: 유저가 언제든 "다음 씬" 누르면 다시 시작 가능
+              // 추가 자동 진행 없음 — 유저 능동 선택으로
+            } else if (newEventStatus === "ONGOING") {
+              // AWAY 계속 진행: 다음 씬을 유저가 클릭해야 진행
+              pendingDirectorActionRef.current = { type: "AWAY_CONTINUE" };
+            }
           }
 
           // 디렉터 자동 체크 재스케줄
@@ -498,20 +529,11 @@ const ChatPage = () => {
   }, [roomId, roomInfo]);
 
   /**
-   * [v3] AWAY 이벤트 자동 진행 스케줄러
-   *
-   * AWAY 이벤트에서 캐릭터 응답 후 3~4초 뒤 자동으로 다음 씬 요청.
-   * 유저가 채팅을 입력하면 개입으로 처리되어 자동 진행 취소.
+   * [v3 UX Fix] AWAY 이벤트 자동 진행 제거
+   * 기존 setTimeout 기반 자동 진행 → pendingDirectorActionRef 패턴으로 대체
+   * 유저가 "다음 씬" 버튼을 눌러야 다음 AWAY 씬이 진행됨
    */
-  const awayAutoAdvanceTimer = useRef(null);
-  const scheduleAwayAutoAdvance = useCallback(() => {
-    if (awayAutoAdvanceTimer.current) clearTimeout(awayAutoAdvanceTimer.current);
-    awayAutoAdvanceTimer.current = setTimeout(() => {
-      // 유저가 개입했거나 이벤트 종료됨 → 자동 진행 취소
-      if (!eventActiveRef.current || isTypingRef.current) return;
-      handleDirectorWatch();
-    }, 4000);
-  }, []);
+  const awayAutoAdvanceTimer = useRef(null); // 호환성 유지 (참조만 남김)
 
   /**
    * [v3] 투명 디렉터 자동 체크 — directive 발견 시 투명하게 자동 처리
@@ -534,8 +556,8 @@ const ChatPage = () => {
 
     const attemptCheck = async (retryCount) => {
       // [Bug Fix #3] ref에서 최신 값 읽기 — stale closure 방지
-      // 씬 활성 시: 리트라이 예산 소모하지 않음 (씬 읽기는 예측 불가)
-      if (sceneActiveRef.current) {
+      // 씬 활성 또는 pendingAction 대기 중: 리트라이 예산 소모하지 않음
+      if (sceneActiveRef.current || pendingDirectorActionRef.current !== null) {
         directorAutoCheckTimer.current = setTimeout(
           () => attemptCheck(retryCount), RETRY_DELAY);
         return;
@@ -656,13 +678,15 @@ const ChatPage = () => {
     return [log];
   }, [roomInfo]);
 
-  // [Issue #1 Fix] sceneActiveRef — 대기 중인 씬 큐만 추적
-  // [Bug Fix C] currentScene !== null 조건 제거:
-  //   기존: sceneQueue.length > 0 || currentScene !== null → 항상 true → 자동 체크 영원히 대기
-  //   수정: sceneQueue.length > 0 → 큐가 비면 즉시 자동 체크 가능
+  // [Issue #1 Fix] sceneActiveRef — 대기 중인 씬 큐 추적
   useEffect(() => {
     sceneActiveRef.current = sceneQueue.length > 0;
   }, [sceneQueue]);
+
+  // [UX Fix Bug 1] currentSceneRef 동기화 — 나레이션 표시 중 첫 씬 덮어쓰기 방지
+  useEffect(() => {
+    currentSceneRef.current = currentScene;
+  }, [currentScene]);
 
   // [Bug Fix #3] 디렉터 가드 조건 ref 동기화 — stale closure 방지
   useEffect(() => { eventActiveRef.current = eventActive; }, [eventActive]);
@@ -1741,12 +1765,14 @@ const ChatPage = () => {
     setEventOptions(null);
 
     // ── 레이턴시 마스킹: 카드의 detail을 나레이션으로 즉시 표시 ──
-    setCurrentScene({
+    const narrationScene = {
       dialogue: "",
       narration: detail,
       emotion: "NEUTRAL",
       isEvent: true,
-    });
+    };
+    setCurrentScene(narrationScene);
+    currentSceneRef.current = narrationScene; // [UX Fix Bug 1] 즉시 ref 동기화
 
     // 히스토리에 SYSTEM 나레이션으로 추가 (USER 아님!)
     setMessages(prev => [...prev, { role: 'SYSTEM', cleanContent: detail, isEvent: true }]);
@@ -1972,6 +1998,29 @@ const ChatPage = () => {
 
   // 씬 전환 로직 (자동 "..." 발송 제거)
   const handleNextScene = () => {
+    // [UX Fix] 대기 중인 디렉터 액션이 있으면 우선 실행
+    if (pendingDirectorActionRef.current) {
+      const action = pendingDirectorActionRef.current;
+      pendingDirectorActionRef.current = null;
+      // [UX Fix Bug 1] 나레이션이 소비되었으므로 ref 클리어 → 다음 onFirstScene이 즉시 씬 표시 가능
+      currentSceneRef.current = null;
+
+      if (action.type === "AUTO_RESPOND") {
+        // TRANSITION: 장소 전환 애니메이션 시작
+        if (action.directiveType === "TRANSITION" && action.locationName) {
+          setLocationTransition({
+            active: true, locationName: action.locationName, isGenerating: true,
+          });
+        }
+        triggerAutoDirectorResponse(action.directiveType, action.eventContext || null);
+      } else if (action.type === "SHOW_CARDS") {
+        setEventOptions(action.options);
+      } else if (action.type === "AWAY_CONTINUE") {
+        triggerAutoDirectorResponse("AWAY");
+      }
+      return;
+    }
+
     // 큐에 남은 씬이 있다면 다음 씬 재생
     if (sceneQueue.length > 0) {
       const nextScene = sceneQueue[0];
