@@ -380,9 +380,11 @@ const ChatPage = () => {
    * INTERLUDE/TRANSITION/AWAY에서 나레이션 표시 후 호출.
    * 캐릭터가 상황에 자동으로 반응하는 응답을 생성.
    */
-  const triggerAutoDirectorResponse = useCallback(async (directiveType) => {
-    setIsTyping(true);
-    setCurrentScene(null);
+  const triggerAutoDirectorResponse = useCallback(async (directiveType, eventContext = null) => {
+    // [Bug Fix B] setIsTyping(true) 제거 — 나레이션이 이미 표시 중일 때 타이핑 인디케이터가 덮어쓰는 문제 방지
+    // 대신 awaitingFinalResult로 하단에 미세한 로딩 표시
+    setAwaitingFinalResult(true);
+    // [Fix] currentScene을 null로 설정하지 않음 — 나레이션 레이턴시 마스킹 보존
 
     const cost = 1;
     setEnergy(prev => Math.max(0, prev - cost));
@@ -390,7 +392,7 @@ const ChatPage = () => {
     let firstSceneReceived = false;
 
     try {
-      await sendAutoDirectorResponse(roomId, directiveType, {
+      await sendAutoDirectorResponse(roomId, directiveType, eventContext, {
         onEventMeta: (meta) => {
           if (meta.eventStatus) {
             setEventStatus(meta.eventStatus);
@@ -401,6 +403,7 @@ const ChatPage = () => {
         onFirstScene: (scene) => {
           firstSceneReceived = true;
           setIsTyping(false);
+          setAwaitingFinalResult(false);
           setCurrentScene({
             speaker: scene.speaker || null,
             narration: scene.narration, dialogue: scene.dialogue,
@@ -419,6 +422,7 @@ const ChatPage = () => {
 
         onFinalResult: (data) => {
           if (!firstSceneReceived) setIsTyping(false);
+          setAwaitingFinalResult(false);
           setDirectorAutoProcessing(false);
 
           const { scenes, currentAffection, stats: newStats, bpm: newBpm,
@@ -481,13 +485,13 @@ const ChatPage = () => {
 
         onError: (error) => {
           console.error("[Director-Auto] SSE error:", error);
-          setIsTyping(false); setDirectorAutoProcessing(false);
+          setIsTyping(false); setAwaitingFinalResult(false); setDirectorAutoProcessing(false);
           setEnergy(prev => prev + cost);
           showToast(error.message || "자동 응답 처리 중 오류가 발생했습니다.", "error");
         },
       });
     } catch (err) {
-      setIsTyping(false); setDirectorAutoProcessing(false);
+      setIsTyping(false); setAwaitingFinalResult(false); setDirectorAutoProcessing(false);
       setEnergy(prev => prev + cost);
       showToast("자동 응답 처리 중 오류가 발생했습니다.", "error");
     }
@@ -526,15 +530,14 @@ const ChatPage = () => {
 
     const INITIAL_DELAY = 6000;
     const RETRY_DELAY = 5000;
-    const MAX_RETRIES = 2;
+    const MAX_RETRIES = 4;       // 총 5회 시도 (6 + 5*4 = 26초 커버)
 
     const attemptCheck = async (retryCount) => {
       // [Bug Fix #3] ref에서 최신 값 읽기 — stale closure 방지
+      // 씬 활성 시: 리트라이 예산 소모하지 않음 (씬 읽기는 예측 불가)
       if (sceneActiveRef.current) {
-        if (retryCount < MAX_RETRIES) {
-          directorAutoCheckTimer.current = setTimeout(
-            () => attemptCheck(retryCount), RETRY_DELAY);
-        }
+        directorAutoCheckTimer.current = setTimeout(
+          () => attemptCheck(retryCount), RETRY_DELAY);
         return;
       }
 
@@ -591,6 +594,7 @@ const ChatPage = () => {
         cleanContent: content.join('\n'),
         speaker: speakerName,
         logId: (i === scenes.length - 1) ? (resLogId || null) : null,
+        parentLogId: resLogId || null,  // [Bug Fix #1] 모든 씬에 원본 logId 공유 — 일괄 삭제용
         hasInnerThought: (i === scenes.length - 1) ? !!resHasThought : false,
         thoughtUnlocked: false,
         innerThought: null,
@@ -652,10 +656,13 @@ const ChatPage = () => {
     return [log];
   }, [roomInfo]);
 
-  // [Issue #1 Fix] sceneActiveRef — 씬 큐 활성 상태를 ref로 추적
+  // [Issue #1 Fix] sceneActiveRef — 대기 중인 씬 큐만 추적
+  // [Bug Fix C] currentScene !== null 조건 제거:
+  //   기존: sceneQueue.length > 0 || currentScene !== null → 항상 true → 자동 체크 영원히 대기
+  //   수정: sceneQueue.length > 0 → 큐가 비면 즉시 자동 체크 가능
   useEffect(() => {
-    sceneActiveRef.current = sceneQueue.length > 0 || currentScene !== null;
-  }, [sceneQueue, currentScene]);
+    sceneActiveRef.current = sceneQueue.length > 0;
+  }, [sceneQueue]);
 
   // [Bug Fix #3] 디렉터 가드 조건 ref 동기화 — stale closure 방지
   useEffect(() => { eventActiveRef.current = eventActive; }, [eventActive]);
@@ -1275,25 +1282,15 @@ const ChatPage = () => {
     awayAutoAdvanceTimer.current = null;
   }
 
-  // [Bug Fix #3] 미소비 directive 유형별 분기 처리
-  // AWAY/INTERLUDE/TRANSITION: 유저 메시지 전에 먼저 투명 처리
-  // BRANCH: 유저가 직접 타이핑했으므로 카드 선택 불필요 → 폐기
+  // [Bug Fix #4] 유저가 직접 메시지를 보낼 때: 미소비 directive는 무조건 폐기
+  // 유저의 능동적 행위가 최우선. directive는 다음 응답 후 재생성됨.
+  // (투명 디렉터의 primary delivery는 scheduleDirectorAutoCheck)
   if (isStoryMode && !eventActive) {
     try {
       const directive = await peekDirectorDirective(roomId);
       if (directive && directive.decision !== "PASS") {
-        const type = directive.decision;
-        if (type === "AWAY" || type === "INTERLUDE" || type === "TRANSITION") {
-          // 투명하게 먼저 처리 → 유저 메시지는 이후 정상 진행
-          console.log(`[Director] Processing pending ${type} before user message`);
-          handleTransparentDirective(directive);
-          // 유저 메시지는 투명 처리가 완료된 후 다음 턴에서 전송
-          // (현재 메시지는 보류하지 않음 — 투명 처리와 동시에 진행)
-        } else {
-          // BRANCH: 유저가 직접 입력했으므로 카드 불필요 → 폐기
-          await consumeDirectorDirective(roomId);
-          console.log("[Director] Discarded BRANCH directive — user typed instead");
-        }
+        await consumeDirectorDirective(roomId);
+        console.log(`[Director] Discarded ${directive.decision} — user message takes priority`);
       }
     } catch (err) { /* ignore */ }
   }
@@ -1722,16 +1719,11 @@ const ChatPage = () => {
     }
   }, [roomId, directorLoading]);
 
-  // [v3] 이벤트 카드 선택 → 원샷 응답 (sendMessageStream 기반)
+  // [v3 Fix] 이벤트 카드 선택 → sendAutoDirectorResponse 기반 원샷 응답
   //
-  // Bug 1 Fix: sendEventSelectStream → sendMessageStream 전환
-  //   기존: sendEventSelectStream → room.startDirectorMode() → ONGOING 진입
-  //   수정: sendMessageStream으로 detail을 유저 액션으로 전송 → 원샷 응답
-  //
-  // Bug 2 Fix: ONGOING 비진입 → buildEventStatusBlock 비활성화 → NPC 규칙 비작동
-  //
-  // 레이턴시 마스킹: 카드 클릭 즉시 detail을 나레이션으로 표시 (타자기 효과)
-  //   → 이 나레이션이 표시되는 동안 LLM 응답 생성
+  // Bug 1 Fix: sendEventSelectStream → sendAutoDirectorResponse (ONGOING 완전 제거)
+  // Bug 2 Fix: detail을 USER 메시지가 아닌 SYSTEM 나레이션으로 저장
+  // Bug 3 Fix: 카드 선택 즉시 나레이션 표시 (레이턴시 마스킹) + 씬 중복 방지
   const handleSelectEvent = async (option) => {
     const detail = option.detail;
     const energyCost = option.energyCost;
@@ -1756,133 +1748,15 @@ const ChatPage = () => {
       isEvent: true,
     });
 
-    // 히스토리에 나레이션 추가
+    // 히스토리에 SYSTEM 나레이션으로 추가 (USER 아님!)
     setMessages(prev => [...prev, { role: 'SYSTEM', cleanContent: detail, isEvent: true }]);
 
     // 낙관적 에너지 차감
     setEnergy(prev => Math.max(0, prev - energyCost));
 
-    // ── detail을 유저 액션으로 sendMessageStream에 전달 ──
-    // *상황 설명* 형식으로 전송하여 캐릭터가 자연스럽게 반응
-    const actionMessage = `*${detail}*`;
-
-    setIsTyping(true);
-    let firstSceneReceived = false;
-    setAwaitingFinalResult(true);
-
-    try {
-      await sendMessageStream(roomId, actionMessage, {
-        onEventMeta: () => {},
-
-        onFirstScene: (scene) => {
-          firstSceneReceived = true;
-          setIsTyping(false);
-          setCurrentScene({
-            speaker: scene.speaker || null,
-            narration: scene.narration,
-            dialogue: scene.dialogue,
-            emotion: scene.emotion || "NEUTRAL",
-            location: scene.location,
-            time: scene.time,
-            outfit: scene.outfit,
-            bgmMode: scene.bgmMode,
-          });
-          if (scene.speaker && scene.speaker !== roomInfo?.characterName) {
-            setNpcSpeaker(scene.speaker);
-            setCurrentSpeaker(scene.speaker);
-          } else {
-            setCurrentSpeaker(scene.speaker || null);
-          }
-          setDisplayedEmotion(scene.emotion || "NEUTRAL");
-        },
-
-        onFinalResult: (data) => {
-          if (!firstSceneReceived) setIsTyping(false);
-          setAwaitingFinalResult(false);
-
-          const {
-            scenes, currentAffection, stats: newStats, bpm: newBpm,
-            dynamicRelationTag: newRelTag, topicConcluded: newTopicConcluded,
-            hasInnerThought: resHasThought, assistantLogId: resLogId,
-            locationTransition: resLocTransition,
-          } = data;
-
-          setAffection(currentAffection);
-          if (newStats) {
-            const changes = [];
-            Object.keys(newStats).forEach(key => {
-              const oldVal = characterStats[key] || 0;
-              const newVal = newStats[key];
-              if (newVal !== null && newVal !== undefined && newVal !== oldVal) {
-                changes.push({ key, value: newVal - oldVal });
-              }
-            });
-            if (changes.length > 0) {
-              setLatestStatChanges(changes);
-              setTimeout(() => setLatestStatChanges(null), 3500);
-            }
-            setCharacterStats(newStats);
-          }
-          if (newBpm !== undefined) setCurrentBpm(newBpm);
-          if (newRelTag) setDynamicRelationTag(newRelTag);
-          if (newTopicConcluded !== undefined) setTopicConcluded(newTopicConcluded);
-
-          setHasInnerThought(!!resHasThought);
-          setThoughtUnlocked(false);
-          setCurrentInnerThought(null);
-          setCurrentAssistantLogId(resLogId || null);
-
-          const fullScenes = scenes || [];
-          const queue = fullScenes.map(s => ({
-            speaker: s.speaker || null,
-            narration: s.narration, dialogue: s.dialogue,
-            emotion: s.emotion || "NEUTRAL",
-            location: s.location, time: s.time,
-            outfit: s.outfit, bgmMode: s.bgmMode,
-          }));
-          setSceneQueue(queue);
-
-          const historyEntries = buildHistoryEntries(fullScenes, resLogId, resHasThought);
-          if (historyEntries.length > 0) setMessages(prev => [...prev, ...historyEntries]);
-
-          detectNpc(fullScenes);
-
-          if (resLocTransition) {
-            if (resLocTransition.backgroundUrl) {
-              setDynamicBackgroundUrl(resLocTransition.backgroundUrl);
-            } else if (resLocTransition.isGenerating) {
-              setLocationTransition({
-                active: true, locationName: resLocTransition.locationName,
-                cacheHash: resLocTransition.cacheHash, isGenerating: true,
-              });
-            }
-          }
-
-          scheduleDirectorAutoCheck();
-
-          api.get("/users/me").then(res => {
-            if (res.data.energy !== undefined) setEnergy(res.data.energy);
-            if (res.data.freeEnergy !== undefined) setFreeEnergy(res.data.freeEnergy);
-            if (res.data.paidEnergy !== undefined) setPaidEnergy(res.data.paidEnergy);
-          }).catch(() => {});
-        },
-
-        onError: (error) => {
-          console.error("[Event-Select] SSE error:", error);
-          setIsTyping(false);
-          setAwaitingFinalResult(false);
-          setEnergy(prev => prev + energyCost);
-          setCurrentScene(null);
-          showToast(error.message || "이벤트 처리 중 오류가 발생했습니다.", "error");
-        },
-      });
-    } catch (err) {
-      setIsTyping(false);
-      setAwaitingFinalResult(false);
-      setEnergy(prev => prev + energyCost);
-      setCurrentScene(null);
-      showToast("이벤트 처리 중 오류가 발생했습니다.", "error");
-    }
+    // ── sendAutoDirectorResponse로 캐릭터 자동 응답 요청 ──
+    // detail을 eventContext로 전달 → 백엔드에서 SYSTEM 메시지로 저장 + constraint 적용
+    triggerAutoDirectorResponse("BRANCH", detail);
   };
 
   const handleDirectorWatch = async () => {
