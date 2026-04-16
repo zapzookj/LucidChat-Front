@@ -1275,15 +1275,25 @@ const ChatPage = () => {
     awayAutoAdvanceTimer.current = null;
   }
 
-  // [v3] 투명 디렉터: 유저 메시지를 절대 차단하지 않음
-  // 미소비 directive가 있으면 자동 소비 (유저 메시지 우선)
+  // [Bug Fix #3] 미소비 directive 유형별 분기 처리
+  // AWAY/INTERLUDE/TRANSITION: 유저 메시지 전에 먼저 투명 처리
+  // BRANCH: 유저가 직접 타이핑했으므로 카드 선택 불필요 → 폐기
   if (isStoryMode && !eventActive) {
     try {
       const directive = await peekDirectorDirective(roomId);
       if (directive && directive.decision !== "PASS") {
-        // directive 폐기 — 유저 의도가 우선
-        await consumeDirectorDirective(roomId);
-        console.log("[Director] Discarded pending directive — user message takes priority");
+        const type = directive.decision;
+        if (type === "AWAY" || type === "INTERLUDE" || type === "TRANSITION") {
+          // 투명하게 먼저 처리 → 유저 메시지는 이후 정상 진행
+          console.log(`[Director] Processing pending ${type} before user message`);
+          handleTransparentDirective(directive);
+          // 유저 메시지는 투명 처리가 완료된 후 다음 턴에서 전송
+          // (현재 메시지는 보류하지 않음 — 투명 처리와 동시에 진행)
+        } else {
+          // BRANCH: 유저가 직접 입력했으므로 카드 불필요 → 폐기
+          await consumeDirectorDirective(roomId);
+          console.log("[Director] Discarded BRANCH directive — user typed instead");
+        }
       }
     } catch (err) { /* ignore */ }
   }
@@ -1712,9 +1722,17 @@ const ChatPage = () => {
     }
   }, [roomId, directorLoading]);
 
-  // 이벤트 선택 -> 실행 (2단계)
+  // [v3] 이벤트 카드 선택 → 원샷 응답 (sendMessageStream 기반)
+  //
+  // Bug 1 Fix: sendEventSelectStream → sendMessageStream 전환
+  //   기존: sendEventSelectStream → room.startDirectorMode() → ONGOING 진입
+  //   수정: sendMessageStream으로 detail을 유저 액션으로 전송 → 원샷 응답
+  //
+  // Bug 2 Fix: ONGOING 비진입 → buildEventStatusBlock 비활성화 → NPC 규칙 비작동
+  //
+  // 레이턴시 마스킹: 카드 클릭 즉시 detail을 나레이션으로 표시 (타자기 효과)
+  //   → 이 나레이션이 표시되는 동안 LLM 응답 생성
   const handleSelectEvent = async (option) => {
-    // option: { type, summary, detail, energyCost, isSecret } — NarratorResponse.EventOption
     const detail = option.detail;
     const energyCost = option.energyCost;
   
@@ -1728,39 +1746,39 @@ const ChatPage = () => {
       return;
     }
   
-    setEventOptions(null); // 이벤트 선택지 모달 닫기
-    setIsTyping(true);
-  
-    // 낙관적 에너지 차감
-    setEnergy(prev => Math.max(0, prev - energyCost));
-  
-    // 이벤트 시작 전: 나레이션 씬을 먼저 표시 (기존 UX 유지)
+    setEventOptions(null);
+
+    // ── 레이턴시 마스킹: 카드의 detail을 나레이션으로 즉시 표시 ──
     setCurrentScene({
       dialogue: "",
       narration: detail,
       emotion: "NEUTRAL",
       isEvent: true,
-      sceneType: option.type,
     });
-  
-    // 첫 씬 임시 저장 (큐 구성을 onFinalResult에서 함)
-    let firstSceneData = null;
-  
+
+    // 히스토리에 나레이션 추가
+    setMessages(prev => [...prev, { role: 'SYSTEM', cleanContent: detail, isEvent: true }]);
+
+    // 낙관적 에너지 차감
+    setEnergy(prev => Math.max(0, prev - energyCost));
+
+    // ── detail을 유저 액션으로 sendMessageStream에 전달 ──
+    // *상황 설명* 형식으로 전송하여 캐릭터가 자연스럽게 반응
+    const actionMessage = `*${detail}*`;
+
+    setIsTyping(true);
+    let firstSceneReceived = false;
+    setAwaitingFinalResult(true);
+
     try {
-      await sendEventSelectStream(roomId, detail, energyCost, {
-  
-        onEventMeta: (meta) => {
-          if (meta.eventStatus) {
-            setEventStatus(meta.eventStatus);
-            setEventActive(meta.eventStatus === "ONGOING");
-          }
-        },
-  
+      await sendMessageStream(roomId, actionMessage, {
+        onEventMeta: () => {},
+
         onFirstScene: (scene) => {
-          // [Fix-UI-1] currentScene을 덮어쓰지 않음!
-          // 대신 첫 씬 데이터를 임시 저장 → onFinalResult에서 큐에 합류
-          firstSceneData = {
-            speaker: scene.speaker || null,    // [Fix-UI-2] speaker 포함
+          firstSceneReceived = true;
+          setIsTyping(false);
+          setCurrentScene({
+            speaker: scene.speaker || null,
             narration: scene.narration,
             dialogue: scene.dialogue,
             emotion: scene.emotion || "NEUTRAL",
@@ -1768,23 +1786,27 @@ const ChatPage = () => {
             time: scene.time,
             outfit: scene.outfit,
             bgmMode: scene.bgmMode,
-          };
-          // 타이핑 인디케이터는 해제 (나레이션은 이미 표시 중)
-          setIsTyping(false);
-  
-          console.log("🚀 [SSE] first_scene buffered (not rendered yet):", scene.speaker, scene.emotion);
+          });
+          if (scene.speaker && scene.speaker !== roomInfo?.characterName) {
+            setNpcSpeaker(scene.speaker);
+            setCurrentSpeaker(scene.speaker);
+          } else {
+            setCurrentSpeaker(scene.speaker || null);
+          }
+          setDisplayedEmotion(scene.emotion || "NEUTRAL");
         },
-  
+
         onFinalResult: (data) => {
-          setIsTyping(false);
-  
+          if (!firstSceneReceived) setIsTyping(false);
+          setAwaitingFinalResult(false);
+
           const {
             scenes, currentAffection, stats: newStats, bpm: newBpm,
-            dynamicRelationTag: newRelTag, eventStatus: newEventStatus,
-            topicConcluded: newTopicConcluded,
+            dynamicRelationTag: newRelTag, topicConcluded: newTopicConcluded,
             hasInnerThought: resHasThought, assistantLogId: resLogId,
+            locationTransition: resLocTransition,
           } = data;
-  
+
           setAffection(currentAffection);
           if (newStats) {
             const changes = [];
@@ -1803,56 +1825,52 @@ const ChatPage = () => {
           }
           if (newBpm !== undefined) setCurrentBpm(newBpm);
           if (newRelTag) setDynamicRelationTag(newRelTag);
-          if (newEventStatus) {
-            setEventStatus(newEventStatus);
-            setEventActive(newEventStatus === "ONGOING");
-          }
           if (newTopicConcluded !== undefined) setTopicConcluded(newTopicConcluded);
-  
+
           setHasInnerThought(!!resHasThought);
           setThoughtUnlocked(false);
           setCurrentInnerThought(null);
           setCurrentAssistantLogId(resLogId || null);
-  
-          // [Fix-UI-1] 씬 큐 구성: 현재 나레이션이 표시 중이므로
-          // 유저가 클릭하면 → 첫 번째 씬(firstSceneData or scenes[0]) → 나머지 씬
+
           const fullScenes = scenes || [];
           const queue = fullScenes.map(s => ({
-            speaker: s.speaker || null,      // [Fix-UI-2] speaker 전달
-            narration: s.narration,
-            dialogue: s.dialogue,
+            speaker: s.speaker || null,
+            narration: s.narration, dialogue: s.dialogue,
             emotion: s.emotion || "NEUTRAL",
-            location: s.location,
-            time: s.time,
-            outfit: s.outfit,
-            bgmMode: s.bgmMode,
+            location: s.location, time: s.time,
+            outfit: s.outfit, bgmMode: s.bgmMode,
           }));
-  
           setSceneQueue(queue);
-  
-          // [Phase 5.5-Fix] 히스토리: 통합 헬퍼 사용
-          const historyEntries = [
-            { role: 'SYSTEM', cleanContent: detail }, // 이벤트 나레이션
-            ...buildHistoryEntries(fullScenes, resLogId, resHasThought),
-          ];
-          setMessages(prev => [...prev, ...historyEntries]);
-  
-          // [Phase 5.5-Fix] NPC 감지 (통합)
+
+          const historyEntries = buildHistoryEntries(fullScenes, resLogId, resHasThought);
+          if (historyEntries.length > 0) setMessages(prev => [...prev, ...historyEntries]);
+
           detectNpc(fullScenes);
 
-          // [Phase 5.5-Director] 응답 완료 후 디렉터 자동 체크 스케줄
+          if (resLocTransition) {
+            if (resLocTransition.backgroundUrl) {
+              setDynamicBackgroundUrl(resLocTransition.backgroundUrl);
+            } else if (resLocTransition.isGenerating) {
+              setLocationTransition({
+                active: true, locationName: resLocTransition.locationName,
+                cacheHash: resLocTransition.cacheHash, isGenerating: true,
+              });
+            }
+          }
+
           scheduleDirectorAutoCheck();
-  
+
           api.get("/users/me").then(res => {
             if (res.data.energy !== undefined) setEnergy(res.data.energy);
             if (res.data.freeEnergy !== undefined) setFreeEnergy(res.data.freeEnergy);
             if (res.data.paidEnergy !== undefined) setPaidEnergy(res.data.paidEnergy);
           }).catch(() => {});
         },
-  
+
         onError: (error) => {
-          console.error("[SSE] Event select error:", error);
+          console.error("[Event-Select] SSE error:", error);
           setIsTyping(false);
+          setAwaitingFinalResult(false);
           setEnergy(prev => prev + energyCost);
           setCurrentScene(null);
           showToast(error.message || "이벤트 처리 중 오류가 발생했습니다.", "error");
@@ -1860,6 +1878,7 @@ const ChatPage = () => {
       });
     } catch (err) {
       setIsTyping(false);
+      setAwaitingFinalResult(false);
       setEnergy(prev => prev + energyCost);
       setCurrentScene(null);
       showToast("이벤트 처리 중 오류가 발생했습니다.", "error");
