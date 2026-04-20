@@ -1,0 +1,696 @@
+import { useState, useEffect, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate } from "react-router-dom";
+import {
+  X, ChevronLeft, ChevronRight, Check, Sparkles, Users, User,
+  Lock, Unlock, RotateCcw, Heart, Zap, Crown, Star
+} from "lucide-react";
+import { createTheaterSession } from "../../api/TheaterLobbyApi";
+import { useAuth } from "../../context/AuthContext";
+
+/**
+ * [Phase 5.5-Theater] Theater 세션 생성 플로우
+ *
+ * 4단계:
+ *   STEP 1: 히로인 선택 (해당 세계관의 캐릭터들 — 단일/다중)
+ *   STEP 2: 아바타 기본 정보 (이름 + 성별/나이/체형 프리셋)
+ *   STEP 3: 성격/백스토리 (성격 태그 + 자유 텍스트)
+ *   STEP 4: 스탯 분배 (Lucid Pass 가입자만 활성, 무료는 skip)
+ *
+ * Props:
+ *   world         : 선택된 세계관 카드 (TheaterLobbyTab에서 전달)
+ *   onClose       : 닫기
+ */
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  프리셋 데이터
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const GENDER_OPTIONS = [
+  { value: "MALE", label: "남성", icon: "♂" },
+  { value: "FEMALE", label: "여성", icon: "♀" },
+  { value: "OTHER", label: "그 외", icon: "✦" },
+];
+
+const AGE_OPTIONS = [
+  { value: "TEEN", label: "10대" },
+  { value: "TWENTIES", label: "20대" },
+  { value: "THIRTIES", label: "30대" },
+  { value: "FORTIES", label: "40대" },
+  { value: "MATURE", label: "50대 이상" },
+];
+
+const PHYSIQUE_OPTIONS = [
+  { value: "SLIM", label: "마른" },
+  { value: "AVERAGE", label: "보통" },
+  { value: "TONED", label: "탄탄한" },
+  { value: "STURDY", label: "우람한" },
+  { value: "CURVY", label: "풍만한" },
+];
+
+const PERSONALITY_TAGS = [
+  "내향적", "외향적", "냉소적", "낙천적", "열정적", "차분한",
+  "유머러스", "진지한", "섬세한", "대담한", "호기심 많은", "고집스러운",
+  "친절한", "까칠한", "낭만적", "현실적", "몽상가", "계산적",
+];
+
+const RELATION_START_OPTIONS = [
+  { value: "FIRST_MEETING", label: "첫 만남", desc: "아무 인연도 없는 첫 조우" },
+  { value: "OLD_FRIEND", label: "오랜 친구", desc: "이미 가까운 사이" },
+  { value: "REUNION", label: "오랜만의 재회", desc: "과거의 인연이 되살아난다" },
+  { value: "CONTRACT", label: "계약 관계", desc: "어떤 이해관계로 얽힌 관계" },
+  { value: "ARRANGED", label: "주선된 관계", desc: "제3자가 맺어준 만남" },
+];
+
+const STAT_AXES = [
+  { key: "charm", label: "매력", icon: "✨", color: "pink", desc: "외모와 첫인상" },
+  { key: "wit", label: "입담", icon: "💬", color: "cyan", desc: "언변과 유머 감각" },
+  { key: "boldness", label: "담력", icon: "🔥", color: "orange", desc: "용기와 결단력" },
+  { key: "intellect", label: "지성", icon: "📘", color: "indigo", desc: "지식과 통찰" },
+  { key: "empathy", label: "감수성", icon: "🌸", color: "rose", desc: "공감과 섬세함" },
+];
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  공통 버튼 스타일
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const ChipButton = ({ selected, onClick, children, disabled, className = "" }) => (
+  <motion.button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    whileTap={{ scale: disabled ? 1 : 0.95 }}
+    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
+      selected
+        ? "bg-indigo-500/20 border-indigo-400/60 text-indigo-100"
+        : "bg-white/[0.03] border-white/10 text-white/60 hover:bg-white/[0.08]"
+    } ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer"} ${className}`}
+  >
+    {children}
+  </motion.button>
+);
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  메인 컴포넌트
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export default function TheaterCreateFlow({ world, onClose }) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  // 구독 티어로 스탯 분배 한도 결정
+  const statTier = useMemo(() => {
+    const tier = user?.subscriptionTier;
+    if (tier === "LUCID_PASS_PREMIUM") return { total: 40, perStat: 20 };
+    if (tier === "LUCID_PASS" || tier === "LUCID_MIDNIGHT_PASS")
+      return { total: 20, perStat: 10 };
+    return { total: 0, perStat: 0 };
+  }, [user]);
+
+  const [step, setStep] = useState(1);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(null);
+
+  // 폼 상태
+  const [selectedHeroineIds, setSelectedHeroineIds] = useState([]);
+  const [form, setForm] = useState({
+    avatarName: "",
+    gender: "MALE",
+    ageRange: "TWENTIES",
+    physique: "AVERAGE",
+    appearance: "",
+    role: "",
+    personalityTags: [],
+    relationStart: "FIRST_MEETING",
+    backstory: "",
+    personaText: "",
+  });
+  const [stats, setStats] = useState({
+    charm: 0, wit: 0, boldness: 0, intellect: 0, empathy: 0,
+  });
+
+  const heroines = world?.heroines || [];
+  const isMultiHeroineWorld = heroines.length > 1;
+
+  // ─── 히로인 토글 ───
+  const toggleHeroine = (id) => {
+    setSelectedHeroineIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      if (prev.length >= 3) return prev;
+      return [...prev, id];
+    });
+  };
+
+  // ─── 성격 태그 토글 ───
+  const togglePersonalityTag = (tag) => {
+    setForm((f) => {
+      const tags = f.personalityTags.includes(tag)
+        ? f.personalityTags.filter((t) => t !== tag)
+        : f.personalityTags.length < 5
+        ? [...f.personalityTags, tag]
+        : f.personalityTags;
+      return { ...f, personalityTags: tags };
+    });
+  };
+
+  // ─── 스탯 분배 ───
+  const totalStatUsed = Object.values(stats).reduce((a, b) => a + b, 0);
+  const remainingPoints = statTier.total - totalStatUsed;
+
+  const adjustStat = (key, delta) => {
+    setStats((prev) => {
+      const cur = prev[key];
+      const next = cur + delta;
+      if (next < 0) return prev;
+      if (next > statTier.perStat) return prev;
+      const nextTotal = totalStatUsed + delta;
+      if (nextTotal > statTier.total) return prev;
+      return { ...prev, [key]: next };
+    });
+  };
+
+  const resetStats = () => {
+    setStats({ charm: 0, wit: 0, boldness: 0, intellect: 0, empathy: 0 });
+  };
+
+  // ─── 진행 가능 검증 ───
+  const canProceedStep1 = selectedHeroineIds.length >= 1;
+  const canProceedStep2 =
+    form.avatarName.trim().length >= 1 &&
+    form.gender && form.ageRange && form.physique;
+  const canProceedStep3 = true; // 성격/백스토리는 선택 항목
+  const canSubmit = canProceedStep1 && canProceedStep2;
+
+  // ─── 최종 제출 ───
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const payload = {
+        worldId: world.id,
+        heroineIds: selectedHeroineIds,
+        avatarName: form.avatarName.trim() || null,
+        avatarProfile: {
+          name: form.avatarName.trim() || null,
+          gender: form.gender,
+          ageRange: form.ageRange,
+          physique: form.physique,
+          appearance: form.appearance.trim() || null,
+          role: form.role.trim() || null,
+          personalityTags: form.personalityTags.length > 0 ? form.personalityTags : null,
+          relationStart: form.relationStart,
+          backstory: form.backstory.trim() || null,
+        },
+        personaText: form.personaText.trim() || null,
+        initialStats: statTier.total > 0 ? stats : null,
+      };
+      const room = await createTheaterSession(payload);
+      // 세션 생성 성공 → Theater 페이지로 이동
+      navigate(`/theater/${room.roomId}`);
+    } catch (e) {
+      console.error("[Theater] Create failed:", e);
+      setError(e?.response?.data?.message || "세션 생성에 실패했습니다.");
+      setSubmitting(false);
+    }
+  };
+
+  // ─── 다음/이전 ───
+  const skipToSubmitAllowed = step === 3 && statTier.total === 0;
+  const goNext = () => {
+    if (step === 1 && !canProceedStep1) return;
+    if (step === 2 && !canProceedStep2) return;
+    if (skipToSubmitAllowed) {
+      handleSubmit();
+      return;
+    }
+    if (step < 4) setStep((s) => s + 1);
+    else handleSubmit();
+  };
+  const goPrev = () => { if (step > 1) setStep((s) => s - 1); };
+
+  if (!world) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0, y: 20 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          exit={{ scale: 0.95, opacity: 0, y: 20 }}
+          transition={{ type: "spring", stiffness: 300, damping: 30 }}
+          className="relative w-full max-w-2xl max-h-[90vh] bg-gradient-to-b from-slate-900 to-indigo-950 rounded-3xl border border-white/10 shadow-2xl overflow-hidden flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* ═══ 헤더 ═══ */}
+          <div className="relative p-6 pb-4 border-b border-white/5">
+            <button
+              onClick={onClose}
+              className="absolute top-5 right-5 p-2 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition"
+            >
+              <X size={18} />
+            </button>
+            <div className="flex items-center gap-2 text-xs text-white/40 uppercase tracking-widest mb-1">
+              <Sparkles size={12} /> 새로운 극
+            </div>
+            <h2 className="text-xl font-black text-white mb-1">{world.displayName}</h2>
+            <p className="text-sm text-white/50">{world.tagline}</p>
+
+            {/* 스텝 인디케이터 */}
+            <div className="mt-4 flex items-center gap-2">
+              {[1, 2, 3, 4].map((n) => {
+                const isCurrent = n === step;
+                const isPast = n < step;
+                const isDisabled = n === 4 && statTier.total === 0;
+                return (
+                  <div key={n} className="flex items-center gap-2">
+                    <motion.div
+                      className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border transition-colors ${
+                        isPast
+                          ? "bg-indigo-500 border-indigo-400 text-white"
+                          : isCurrent
+                          ? "bg-indigo-500/20 border-indigo-400 text-indigo-200"
+                          : isDisabled
+                          ? "bg-white/[0.02] border-white/10 text-white/20"
+                          : "bg-white/[0.04] border-white/20 text-white/50"
+                      }`}
+                    >
+                      {isPast ? <Check size={14} /> : n}
+                    </motion.div>
+                    {n < 4 && (
+                      <div
+                        className={`h-[1px] w-8 ${isPast ? "bg-indigo-400" : "bg-white/10"}`}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ═══ 본문 ═══ */}
+          <div className="flex-1 overflow-y-auto p-6 scroll-smooth">
+            <AnimatePresence mode="wait">
+              {step === 1 && (
+                <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                  <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
+                    <Users size={16} className="text-indigo-300" />
+                    히로인 선택
+                  </h3>
+                  <p className="text-xs text-white/50 mb-4">
+                    {isMultiHeroineWorld
+                      ? "이 세계관엔 여러 히로인이 있습니다. 1~3명까지 선택할 수 있어요."
+                      : "이 세계관의 주인공을 확인하세요."}
+                  </p>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {heroines.map((h) => {
+                      const selected = selectedHeroineIds.includes(h.id);
+                      return (
+                        <motion.button
+                          type="button"
+                          key={h.id}
+                          onClick={() => toggleHeroine(h.id)}
+                          whileTap={{ scale: 0.98 }}
+                          className={`relative rounded-2xl border p-4 text-left transition-all overflow-hidden ${
+                            selected
+                              ? "bg-indigo-500/10 border-indigo-400/60 ring-1 ring-indigo-400/40"
+                              : "bg-white/[0.03] border-white/10 hover:border-white/20"
+                          }`}
+                        >
+                          {selected && (
+                            <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center text-white">
+                              <Check size={14} />
+                            </div>
+                          )}
+                          <div className="flex items-start gap-3">
+                            <div
+                              className="w-14 h-14 rounded-xl bg-cover bg-center flex-shrink-0 border border-white/10"
+                              style={{
+                                backgroundImage: h.thumbnailUrl ? `url(${h.thumbnailUrl})` : "none",
+                                backgroundColor: "#4c1d95",
+                              }}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="font-bold text-white">{h.name}</div>
+                              <div className="text-xs text-white/50 line-clamp-2 mt-0.5">
+                                {h.tagline}
+                              </div>
+                            </div>
+                          </div>
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-3 text-xs text-white/40 text-center">
+                    {selectedHeroineIds.length}/3 선택
+                  </div>
+                </motion.div>
+              )}
+
+              {step === 2 && (
+                <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                  <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
+                    <User size={16} className="text-indigo-300" />
+                    아바타 기본 정보
+                  </h3>
+                  <p className="text-xs text-white/50 mb-4">
+                    당신이 감독할 주인공의 외모와 기본 정보입니다.
+                  </p>
+
+                  {/* 이름 */}
+                  <div className="mb-5">
+                    <label className="text-xs text-white/60 mb-1.5 block">이름 *</label>
+                    <input
+                      type="text"
+                      value={form.avatarName}
+                      onChange={(e) => setForm({ ...form, avatarName: e.target.value })}
+                      placeholder="주인공의 이름"
+                      maxLength={20}
+                      className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/30 focus:border-indigo-400/60 outline-none"
+                    />
+                  </div>
+
+                  {/* 성별 */}
+                  <div className="mb-5">
+                    <label className="text-xs text-white/60 mb-1.5 block">성별</label>
+                    <div className="flex gap-2">
+                      {GENDER_OPTIONS.map((g) => (
+                        <ChipButton
+                          key={g.value}
+                          selected={form.gender === g.value}
+                          onClick={() => setForm({ ...form, gender: g.value })}
+                        >
+                          {g.icon} {g.label}
+                        </ChipButton>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 나이대 */}
+                  <div className="mb-5">
+                    <label className="text-xs text-white/60 mb-1.5 block">나이대</label>
+                    <div className="flex flex-wrap gap-2">
+                      {AGE_OPTIONS.map((a) => (
+                        <ChipButton
+                          key={a.value}
+                          selected={form.ageRange === a.value}
+                          onClick={() => setForm({ ...form, ageRange: a.value })}
+                        >
+                          {a.label}
+                        </ChipButton>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 체형 */}
+                  <div className="mb-5">
+                    <label className="text-xs text-white/60 mb-1.5 block">체형</label>
+                    <div className="flex flex-wrap gap-2">
+                      {PHYSIQUE_OPTIONS.map((p) => (
+                        <ChipButton
+                          key={p.value}
+                          selected={form.physique === p.value}
+                          onClick={() => setForm({ ...form, physique: p.value })}
+                        >
+                          {p.label}
+                        </ChipButton>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 외형 디테일 */}
+                  <div>
+                    <label className="text-xs text-white/60 mb-1.5 block">외형 상세 (선택)</label>
+                    <input
+                      type="text"
+                      value={form.appearance}
+                      onChange={(e) => setForm({ ...form, appearance: e.target.value })}
+                      placeholder="예: 검은 머리에 서늘한 눈매..."
+                      maxLength={150}
+                      className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/30 focus:border-indigo-400/60 outline-none"
+                    />
+                  </div>
+                </motion.div>
+              )}
+
+              {step === 3 && (
+                <motion.div key="step3" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                  <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
+                    <Sparkles size={16} className="text-purple-300" />
+                    성격 & 배경
+                  </h3>
+                  <p className="text-xs text-white/50 mb-4">
+                    주인공의 성격과 과거. 모두 선택 항목입니다.
+                  </p>
+
+                  {/* 신분/직업 */}
+                  <div className="mb-5">
+                    <label className="text-xs text-white/60 mb-1.5 block">신분/직업</label>
+                    <input
+                      type="text"
+                      value={form.role}
+                      onChange={(e) => setForm({ ...form, role: e.target.value })}
+                      placeholder="예: 몰락한 귀족의 서자 / 평범한 대학생"
+                      maxLength={50}
+                      className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/30 focus:border-purple-400/60 outline-none"
+                    />
+                  </div>
+
+                  {/* 성격 태그 */}
+                  <div className="mb-5">
+                    <label className="text-xs text-white/60 mb-1.5 block">
+                      성격 키워드 ({form.personalityTags.length}/5)
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {PERSONALITY_TAGS.map((tag) => {
+                        const selected = form.personalityTags.includes(tag);
+                        const disabled = !selected && form.personalityTags.length >= 5;
+                        return (
+                          <ChipButton
+                            key={tag}
+                            selected={selected}
+                            disabled={disabled}
+                            onClick={() => togglePersonalityTag(tag)}
+                          >
+                            {tag}
+                          </ChipButton>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 관계 시작점 */}
+                  <div className="mb-5">
+                    <label className="text-xs text-white/60 mb-1.5 block">관계 시작점</label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {RELATION_START_OPTIONS.map((r) => (
+                        <button
+                          type="button"
+                          key={r.value}
+                          onClick={() => setForm({ ...form, relationStart: r.value })}
+                          className={`text-left px-3 py-2 rounded-xl border transition-colors ${
+                            form.relationStart === r.value
+                              ? "bg-purple-500/15 border-purple-400/60"
+                              : "bg-white/[0.03] border-white/10 hover:border-white/20"
+                          }`}
+                        >
+                          <div className="text-sm font-bold text-white">{r.label}</div>
+                          <div className="text-xs text-white/50">{r.desc}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 백스토리 */}
+                  <div className="mb-5">
+                    <label className="text-xs text-white/60 mb-1.5 block">백스토리 (선택)</label>
+                    <textarea
+                      value={form.backstory}
+                      onChange={(e) => setForm({ ...form, backstory: e.target.value })}
+                      placeholder="주인공은 어떤 사람이며, 왜 이 이야기에 휘말리게 되었을까요?"
+                      rows={3}
+                      maxLength={300}
+                      className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/30 focus:border-purple-400/60 outline-none resize-none"
+                    />
+                  </div>
+
+                  {/* 자유 텍스트 페르소나 */}
+                  <div>
+                    <label className="text-xs text-white/60 mb-1.5 block">
+                      자유 페르소나 (선택)
+                    </label>
+                    <textarea
+                      value={form.personaText}
+                      onChange={(e) => setForm({ ...form, personaText: e.target.value })}
+                      placeholder="주인공의 자기 인식. 페르소나와 스탯의 차이가 서사의 맛을 만듭니다."
+                      rows={3}
+                      maxLength={500}
+                      className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/30 focus:border-purple-400/60 outline-none resize-none"
+                    />
+                    <div className="mt-2 text-[11px] text-amber-300/60 flex items-start gap-1.5">
+                      <span>💡</span>
+                      <span>
+                        페르소나는 주인공의 자기 인식이고, 실제 능력은 <b>스탯</b>으로 결정됩니다.
+                        이 갭이 재미있는 서사를 만들어냅니다.
+                      </span>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {step === 4 && (
+                <motion.div key="step4" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                  <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
+                    <Star size={16} className="text-amber-300" />
+                    초기 스탯 분배
+                  </h3>
+
+                  {statTier.total === 0 ? (
+                    <div className="p-6 rounded-2xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/20 text-center">
+                      <Lock size={24} className="mx-auto text-amber-300/60 mb-3" />
+                      <div className="text-sm text-amber-100 font-bold mb-1">
+                        Lucid Pass 전용 기능
+                      </div>
+                      <div className="text-xs text-white/60 mb-4">
+                        Lucid Pass 가입자는 최대 20포인트(Premium 40포인트)를
+                        <br />
+                        5개 스탯에 자유롭게 분배할 수 있습니다.
+                      </div>
+                      <div className="text-xs text-white/40">
+                        무료 플레이어는 모든 스탯 0에서 시작해 인터미션으로 성장시켜요.
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-xs text-white/50 mb-4">
+                        총 {statTier.total} 포인트를 5개 스탯에 분배하세요 (스탯당 최대 {statTier.perStat})
+                      </p>
+
+                      <div className="flex items-center justify-between mb-4 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20">
+                        <div className="flex items-center gap-2">
+                          <Crown size={16} className="text-amber-300" />
+                          <span className="text-sm font-bold text-amber-100">
+                            남은 포인트: {remainingPoints}
+                          </span>
+                        </div>
+                        <button
+                          onClick={resetStats}
+                          className="flex items-center gap-1 px-3 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs text-white/70"
+                        >
+                          <RotateCcw size={12} /> 초기화
+                        </button>
+                      </div>
+
+                      <div className="space-y-3">
+                        {STAT_AXES.map((axis) => (
+                          <div key={axis.key} className="p-3 rounded-xl bg-white/[0.03] border border-white/5">
+                            <div className="flex items-center justify-between mb-2">
+                              <div>
+                                <div className="text-sm font-bold text-white flex items-center gap-2">
+                                  <span>{axis.icon}</span>
+                                  {axis.label}
+                                </div>
+                                <div className="text-[10px] text-white/40">{axis.desc}</div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => adjustStat(axis.key, -1)}
+                                  disabled={stats[axis.key] === 0}
+                                  className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-30 text-white"
+                                >
+                                  −
+                                </button>
+                                <span className="w-10 text-center font-bold text-white">
+                                  {stats[axis.key]}
+                                </span>
+                                <button
+                                  onClick={() => adjustStat(axis.key, +1)}
+                                  disabled={
+                                    remainingPoints === 0 ||
+                                    stats[axis.key] >= statTier.perStat
+                                  }
+                                  className="w-7 h-7 rounded-lg bg-indigo-500/30 hover:bg-indigo-500/50 disabled:opacity-30 text-white"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                            {/* 프로그레스 바 */}
+                            <div className="h-1 rounded-full bg-white/5 overflow-hidden">
+                              <motion.div
+                                className={`h-full bg-gradient-to-r from-${axis.color}-500 to-${axis.color}-400`}
+                                style={{
+                                  width: `${(stats[axis.key] / statTier.perStat) * 100}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {error && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-300"
+              >
+                {error}
+              </motion.div>
+            )}
+          </div>
+
+          {/* ═══ 푸터 ═══ */}
+          <div className="flex items-center justify-between p-5 border-t border-white/5 bg-slate-900/50">
+            <button
+              onClick={goPrev}
+              disabled={step === 1 || submitting}
+              className="flex items-center gap-1 px-4 py-2 rounded-lg text-sm text-white/50 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft size={16} /> 이전
+            </button>
+
+            <button
+              onClick={goNext}
+              disabled={
+                submitting ||
+                (step === 1 && !canProceedStep1) ||
+                (step === 2 && !canProceedStep2)
+              }
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-400 hover:to-purple-400 text-white font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed shadow-lg"
+            >
+              {submitting ? (
+                <>
+                  <motion.div
+                    className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full"
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
+                  />
+                  생성 중...
+                </>
+              ) : skipToSubmitAllowed ? (
+                <>극 시작 <Sparkles size={16} /></>
+              ) : step === 4 ? (
+                <>극 시작 <Sparkles size={16} /></>
+              ) : (
+                <>다음 <ChevronRight size={16} /></>
+              )}
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}

@@ -3,6 +3,10 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import ChatPage from "./pages/ChatPage";
 import LoginPage from "./pages/LoginPage";
 import LobbyPage from "./pages/LobbyPage";
+import TheaterPlayPage from "./pages/TheaterPlayPage";
+import TheaterIntermissionPage from "./pages/TheaterIntermissionPage";
+import TheaterEndingCredits from "./pages/TheaterEndingCredits";
+import LobbyTabShell from "./pages/LobbyTabShell";
 import OAuthSuccessPage from "./pages/OAuthSuccessPage";
 
 const ProtectedRoute = ({ children }) => {
@@ -26,14 +30,10 @@ function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/oauth2/success" element={<OAuthSuccessPage />} />
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute>
-                <LobbyPage />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/" element={<LobbyTabShell />} />
+          <Route path="/theater/:roomId" element={<TheaterPlayPage />} />
+          <Route path="/theater/:roomId/intermission" element={<TheaterIntermissionPage />} />
+          <Route path="/theater/:roomId/ending" element={<TheaterEndingCredits />} />
           <Route
             path="/chat/:roomId"
             element={
