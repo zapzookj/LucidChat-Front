@@ -399,7 +399,7 @@ const SettingsModal = ({ onClose, onLogout, bgmMuted, onToggleBgm }) => (
 // ═══════════════════════════════════════════════════════════════
 //  메인 로비 페이지
 // ═══════════════════════════════════════════════════════════════
-const LobbyPage = () => {
+const LobbyPage = ({ topbarExtras }) => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
@@ -585,8 +585,12 @@ const LobbyPage = () => {
         </motion.div>
 
         <div className="flex items-center gap-3 sm:gap-4">
-          <div className="flex items-center gap-1.5 bg-black/20 backdrop-blur-md border border-white/10 rounded-full px-3 py-1.5">
-            <Zap size={14} className="text-amber-400" />
+          {/* ─── 탭바 슬롯 ─── */}
+          {topbarExtras && (
+            <div className="mr-1">{topbarExtras}</div>
+          )}
+          <div className="flex items-center gap-1.5 bg-black/20 ...">
+            <Zap size={14} />
             <span className="text-sm font-semibold text-white">{displayEnergy}</span>
           </div>
           <div className="hidden sm:flex items-center gap-1.5 text-white/60 text-sm">

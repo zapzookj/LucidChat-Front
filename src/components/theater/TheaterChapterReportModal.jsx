@@ -25,7 +25,12 @@ const PHASES = {
   READY: "ready",        // 다음 버튼 노출
 };
 
-export default function TheaterChapterReportModal({ report, onClose }) {
+export default function TheaterChapterReportModal({
+  report,
+  onClose,
+  currentAct = 1,           // [v2] 현재 Act (닫기 이후 기준)
+  actTotalChapters = 5,     // [v2] 이 Act의 총 Chapter 수 (미정이면 5 기본)
+}) {
   const [phase, setPhase] = useState(PHASES.INTRO);
 
   // 연출 시퀀스
@@ -201,8 +206,49 @@ export default function TheaterChapterReportModal({ report, onClose }) {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mt-8 flex justify-center"
+              className="mt-8 flex flex-col items-center gap-4"
             >
+              {/* [v2] Act 진행도 힌트 */}
+              {!report.leadsToIntermission && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.3 }}
+                  className="flex flex-col items-center gap-2"
+                >
+                  <div className="text-[10px] uppercase tracking-widest text-white/40">
+                    Act {currentAct} 진행도
+                  </div>
+                  <div className="flex gap-1.5">
+                    {Array.from({ length: actTotalChapters }).map((_, i) => (
+                      <div
+                        key={i}
+                        className={`h-[3px] w-8 rounded-full ${
+                          i < report.chapterNumber
+                            ? "bg-gradient-to-r from-indigo-400 to-purple-400"
+                            : i === report.chapterNumber - 1
+                            ? "bg-white/80"
+                            : "bg-white/15"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <div className="text-xs text-white/60">
+                    {actTotalChapters - report.chapterNumber > 0 ? (
+                      <>
+                        Act {currentAct} 종료까지{" "}
+                        <span className="text-amber-200 font-bold">
+                          {actTotalChapters - report.chapterNumber}
+                        </span>{" "}
+                        Chapter 남음
+                      </>
+                    ) : (
+                      <span className="text-amber-200 font-bold">이 Chapter로 Act {currentAct} 마무리</span>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+
               <motion.button
                 onClick={onClose}
                 whileTap={{ scale: 0.96 }}

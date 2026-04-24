@@ -1,0 +1,490 @@
+import { useState, useEffect, useRef, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  ChevronLeft, ChevronRight, Play, Pause, BookOpen, SkipForward, Heart
+} from "lucide-react";
+
+/**
+ * [Phase 5.5-Theater-Polish] Theater 전용 하단 Dialogue 박스
+ *
+ * 이슈 #1 해결: narration → inner_narration → [user_dialogue] → [heroine_dialogue] 순차 출력
+ * 이슈 #2 해결: 기존 Dialogue 모드 하단 박스 스타일 계승
+ * 이슈 #3 해결: 핸들러는 버튼에만 연결 (박스 자체는 클릭 안 먹음)
+ *
+ * ────────────────────────────────────────────────────────────
+ *
+ * Props:
+ *   scene                 : 현재 씬 객체 { narration, innerNarration, dialogue, speakerType, speakerName, emotion }
+ *   speakerName           : 대사 화자 표시 이름
+ *   avatarName            : 주인공(유저 아바타) 이름
+ *   playSpeed             : "SLOW" | "NORMAL" | "FAST"
+ *   onSpeedChange         : (speed) => void
+ *   autoPlayEnabled       : bool
+ *   onToggleAutoPlay      : () => void
+ *   onPrevScene           : () => void     — 이전 씬 (같은 배치 내에서만)
+ *   onNextScene           : () => void     — 다음 씬
+ *   canGoPrev             : bool
+ *   canGoNext             : bool
+ *   loadingNext           : bool
+ *   onOpenHistory         : () => void     — 대화 기록 패널 오픈
+ *   sceneIndexInBatch     : number
+ *   sceneCountInBatch     : number
+ *   leadHeroineAffection  : number | null  — 리드 히로인 호감도 (HUD 표시용)
+ */
+
+// 타자기 속도
+const TYPING_SPEED = { SLOW: 55, NORMAL: 35, FAST: 20 };
+
+// 파트별 대기 시간 (자동재생 시)
+const AUTO_ADVANCE_MS = { SLOW: 6500, NORMAL: 4500, FAST: 2500 };
+
+/**
+ * 순차 타자기 — 여러 파트를 순서대로 렌더
+ *
+ * parts: [{ key, text, kind, skipIfEmpty }]
+ *   - kind: "narration" | "inner" | "dialogue_user" | "dialogue_heroine"
+ *
+ * 반환: {
+ *   displayedMap: { [key]: string },  // 현재까지 표시된 텍스트
+ *   allDone: boolean,
+ *   skipAll: () => void,
+ * }
+ */
+function useSequentialTypewriter(parts, speedMs) {
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [displayed, setDisplayed] = useState({});
+  const [allDone, setAllDone] = useState(false);
+  const skipFlagRef = useRef(false);
+
+  // 파트 목록이 바뀌면 초기화
+  const partsKey = useMemo(
+    () => parts.map((p) => `${p.key}:${(p.text || "").length}`).join("|"),
+    [parts]
+  );
+
+  useEffect(() => {
+    setActiveIdx(0);
+    setDisplayed({});
+    setAllDone(false);
+    skipFlagRef.current = false;
+  }, [partsKey]);
+
+  useEffect(() => {
+    if (activeIdx >= parts.length) {
+      setAllDone(true);
+      return;
+    }
+    const current = parts[activeIdx];
+    if (!current || !current.text) {
+      // 빈 파트는 스킵
+      setActiveIdx((i) => i + 1);
+      return;
+    }
+    if (skipFlagRef.current) {
+      // skip 모드면 즉시 완료
+      setDisplayed((d) => ({ ...d, [current.key]: current.text }));
+      setActiveIdx((i) => i + 1);
+      return;
+    }
+
+    let i = 0;
+    const interval = setInterval(() => {
+      if (skipFlagRef.current) {
+        setDisplayed((d) => ({ ...d, [current.key]: current.text }));
+        clearInterval(interval);
+        setActiveIdx((idx) => idx + 1);
+        return;
+      }
+      i++;
+      setDisplayed((d) => ({ ...d, [current.key]: current.text.slice(0, i) }));
+      if (i >= current.text.length) {
+        clearInterval(interval);
+        setActiveIdx((idx) => idx + 1);
+      }
+    }, speedMs);
+
+    return () => clearInterval(interval);
+  }, [activeIdx, parts, speedMs]);
+
+  const skipAll = () => {
+    skipFlagRef.current = true;
+    const full = {};
+    parts.forEach((p) => { if (p.text) full[p.key] = p.text; });
+    setDisplayed(full);
+    setActiveIdx(parts.length);
+    setAllDone(true);
+  };
+
+  return { displayed, allDone, skipAll, activeIdx };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  메인 컴포넌트
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+export default function TheaterDialogueBox({
+  scene,
+  avatarName,
+  playSpeed = "NORMAL",
+  onSpeedChange,
+  autoPlayEnabled = true,
+  onToggleAutoPlay,
+  onPrevScene,
+  onNextScene,
+  canGoPrev = false,
+  canGoNext = true,
+  loadingNext = false,
+  onOpenHistory,
+  sceneIndexInBatch = 0,
+  sceneCountInBatch = 1,
+  leadHeroineName,
+  leadHeroineAffection,
+  onTypingDone,
+}) {
+  const speed = TYPING_SPEED[playSpeed] || TYPING_SPEED.NORMAL;
+
+  // ─── 씬을 순차 파트로 분해 ───
+  const parts = useMemo(() => {
+    if (!scene) return [];
+
+    const speakerType = scene.speakerType || null;
+    // speakerType이 서버에서 안 올 때는 speakerName으로 추론
+    const isAvatarSpeaking =
+      speakerType === "AVATAR" ||
+      (!speakerType && scene.speakerName && scene.speakerName === avatarName);
+    const isHeroineSpeaking =
+      speakerType === "HEROINE" ||
+      (!speakerType && scene.speakerName && scene.speakerName !== avatarName);
+
+    const result = [];
+
+    // 1. 나레이션
+    if (scene.narration) {
+      result.push({ key: "narration", text: scene.narration, kind: "narration" });
+    }
+    // 2. 속마음
+    if (scene.innerNarration) {
+      result.push({ key: "inner", text: scene.innerNarration, kind: "inner" });
+    }
+    // 3-a. 유저(아바타) 대사 (있을 때만)
+    if (scene.dialogue && isAvatarSpeaking) {
+      result.push({ key: "dialogue_user", text: scene.dialogue, kind: "dialogue_user" });
+    }
+    // 3-b. 히로인 대사 (있을 때만)
+    if (scene.dialogue && isHeroineSpeaking) {
+      result.push({ key: "dialogue_heroine", text: scene.dialogue, kind: "dialogue_heroine" });
+    }
+
+    return result;
+  }, [scene, avatarName]);
+
+  const { displayed, allDone, skipAll } = useSequentialTypewriter(parts, speed);
+
+  useEffect(() => {
+    if (allDone && onTypingDone) onTypingDone();
+  }, [allDone, onTypingDone]);
+
+  // ─── 씬별 화자 이름 계산 ───
+  const speakerType = scene?.speakerType || null;
+  const isAvatarSpeaking =
+    speakerType === "AVATAR" ||
+    (!speakerType && scene?.speakerName && scene?.speakerName === avatarName);
+  const isHeroineSpeaking =
+    speakerType === "HEROINE" ||
+    (!speakerType && scene?.speakerName && scene?.speakerName !== avatarName);
+
+  const dialogueSpeakerName = isAvatarSpeaking
+    ? avatarName || "주인공"
+    : scene?.speakerName || "";
+
+  // ─── 현재 렌더 중인 파트 표시용 ───
+  const narrationText = displayed.narration || "";
+  const innerText = displayed.inner || "";
+  const userDialogue = displayed.dialogue_user || "";
+  const heroineDialogue = displayed.dialogue_heroine || "";
+
+  return (
+    <div
+      className="absolute bottom-0 left-0 right-0 z-30 p-4 md:p-6 pointer-events-none"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="max-w-5xl mx-auto pointer-events-auto">
+        {/* ═══ 컨트롤 바 (박스 위) ═══ */}
+        <TopControls
+          playSpeed={playSpeed}
+          onSpeedChange={onSpeedChange}
+          autoPlayEnabled={autoPlayEnabled}
+          onToggleAutoPlay={onToggleAutoPlay}
+          onOpenHistory={onOpenHistory}
+          sceneIndexInBatch={sceneIndexInBatch}
+          sceneCountInBatch={sceneCountInBatch}
+          leadHeroineName={leadHeroineName}
+          leadHeroineAffection={leadHeroineAffection}
+        />
+
+        {/* ═══ 메인 다이얼로그 박스 ═══ */}
+        <div
+          className="relative rounded-2xl bg-black/75 backdrop-blur-md border border-white/10 shadow-2xl"
+          style={{
+            minHeight: "200px",
+            maxHeight: "40vh",
+          }}
+        >
+          <div className="p-5 md:p-6 overflow-y-auto max-h-[38vh] space-y-3">
+            {/* 나레이션 */}
+            {scene?.narration && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-white/90 text-[15px] md:text-base leading-relaxed"
+                style={{ fontFamily: "'Noto Serif KR', serif" }}
+              >
+                {narrationText}
+                {narrationText.length < (scene.narration?.length || 0) && (
+                  <TypingCursor color="rgba(255,255,255,0.6)" />
+                )}
+              </motion.div>
+            )}
+
+            {/* 속마음 */}
+            {scene?.innerNarration && narrationText.length >= (scene.narration?.length || 0) && (
+              <motion.div
+                initial={{ opacity: 0, x: 8 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="relative pl-4 py-2 border-l-2 border-purple-400/50"
+              >
+                <div
+                  className="text-purple-200/85 text-sm italic leading-relaxed"
+                  style={{ fontFamily: "'Noto Serif KR', serif" }}
+                >
+                  <span className="text-purple-400/60 mr-1">「</span>
+                  {innerText}
+                  <span className="text-purple-400/60 ml-1">」</span>
+                  {innerText.length < (scene.innerNarration?.length || 0) && (
+                    <TypingCursor color="rgba(196,181,253,0.6)" />
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {/* 대사 */}
+            {scene?.dialogue && (
+              <DialogueLine
+                isAvatarSpeaking={isAvatarSpeaking}
+                isHeroineSpeaking={isHeroineSpeaking}
+                speakerName={dialogueSpeakerName}
+                text={isAvatarSpeaking ? userDialogue : heroineDialogue}
+                fullText={scene.dialogue}
+              />
+            )}
+          </div>
+
+          {/* ═══ 하단 네비게이션 바 ═══ */}
+          <BottomNav
+            onPrev={onPrevScene}
+            onNext={allDone ? onNextScene : skipAll}
+            canGoPrev={canGoPrev}
+            canGoNext={canGoNext}
+            loadingNext={loadingNext}
+            allDone={allDone}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  대사 라인 (유저 vs 히로인 스타일 분리)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const DialogueLine = ({ isAvatarSpeaking, isHeroineSpeaking, speakerName, text, fullText }) => {
+  if (!text && !fullText) return null;
+
+  const typing = (text?.length || 0) < (fullText?.length || 0);
+
+  if (isAvatarSpeaking) {
+    // 유저(아바타) 대사 — 우측 정렬 / 파란 계열
+    return (
+      <motion.div
+        initial={{ opacity: 0, x: 8 }}
+        animate={{ opacity: 1, x: 0 }}
+        className="flex flex-col items-end pt-2 border-t border-white/10"
+      >
+        <div className="text-cyan-200/90 text-xs font-bold mb-1 tracking-wider">
+          {speakerName}
+        </div>
+        <div
+          className="max-w-[85%] px-4 py-2 rounded-2xl rounded-tr-sm bg-cyan-500/15 border border-cyan-400/30 text-white text-base md:text-lg leading-relaxed"
+          style={{ fontFamily: "'Noto Sans KR', sans-serif" }}
+        >
+          {text}
+          {typing && <TypingCursor color="rgba(165,243,252,0.7)" />}
+        </div>
+      </motion.div>
+    );
+  }
+
+  if (isHeroineSpeaking) {
+    // 히로인 대사 — 좌측 정렬 / 앰버 계열 (Dialogue 모드 스타일)
+    return (
+      <motion.div
+        initial={{ opacity: 0, x: -8 }}
+        animate={{ opacity: 1, x: 0 }}
+        className="flex flex-col items-start pt-2 border-t border-white/10"
+      >
+        <div className="text-amber-200/90 text-xs font-bold mb-1 tracking-wider">
+          {speakerName}
+        </div>
+        <div
+          className="max-w-[85%] px-4 py-2 rounded-2xl rounded-tl-sm bg-amber-500/10 border border-amber-400/30 text-white text-base md:text-lg leading-relaxed"
+          style={{ fontFamily: "'Noto Sans KR', sans-serif" }}
+        >
+          <span className="text-amber-200/70 mr-1">"</span>
+          {text}
+          <span className="text-amber-200/70 ml-1">"</span>
+          {typing && <TypingCursor color="rgba(253,230,138,0.7)" />}
+        </div>
+      </motion.div>
+    );
+  }
+
+  return null;
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  상단 컨트롤 바
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const TopControls = ({
+  playSpeed, onSpeedChange, autoPlayEnabled, onToggleAutoPlay,
+  onOpenHistory, sceneIndexInBatch, sceneCountInBatch,
+  leadHeroineName, leadHeroineAffection,
+}) => (
+  <div
+    className="flex items-center justify-between gap-2 mb-2 px-1 pointer-events-auto"
+    onClick={(e) => e.stopPropagation()}
+  >
+    <div className="flex items-center gap-2">
+      {/* 속도 */}
+      <div className="flex items-center gap-0.5 bg-black/50 backdrop-blur-md rounded-full p-0.5 border border-white/10">
+        {["SLOW", "NORMAL", "FAST"].map((s) => (
+          <button
+            key={s}
+            onClick={(e) => { e.stopPropagation(); onSpeedChange?.(s); }}
+            className={`px-2 py-1 rounded-full text-[10px] font-bold transition-all ${
+              playSpeed === s ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"
+            }`}
+          >
+            {s === "SLOW" ? "느림" : s === "NORMAL" ? "보통" : "빠름"}
+          </button>
+        ))}
+      </div>
+
+      {/* 자동 재생 토글 */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onToggleAutoPlay?.(); }}
+        className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold backdrop-blur-md border transition ${
+          autoPlayEnabled
+            ? "bg-emerald-500/20 border-emerald-400/40 text-emerald-200"
+            : "bg-black/50 border-white/10 text-white/50"
+        }`}
+      >
+        {autoPlayEnabled ? <Play size={9} fill="currentColor" /> : <Pause size={9} fill="currentColor" />}
+        {autoPlayEnabled ? "자동" : "수동"}
+      </button>
+
+      {/* 대화 기록 */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onOpenHistory?.(); }}
+        className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-black/50 backdrop-blur-md border border-white/10 text-white/60 hover:text-white hover:bg-black/70 transition"
+      >
+        <BookOpen size={9} /> 기록
+      </button>
+    </div>
+
+    <div className="flex items-center gap-3">
+      {/* 씬 진행도 */}
+      <div className="text-[10px] text-white/40 font-mono">
+        {sceneIndexInBatch + 1} / {sceneCountInBatch}
+      </div>
+
+      {/* 리드 히로인 HUD */}
+      {leadHeroineName && typeof leadHeroineAffection === "number" && (
+        <div className="flex items-center gap-1 bg-black/50 backdrop-blur-md rounded-full px-2 py-1 border border-white/10">
+          <Heart size={9} className="text-rose-400" fill="currentColor" />
+          <span className="text-[10px] text-white/80 font-bold">
+            {leadHeroineName}
+          </span>
+          <span className="text-[10px] text-rose-200">
+            {leadHeroineAffection}
+          </span>
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  하단 네비게이션 바
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const BottomNav = ({ onPrev, onNext, canGoPrev, canGoNext, loadingNext, allDone }) => (
+  <div
+    className="flex items-center justify-between px-4 py-2 border-t border-white/5"
+    onClick={(e) => e.stopPropagation()}
+  >
+    <button
+      onClick={(e) => { e.stopPropagation(); if (canGoPrev) onPrev?.(); }}
+      disabled={!canGoPrev || loadingNext}
+      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition ${
+        canGoPrev && !loadingNext
+          ? "text-white/70 hover:text-white hover:bg-white/5"
+          : "text-white/20 cursor-not-allowed"
+      }`}
+    >
+      <ChevronLeft size={14} /> 이전
+    </button>
+
+    <motion.button
+      onClick={(e) => { e.stopPropagation(); onNext?.(); }}
+      disabled={!canGoNext || loadingNext}
+      whileTap={canGoNext && !loadingNext ? { scale: 0.96 } : {}}
+      className={`flex items-center gap-2 px-5 py-2 rounded-full font-bold text-sm shadow-lg transition ${
+        canGoNext && !loadingNext
+          ? "bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-400 hover:to-purple-400 text-white"
+          : "bg-white/10 text-white/30 cursor-not-allowed"
+      }`}
+    >
+      {loadingNext ? (
+        <>준비 중<LoadingDots /></>
+      ) : allDone ? (
+        <>다음 <ChevronRight size={14} /></>
+      ) : (
+        <>건너뛰기 <SkipForward size={13} /></>
+      )}
+    </motion.button>
+  </div>
+);
+
+const LoadingDots = () => (
+  <span className="flex gap-0.5 ml-1">
+    {[0, 1, 2].map((i) => (
+      <motion.span
+        key={i}
+        className="inline-block w-0.5 h-0.5 rounded-full bg-white/70"
+        animate={{ opacity: [0.3, 1, 0.3] }}
+        transition={{ duration: 1, delay: i * 0.15, repeat: Infinity }}
+      />
+    ))}
+  </span>
+);
+
+const TypingCursor = ({ color }) => (
+  <motion.span
+    className="inline-block w-[2px] h-4 ml-0.5 align-middle"
+    style={{ backgroundColor: color || "rgba(255,255,255,0.6)" }}
+    animate={{ opacity: [1, 0, 1] }}
+    transition={{ duration: 0.8, repeat: Infinity }}
+  />
+);

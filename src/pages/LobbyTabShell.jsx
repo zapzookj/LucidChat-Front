@@ -1,167 +1,188 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MessageSquare, Drama } from "lucide-react";
+import { Drama, MessageCircle } from "lucide-react";
+
 import LobbyPage from "./LobbyPage";
 import TheaterLobbyTab from "../components/theater/TheaterLobbyTab";
 import TheaterCreateFlow from "../components/theater/TheaterCreateFlow";
 
 /**
- * [Phase 5.5-Theater] 로비 탭 쉘 (LobbyTabShell)
+ * [Phase 5.5-Theater-Polish] LobbyTabShell v2
  *
- * 기존 LobbyPage를 건드리지 않고, 상위에서 Dialogue/Theater 탭을 전환한다.
- * 라우팅 진입점은 이 컴포넌트이며, 라우터의 `/lobby` 경로를 이 파일로 교체한다.
+ * 이슈 #9 해결:
+ *  - 탭바가 LobbyPage 바깥에 있어서 레이아웃 짤림 → LobbyPage Topbar에 통합
+ *  - Theater 탭 전환 시 LobbyPage unmount → BGM 끊김 → display:none으로 전환만
  *
- * 탭 전환 UX:
- *  - Dialogue 탭: 기존 LobbyPage 전체 그대로
- *  - Theater 탭: TheaterLobbyTab + 진입 시 TheaterCreateFlow 모달
+ * [아키텍처]
+ *  - LobbyPage는 항상 마운트 상태 유지 (BGM persistent)
+ *  - Theater 탭 활성 시: LobbyPage는 display:none, TheaterLobbyTab이 위를 덮음
+ *  - 탭바(TabBar) 컴포넌트는 LobbyPage의 topbarExtras prop으로 주입
  *
- * [디자인 컨셉]
- *  - 상단에 큰 탭 전환 바 배치
- *  - 탭별로 배경 무드가 달라짐 (Dialogue: 카페 느낌, Theater: 극장 느낌)
+ * [대안 설계 고려사항]
+ *  - Dialogue 탭과 Theater 탭이 서로 다른 BGM을 원할 수 있음
+ *    → 현재 구현: LobbyPage BGM(로비 BGM) 유지. Theater 탭도 같은 BGM.
+ *    → 향후 Theater 탭 전용 BGM 원하면 이 컴포넌트에 AudioEngine 추가 가능
  */
 
-const TABS = [
-  {
-    key: "DIALOGUE",
-    label: "Dialogue",
-    subtitle: "대화의 공간",
-    icon: MessageSquare,
-    accent: "indigo",
-  },
-  {
-    key: "THEATER",
-    label: "Theater",
-    subtitle: "감상의 극장",
-    icon: Drama,
-    accent: "purple",
-  },
-];
+const TABS = {
+  DIALOGUE: "DIALOGUE",
+  THEATER: "THEATER",
+};
 
 export default function LobbyTabShell() {
-  const [activeTab, setActiveTab] = useState("DIALOGUE");
+  const [activeTab, setActiveTab] = useState(TABS.DIALOGUE);
   const [createFlowWorld, setCreateFlowWorld] = useState(null);
 
-  const handleOpenCreateFlow = useCallback((world) => {
-    setCreateFlowWorld(world);
+  // localStorage 기억 (사용자가 떠난 탭 복원)
+  useEffect(() => {
+    const saved = localStorage.getItem("lobby_active_tab");
+    if (saved && TABS[saved]) setActiveTab(saved);
   }, []);
 
-  const handleCloseCreateFlow = useCallback(() => {
-    setCreateFlowWorld(null);
-  }, []);
+  useEffect(() => {
+    localStorage.setItem("lobby_active_tab", activeTab);
+  }, [activeTab]);
+
+  const handleTabSwitch = useCallback((tab) => {
+    if (tab === activeTab) return;
+    setActiveTab(tab);
+  }, [activeTab]);
+
+  // ─── 탭바 컴포넌트 (LobbyPage Topbar에 주입될 엘리먼트) ───
+  const tabBar = (
+    <div className="flex items-center gap-0.5 bg-black/30 backdrop-blur-md rounded-full p-0.5 border border-white/10">
+      <TabButton
+        active={activeTab === TABS.DIALOGUE}
+        onClick={() => handleTabSwitch(TABS.DIALOGUE)}
+        icon={<MessageCircle size={12} />}
+        label="Dialogue"
+      />
+      <TabButton
+        active={activeTab === TABS.THEATER}
+        onClick={() => handleTabSwitch(TABS.THEATER)}
+        icon={<Drama size={12} />}
+        label="Theater"
+      />
+    </div>
+  );
 
   return (
-    <div className="relative min-h-screen bg-slate-950">
-      {/* ═══ 상단 탭 바 ═══ */}
+    <div className="relative w-full h-screen overflow-hidden bg-slate-950">
+      {/* ═══ Dialogue 탭 (LobbyPage) — 항상 마운트 유지 ═══ */}
       <div
-        className="sticky top-0 z-40 backdrop-blur-xl border-b border-white/5"
+        className="absolute inset-0 w-full h-full"
         style={{
-          background:
-            activeTab === "THEATER"
-              ? "linear-gradient(180deg, rgba(49,46,129,0.4), rgba(15,23,42,0.8))"
-              : "linear-gradient(180deg, rgba(15,23,42,0.6), rgba(15,23,42,0.8))",
+          visibility: activeTab === TABS.DIALOGUE ? "visible" : "hidden",
+          pointerEvents: activeTab === TABS.DIALOGUE ? "auto" : "none",
         }}
       >
-        <div className="max-w-6xl mx-auto px-4 py-3">
-          <div className="flex items-center gap-1 bg-white/[0.03] border border-white/10 rounded-2xl p-1">
-            {TABS.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => setActiveTab(tab.key)}
-                  className="relative flex-1 px-4 py-3 rounded-xl transition-colors"
-                >
-                  {isActive && (
-                    <motion.div
-                      layoutId="tab-background"
-                      className={`absolute inset-0 rounded-xl ${
-                        tab.accent === "purple"
-                          ? "bg-gradient-to-r from-purple-500/20 to-indigo-500/20 border border-purple-400/40"
-                          : "bg-gradient-to-r from-indigo-500/20 to-cyan-500/20 border border-indigo-400/40"
-                      }`}
-                      transition={{ type: "spring", stiffness: 300, damping: 28 }}
-                    />
-                  )}
-                  <div className="relative flex items-center justify-center gap-2">
-                    <Icon
-                      size={16}
-                      className={
-                        isActive
-                          ? tab.accent === "purple"
-                            ? "text-purple-200"
-                            : "text-indigo-200"
-                          : "text-white/40"
-                      }
-                    />
-                    <div className="text-left">
-                      <div
-                        className={`text-sm font-bold ${
-                          isActive ? "text-white" : "text-white/50"
-                        }`}
-                      >
-                        {tab.label}
-                      </div>
-                      <div
-                        className={`text-[10px] uppercase tracking-widest ${
-                          isActive
-                            ? tab.accent === "purple"
-                              ? "text-purple-300/60"
-                              : "text-indigo-300/60"
-                            : "text-white/30"
-                        }`}
-                      >
-                        {tab.subtitle}
-                      </div>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <LobbyPage topbarExtras={tabBar} />
       </div>
 
-      {/* ═══ 탭 컨텐츠 ═══ */}
-      <AnimatePresence mode="wait">
-        {activeTab === "DIALOGUE" ? (
+      {/* ═══ Theater 탭 — 활성 시에만 렌더 ═══ */}
+      <AnimatePresence>
+        {activeTab === TABS.THEATER && (
           <motion.div
-            key="dialogue"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.25 }}
-          >
-            {/*
-              기존 LobbyPage는 자체 레이아웃을 가지므로 그대로 렌더.
-              단, LobbyPage 내부의 최상위 sticky 헤더와 본 쉘의 탭바가 중복되지 않도록
-              LobbyPage 자체의 탑바는 숨김 처리가 필요. (Props: hideOwnTopbar)
-            */}
-            <LobbyPage hideOwnTopbar={true} />
-          </motion.div>
-        ) : (
-          <motion.div
-            key="theater"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="max-w-6xl mx-auto px-4 py-8"
+            className="absolute inset-0 w-full h-full"
           >
-            <TheaterLobbyTab onCreateFlow={handleOpenCreateFlow} />
+            <TheaterLayout
+              tabBar={tabBar}
+              onOpenCreateFlow={(world) => setCreateFlowWorld(world)}
+            />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ═══ Theater 생성 플로우 모달 ═══ */}
+      {/* ═══ Theater 생성 플로우 ═══ */}
       <AnimatePresence>
         {createFlowWorld && (
           <TheaterCreateFlow
             world={createFlowWorld}
-            onClose={handleCloseCreateFlow}
+            onClose={() => setCreateFlowWorld(null)}
           />
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  Theater 탭 레이아웃 (Topbar 포함)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function TheaterLayout({ tabBar, onOpenCreateFlow }) {
+  return (
+    <div className="relative w-full h-full overflow-hidden flex flex-col">
+      {/* Theater 전용 배경 그라디언트 */}
+      <div className="absolute inset-0 bg-gradient-to-br from-indigo-950 via-slate-950 to-purple-950">
+        {/* 은은한 별빛 */}
+        <div className="absolute inset-0 pointer-events-none opacity-50">
+          {Array.from({ length: 40 }).map((_, i) => (
+            <motion.div
+              key={i}
+              className="absolute w-[2px] h-[2px] bg-white/40 rounded-full"
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+              }}
+              animate={{ opacity: [0.1, 0.6, 0.1] }}
+              transition={{
+                duration: 3 + Math.random() * 3,
+                repeat: Infinity,
+                delay: Math.random() * 3,
+              }}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Topbar — 탭바만 보여주는 미니 버전 (LobbyPage Topbar와 같은 위치) */}
+      <div className="relative z-20 flex items-center justify-between px-5 sm:px-8 py-4">
+        <div className="flex items-center gap-2.5">
+          <img
+            src="/logo_icon.png"
+            alt=""
+            className="h-7 sm:h-8 drop-shadow-lg"
+            onError={(e) => { e.target.style.display = "none"; }}
+          />
+          <span
+            className="text-lg sm:text-xl font-bold text-white tracking-[0.12em] drop-shadow-lg"
+            style={{ fontFamily: "'Pretendard', sans-serif" }}
+          >
+            LUCID CHAT
+          </span>
+        </div>
+        <div className="flex items-center gap-3">{tabBar}</div>
+      </div>
+
+      {/* 메인 콘텐츠 영역 */}
+      <div className="relative z-10 flex-1 overflow-y-auto">
+        <TheaterLobbyTab onCreateFlow={onOpenCreateFlow} />
+      </div>
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  탭 버튼
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function TabButton({ active, onClick, icon, label }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+        active
+          ? "bg-white/15 text-white shadow-sm"
+          : "text-white/50 hover:text-white/80"
+      }`}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
   );
 }
