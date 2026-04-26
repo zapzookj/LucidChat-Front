@@ -337,11 +337,15 @@ function HeroineCard({ heroine, index, phase }) {
       )}
 
       <div className="flex items-center gap-3">
-        {/* 썸네일 */}
+        {/* 썸네일 — [Polish-v2] characterSlug 폴백 추가 */}
         <div
           className="w-12 h-12 rounded-full bg-cover bg-center border-2 border-white/20 flex-shrink-0"
           style={{
-            backgroundImage: heroine.thumbnailUrl ? `url(${heroine.thumbnailUrl})` : "none",
+            backgroundImage: heroine.thumbnailUrl
+              ? `url(${heroine.thumbnailUrl})`
+              : heroine.characterSlug
+              ? `url(/characters/${heroine.characterSlug}/thumb.jpg)`
+              : "none",
             backgroundColor: "#4c1d95",
           }}
         />

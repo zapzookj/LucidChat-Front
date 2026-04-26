@@ -92,17 +92,22 @@ const WorldCard = ({ world, onClick }) => {
         {/* 히로인 썸네일 */}
         {world.heroines?.length > 0 && (
           <div className="absolute top-5 right-5 flex -space-x-3">
-            {world.heroines.slice(0, 3).map((h) => (
-              <div
-                key={h.id}
-                className="w-10 h-10 rounded-full border-2 border-white/80 bg-cover bg-center shadow-lg"
-                style={{
-                  backgroundImage: h.thumbnailUrl ? `url(${h.thumbnailUrl})` : "none",
-                  backgroundColor: "#4c1d95",
-                }}
-                title={h.name}
-              />
-            ))}
+            {world.heroines.slice(0, 3).map((h) => {
+              // [Polish-v2] thumbnailUrl이 없으면 characterSlug 기반 폴백
+              const imgUrl = h.thumbnailUrl
+                || (h.characterSlug ? `/characters/${h.characterSlug}/thumb.jpg` : null);
+              return (
+                <div
+                  key={h.id}
+                  className="w-10 h-10 rounded-full border-2 border-white/80 bg-cover bg-center shadow-lg"
+                  style={{
+                    backgroundImage: imgUrl ? `url(${imgUrl})` : "none",
+                    backgroundColor: "#4c1d95",
+                  }}
+                  title={h.name}
+                />
+              );
+            })}
           </div>
         )}
       </div>
@@ -116,6 +121,10 @@ const WorldCard = ({ world, onClick }) => {
 
 const SessionCard = ({ session, onResume }) => {
   const progressPct = Math.min(100, (session.currentAct - 1) * 25 + 10);
+
+  // [Polish-v2] 리드 히로인 이미지 URL 해결
+  const leadImgUrl = session.leadHeroineThumbnailUrl
+    || (session.leadHeroineSlug ? `/characters/${session.leadHeroineSlug}/thumb.jpg` : null);
 
   return (
     <motion.div
@@ -149,15 +158,27 @@ const SessionCard = ({ session, onResume }) => {
           </div>
         </div>
         {session.leadHeroineName && (
-          <div className="flex-1 text-right">
-            <div className="text-xs text-rose-300/70 mb-0.5 flex items-center gap-1 justify-end">
-              <Heart size={10} /> 리드 히로인
-            </div>
-            <div className="text-base font-bold text-rose-200 truncate">
-              {session.leadHeroineName}
-            </div>
-            <div className="text-xs text-rose-400/60">
-              ♥ {session.leadHeroineAffection}
+          <div className="flex items-center gap-2">
+            {/* [Polish-v2] 리드 히로인 원형 썸네일 */}
+            {leadImgUrl && (
+              <div
+                className="w-9 h-9 rounded-full border-2 border-rose-400/40 bg-cover bg-center shadow-md"
+                style={{
+                  backgroundImage: `url(${leadImgUrl})`,
+                  backgroundColor: "#4c1d95",
+                }}
+              />
+            )}
+            <div className="text-right">
+              <div className="text-xs text-rose-300/70 mb-0.5 flex items-center gap-1 justify-end">
+                <Heart size={10} /> 리드
+              </div>
+              <div className="text-sm font-bold text-rose-200 truncate max-w-[100px]">
+                {session.leadHeroineName}
+              </div>
+              <div className="text-xs text-rose-400/60">
+                ♥ {session.leadHeroineAffection}
+              </div>
             </div>
           </div>
         )}

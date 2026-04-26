@@ -351,6 +351,19 @@ export default function TheaterPlayPage() {
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  [Polish-v2] DTO 필드를 안전하게 해결
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  // avatar.name (중첩) 우선, 없으면 flat avatarName, 그것도 없으면 "주인공"
+  const avatarName =
+    roomInfo.avatar?.name ||
+    roomInfo.avatarName ||
+    "주인공";
+
+  // Act 진행도용 — actTotalChapters가 백엔드에서 내려오면 사용, 없으면 5
+  const actTotalChapters = roomInfo.progress?.actTotalChapters || 5;
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  렌더
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -470,7 +483,7 @@ export default function TheaterPlayPage() {
           >
             <TheaterDialogueBox
               scene={displayedScene}
-              avatarName={roomInfo.avatarName || "주인공"}
+              avatarName={avatarName}
               playSpeed={playSpeed}
               onSpeedChange={handleSpeedChange}
               autoPlayEnabled={autoPlayEnabled}
@@ -542,7 +555,7 @@ export default function TheaterPlayPage() {
             report={chapterReport}
             onClose={handleChapterReportClose}
             currentAct={roomInfo.progress?.currentAct}
-            actTotalChapters={roomInfo.progress?.actTotalChapters || 5}
+            actTotalChapters={actTotalChapters}
           />
         )}
       </AnimatePresence>
@@ -555,7 +568,7 @@ export default function TheaterPlayPage() {
             onClose={() => setHistoryOpen(false)}
             currentAct={roomInfo.progress?.currentAct || 1}
             currentChapter={roomInfo.progress?.currentChapter || 1}
-            avatarName={roomInfo.avatarName || "주인공"}
+            avatarName={avatarName}
           />
         )}
       </AnimatePresence>
