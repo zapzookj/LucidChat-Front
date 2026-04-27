@@ -246,22 +246,30 @@ export default function TheaterDialogueBox({
               </motion.div>
             )}
 
-            {/* 속마음 */}
+            {/* 속마음 — Theater 시그니처 (violet 좌측 라인) */}
             {scene?.innerNarration && narrationText.length >= (scene.narration?.length || 0) && (
               <motion.div
                 initial={{ opacity: 0, x: 8 }}
                 animate={{ opacity: 1, x: 0 }}
-                className="relative pl-4 py-2 border-l-2 border-purple-400/50"
+                className="relative pl-4 py-2"
               >
+                {/* 그라디언트 좌측 라인 */}
                 <div
-                  className="text-purple-200/85 text-sm italic leading-relaxed"
+                  className="absolute left-0 top-1 bottom-1 w-[2px] rounded-full"
+                  style={{
+                    background:
+                      "linear-gradient(180deg, rgba(167,139,250,0) 0%, rgba(167,139,250,0.7) 30%, rgba(167,139,250,0.7) 70%, rgba(167,139,250,0) 100%)",
+                  }}
+                />
+                <div
+                  className="text-violet-200/90 text-sm italic leading-relaxed"
                   style={{ fontFamily: "'Noto Serif KR', serif" }}
                 >
-                  <span className="text-purple-400/60 mr-1">「</span>
+                  <span className="text-violet-300/55 mr-1">「</span>
                   {innerText}
-                  <span className="text-purple-400/60 ml-1">」</span>
+                  <span className="text-violet-300/55 ml-1">」</span>
                   {innerText.length < (scene.innerNarration?.length || 0) && (
-                    <TypingCursor color="rgba(196,181,253,0.6)" />
+                    <TypingCursor color="rgba(196,181,253,0.65)" />
                   )}
                 </div>
               </motion.div>
@@ -355,91 +363,130 @@ const DialogueLine = ({ isAvatarSpeaking, isHeroineSpeaking, speakerName, text, 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  상단 컨트롤 바
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+//
+//  [Phase III · A-2] 폴리싱:
+//   ─ 모든 버튼/배지를 같은 pill family로 (기본: bg-black/55 border-white/10)
+//   ─ 활성 상태만 mode-theater(violet) 또는 emerald 토큰 적용
+//   ─ 씬 진행도 + 리드 히로인을 단일 좌석 진행 인디케이터로 통합:
+//      "[●●●○○] · 💕 서태리 42"
+//
 const TopControls = ({
   playSpeed, onSpeedChange, autoPlayEnabled, onToggleAutoPlay,
   onOpenHistory, sceneIndexInBatch, sceneCountInBatch,
   leadHeroineName, leadHeroineAffection,
-}) => (
-  <div
-    className="flex items-center justify-between gap-2 mb-2 px-1 pointer-events-auto"
-    onClick={(e) => e.stopPropagation()}
-  >
-    <div className="flex items-center gap-2">
-      {/* 속도 */}
-      <div className="flex items-center gap-0.5 bg-black/50 backdrop-blur-md rounded-full p-0.5 border border-white/10">
-        {["SLOW", "NORMAL", "FAST"].map((s) => (
-          <button
-            key={s}
-            onClick={(e) => { e.stopPropagation(); onSpeedChange?.(s); }}
-            className={`px-2 py-1 rounded-full text-[10px] font-bold transition-all ${
-              playSpeed === s ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"
-            }`}
-          >
-            {s === "SLOW" ? "느림" : s === "NORMAL" ? "보통" : "빠름"}
-          </button>
-        ))}
+}) => {
+  // 진행도 도트
+  const total = Math.max(1, sceneCountInBatch || 1);
+  const current = Math.max(0, Math.min(total - 1, sceneIndexInBatch || 0));
+
+  return (
+    <div
+      className="flex items-center justify-between gap-2 mb-2 px-1 pointer-events-auto"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* ─── 좌측: 컨트롤 ─── */}
+      <div className="flex items-center gap-1.5">
+        {/* 속도 — segmented control */}
+        <div className="flex items-center gap-0.5 bg-black/55 backdrop-blur-md rounded-full p-0.5 border border-white/10">
+          {["SLOW", "NORMAL", "FAST"].map((s) => (
+            <button
+              key={s}
+              onClick={(e) => { e.stopPropagation(); onSpeedChange?.(s); }}
+              className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide transition-all ${
+                playSpeed === s
+                  ? "bg-violet-500/30 text-violet-50 shadow-[inset_0_0_0_1px_rgba(167,139,250,0.4)]"
+                  : "text-white/45 hover:text-white/75"
+              }`}
+            >
+              {s === "SLOW" ? "느림" : s === "NORMAL" ? "보통" : "빠름"}
+            </button>
+          ))}
+        </div>
+
+        {/* 자동/수동 — 같은 pill family */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleAutoPlay?.(); }}
+          aria-label={autoPlayEnabled ? "자동 재생 끄기" : "자동 재생 켜기"}
+          className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold backdrop-blur-md border transition-colors duration-200 ${
+            autoPlayEnabled
+              ? "bg-emerald-500/22 border-emerald-300/40 text-emerald-100"
+              : "bg-black/55 border-white/10 text-white/55 hover:text-white/80"
+          }`}
+        >
+          {autoPlayEnabled
+            ? <Play size={9} fill="currentColor" />
+            : <Pause size={9} fill="currentColor" />}
+          <span>{autoPlayEnabled ? "자동" : "수동"}</span>
+        </button>
+
+        {/* 대화 기록 — 통일된 톤 */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onOpenHistory?.(); }}
+          aria-label="대화 기록 열기"
+          className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-black/55 backdrop-blur-md border border-white/10 text-white/55 hover:text-white/85 hover:border-violet-300/30 transition-colors duration-200"
+        >
+          <BookOpen size={9} />
+          <span>기록</span>
+        </button>
       </div>
 
-      {/* 자동 재생 토글 */}
-      <button
-        onClick={(e) => { e.stopPropagation(); onToggleAutoPlay?.(); }}
-        className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold backdrop-blur-md border transition ${
-          autoPlayEnabled
-            ? "bg-emerald-500/20 border-emerald-400/40 text-emerald-200"
-            : "bg-black/50 border-white/10 text-white/50"
-        }`}
-      >
-        {autoPlayEnabled ? <Play size={9} fill="currentColor" /> : <Pause size={9} fill="currentColor" />}
-        {autoPlayEnabled ? "자동" : "수동"}
-      </button>
-
-      {/* 대화 기록 */}
-      <button
-        onClick={(e) => { e.stopPropagation(); onOpenHistory?.(); }}
-        className="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold bg-black/50 backdrop-blur-md border border-white/10 text-white/60 hover:text-white hover:bg-black/70 transition"
-      >
-        <BookOpen size={9} /> 기록
-      </button>
-    </div>
-
-    <div className="flex items-center gap-3">
-      {/* 씬 진행도 */}
-      <div className="text-[10px] text-white/40 font-mono">
-        {sceneIndexInBatch + 1} / {sceneCountInBatch}
-      </div>
-
-      {/* 리드 히로인 HUD */}
-      {leadHeroineName && typeof leadHeroineAffection === "number" && (
-        <div className="flex items-center gap-1 bg-black/50 backdrop-blur-md rounded-full px-2 py-1 border border-white/10">
-          <Heart size={9} className="text-rose-400" fill="currentColor" />
-          <span className="text-[10px] text-white/80 font-bold">
-            {leadHeroineName}
-          </span>
-          <span className="text-[10px] text-rose-200">
-            {leadHeroineAffection}
+      {/* ─── 우측: 진행도 도트 + 리드 히로인 (통합 인디케이터) ─── */}
+      <div className="flex items-center gap-2.5">
+        {/* 씬 진행 — 도트로 시각화. 텍스트 fallback은 sr-only */}
+        <div
+          className="flex items-center gap-1 bg-black/55 backdrop-blur-md rounded-full px-2.5 py-1 border border-white/10"
+          aria-label={`씬 ${current + 1} / ${total}`}
+        >
+          {Array.from({ length: total }).map((_, i) => {
+            let cls = "rounded-full transition-all duration-300";
+            if (i < current) cls += " w-1 h-1 bg-violet-300/85";
+            else if (i === current) cls += " w-1.5 h-1.5 bg-violet-200 shadow-[0_0_5px_rgba(199,210,254,0.7)]";
+            else cls += " w-1 h-1 bg-white/15";
+            return <span key={i} className={cls} />;
+          })}
+          <span className="ml-1 text-[10px] text-white/55 font-mono tabular-nums">
+            {current + 1}<span className="text-white/25">/{total}</span>
           </span>
         </div>
-      )}
+
+        {/* 리드 히로인 HUD */}
+        {leadHeroineName && typeof leadHeroineAffection === "number" && (
+          <div className="flex items-center gap-1.5 bg-black/55 backdrop-blur-md rounded-full px-2.5 py-1 border border-white/10">
+            <Heart size={9} className="text-rose-300" fill="currentColor" />
+            <span className="text-[10px] text-white/85 font-bold tracking-wide truncate max-w-[80px]">
+              {leadHeroineName}
+            </span>
+            <span className="text-[10px] text-rose-200/85 tabular-nums">
+              {leadHeroineAffection}
+            </span>
+          </div>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  하단 네비게이션 바
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
+//
+//  [Phase III · A-2] 폴리싱:
+//   ─ 다음 버튼: mode-theater 그라디언트 (indigo → violet → purple)
+//   ─ 이전 버튼: 같은 pill family로 톤 통일
+//   ─ allDone === false 일 때 "건너뛰기" — 버튼 자체가 약한 톤으로 가벼운 인상
+//
 const BottomNav = ({ onPrev, onNext, canGoPrev, canGoNext, loadingNext, allDone }) => (
   <div
-    className="flex items-center justify-between px-4 py-2 border-t border-white/5"
+    className="flex items-center justify-between px-4 py-2.5 border-t border-white/5"
     onClick={(e) => e.stopPropagation()}
   >
     <button
       onClick={(e) => { e.stopPropagation(); if (canGoPrev) onPrev?.(); }}
       disabled={!canGoPrev || loadingNext}
-      className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition ${
+      aria-label="이전 씬"
+      className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs transition-colors duration-200 ${
         canGoPrev && !loadingNext
-          ? "text-white/70 hover:text-white hover:bg-white/5"
+          ? "text-white/65 hover:text-white hover:bg-white/5"
           : "text-white/20 cursor-not-allowed"
       }`}
     >
@@ -450,10 +497,18 @@ const BottomNav = ({ onPrev, onNext, canGoPrev, canGoNext, loadingNext, allDone 
       onClick={(e) => { e.stopPropagation(); onNext?.(); }}
       disabled={!canGoNext || loadingNext}
       whileTap={canGoNext && !loadingNext ? { scale: 0.96 } : {}}
-      className={`flex items-center gap-2 px-5 py-2 rounded-full font-bold text-sm shadow-lg transition ${
+      whileHover={canGoNext && !loadingNext && allDone
+        ? { scale: 1.02, transition: { type: "spring", stiffness: 400, damping: 20 } }
+        : {}}
+      aria-label={allDone ? "다음 씬" : "타이핑 건너뛰기"}
+      className={`flex items-center gap-2 px-5 py-2 rounded-full font-bold text-sm shadow-lg transition-all duration-200 ${
         canGoNext && !loadingNext
-          ? "bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-400 hover:to-purple-400 text-white"
-          : "bg-white/10 text-white/30 cursor-not-allowed"
+          ? allDone
+            // 다음으로 진행 — mode-theater 그라디언트 (시그니처 액션)
+            ? "bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500 hover:from-indigo-400 hover:via-violet-400 hover:to-purple-400 text-white shadow-violet-500/25"
+            // 타이핑 건너뛰기 — 약한 톤 (액션이 가볍다는 시각 신호)
+            : "bg-white/10 hover:bg-white/15 text-white/85 border border-white/15"
+          : "bg-white/5 text-white/25 cursor-not-allowed"
       }`}
     >
       {loadingNext ? (

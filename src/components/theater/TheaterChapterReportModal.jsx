@@ -219,31 +219,51 @@ export default function TheaterChapterReportModal({
                   <div className="text-[10px] uppercase tracking-widest text-white/40">
                     Act {currentAct} 진행도
                   </div>
-                  <div className="flex gap-1.5">
-                    {Array.from({ length: actTotalChapters }).map((_, i) => (
-                      <div
-                        key={i}
-                        className={`h-[3px] w-8 rounded-full ${
-                          i < report.chapterNumber
-                            ? "bg-gradient-to-r from-indigo-400 to-purple-400"
-                            : i === report.chapterNumber - 1
-                            ? "bg-white/80"
-                            : "bg-white/15"
-                        }`}
-                      />
-                    ))}
+                  {/* [Phase III · B-1] Act 진행 — Group A의 ActProgressDots와 같은 도트 시스템
+                       (HUD ↔ ChapterReport 연속성 확보) */}
+                  <div className="flex items-center gap-1.5">
+                    {Array.from({ length: actTotalChapters }).map((_, i) => {
+                      const idx = i + 1;
+                      const isPast = idx < report.chapterNumber;
+                      const isCurrent = idx === report.chapterNumber;
+                      let cls =
+                        "rounded-full transition-all duration-500";
+                      if (isPast) cls += " w-2 h-2 bg-violet-300/85";
+                      else if (isCurrent)
+                        cls += " w-2.5 h-2.5 bg-violet-100 shadow-[0_0_10px_rgba(199,210,254,0.85)]";
+                      else cls += " w-2 h-2 bg-white/15";
+                      return (
+                        <motion.span
+                          key={i}
+                          className={cls}
+                          initial={{ scale: 0, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{
+                            delay: 0.1 + i * 0.08,
+                            type: "spring",
+                            stiffness: 300,
+                            damping: 18,
+                          }}
+                        />
+                      );
+                    })}
                   </div>
-                  <div className="text-xs text-white/60">
+                  <div className="text-xs text-white/65 text-center">
                     {actTotalChapters - report.chapterNumber > 0 ? (
                       <>
                         Act {currentAct} 종료까지{" "}
-                        <span className="text-amber-200 font-bold">
+                        <span className="text-amber-200 font-bold tabular-nums">
                           {actTotalChapters - report.chapterNumber}
                         </span>{" "}
                         Chapter 남음
                       </>
                     ) : (
-                      <span className="text-amber-200 font-bold">이 Chapter로 Act {currentAct} 마무리</span>
+                      // [B-1] 마지막 Chapter — 시네마틱화
+                      <span className="inline-flex items-center gap-1.5 text-amber-200 font-bold tracking-wide">
+                        <Sparkles size={11} className="text-amber-300" />
+                        이 Chapter로 Act {currentAct} 마무리
+                        <Sparkles size={11} className="text-amber-300" />
+                      </span>
                     )}
                   </div>
                 </motion.div>
@@ -253,7 +273,7 @@ export default function TheaterChapterReportModal({
                 onClick={onClose}
                 whileTap={{ scale: 0.96 }}
                 whileHover={{ scale: 1.03 }}
-                className="flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold shadow-xl"
+                className="flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500 text-white font-bold shadow-xl shadow-violet-500/25 hover:from-indigo-400 hover:via-violet-400 hover:to-purple-400 transition-colors"
               >
                 {report.leadsToIntermission ? (
                   <>☕ 인터미션으로</>

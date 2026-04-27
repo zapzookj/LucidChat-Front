@@ -22,11 +22,51 @@ import { triggerTheaterEnding } from "../api/TheaterFinalityApi";
  *   8. "로비로 돌아가기" 버튼
  */
 
+/**
+ * [Phase III · B-3] ENDING_THEMES — 정적 className 매핑
+ * 기존: `text-${theme.primary}-300` 동적 합성 → Tailwind purge 미잡음 (엔딩 색상 누락)
+ * 수정: 풀 클래스 문자열을 직접 매핑.
+ *
+ * 또한 Dialogue 모드의 EndingCredits와 동일한 시그니처 톤(Noto Serif KR, FIN. 타이포)
+ * 을 그대로 유지하되, 모드별 정체성은 카드/버튼의 액센트 색상으로 차별화.
+ */
 const ENDING_THEMES = {
-  HAPPY: { primary: "amber", emoji: "🌅", label: "해피 엔딩" },
-  NEUTRAL: { primary: "slate", emoji: "🌫", label: "쓸쓸한 결말" },
-  BAD: { primary: "red", emoji: "🌑", label: "엇갈린 결말" },
-  INCOMPLETE: { primary: "indigo", emoji: "⋯", label: "미완의 이야기" },
+  HAPPY: {
+    label: "해피 엔딩",
+    emoji: "🌅",
+    accentText: "text-amber-300",
+    accentText2: "text-amber-200",
+    cardGradient: "from-amber-500/12 to-amber-500/5",
+    cardBorder: "border-amber-400/35",
+    glowColor: "rgba(251,191,36,0.45)",
+  },
+  NEUTRAL: {
+    label: "쓸쓸한 결말",
+    emoji: "🌫",
+    accentText: "text-slate-300",
+    accentText2: "text-slate-200",
+    cardGradient: "from-slate-500/12 to-slate-500/5",
+    cardBorder: "border-slate-400/35",
+    glowColor: "rgba(148,163,184,0.4)",
+  },
+  BAD: {
+    label: "엇갈린 결말",
+    emoji: "🌑",
+    accentText: "text-red-300",
+    accentText2: "text-red-200",
+    cardGradient: "from-red-500/12 to-red-500/5",
+    cardBorder: "border-red-400/35",
+    glowColor: "rgba(248,113,113,0.4)",
+  },
+  INCOMPLETE: {
+    label: "미완의 이야기",
+    emoji: "⋯",
+    accentText: "text-indigo-300",
+    accentText2: "text-indigo-200",
+    cardGradient: "from-indigo-500/12 to-indigo-500/5",
+    cardBorder: "border-indigo-400/35",
+    glowColor: "rgba(129,140,248,0.4)",
+  },
 };
 
 const PHASES = {
@@ -98,8 +138,8 @@ export default function TheaterEndingCredits() {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center px-4 text-center">
         <p className="text-red-300 mb-4">{loadError}</p>
-        <button onClick={() => navigate("/lobby")}
-          className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white/70">
+        <button onClick={() => navigate("/")}
+          className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white/70 hover:bg-white/10 transition-colors">
           로비로
         </button>
       </div>
@@ -179,14 +219,18 @@ export default function TheaterEndingCredits() {
             </div>
             <h1
               className="text-6xl font-black text-white mb-2"
-              style={{ fontFamily: "'Noto Serif KR', serif", letterSpacing: "0.08em" }}
+              style={{
+                fontFamily: "'Noto Serif KR', serif",
+                letterSpacing: "0.08em",
+                textShadow: `0 0 40px ${theme.glowColor}`,
+              }}
             >
               FIN.
             </h1>
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }}
               transition={{ delay: 0.8, duration: 0.8 }}
-              className={`text-2xl font-bold mt-4 text-${theme.primary}-300`}
+              className={`text-2xl font-bold mt-4 ${theme.accentText}`}
               style={{ fontFamily: "'Noto Serif KR', serif" }}
             >
               {ending.title}
@@ -207,10 +251,10 @@ export default function TheaterEndingCredits() {
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
                 transition={{ delay: 0.2 }}
-                className={`p-6 rounded-3xl bg-gradient-to-br from-${theme.primary}-500/10 to-${theme.primary}-500/5 border border-${theme.primary}-400/30 mb-6`}
+                className={`p-6 rounded-3xl bg-gradient-to-br ${theme.cardGradient} border ${theme.cardBorder} mb-6`}
               >
                 <div className="text-center mb-4">
-                  <Crown size={20} className={`mx-auto text-${theme.primary}-300 mb-2`} />
+                  <Crown size={20} className={`mx-auto ${theme.accentText} mb-2`} />
                   <div className="text-[10px] uppercase tracking-widest text-white/50 mb-2">
                     당신이 선택한 이야기
                   </div>
@@ -230,7 +274,7 @@ export default function TheaterEndingCredits() {
                   <motion.div
                     initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                     transition={{ delay: 0.6, duration: 1.0 }}
-                    className="text-center italic text-white/80 text-lg leading-relaxed mt-4"
+                    className="text-center italic text-white/85 text-lg leading-relaxed mt-4"
                     style={{ fontFamily: "'Noto Serif KR', serif" }}
                   >
                     "{ending.closingQuote}"
@@ -295,7 +339,7 @@ export default function TheaterEndingCredits() {
             initial={{ opacity: 0 }} animate={{ opacity: 1 }}
             className="absolute inset-0 flex flex-col items-center justify-center gap-4"
           >
-            <Crown size={32} className={`text-${theme.primary}-300 mb-2`} />
+            <Crown size={32} className={`${theme.accentText} mb-2`} />
             <h2
               className="text-2xl font-bold text-white mb-4"
               style={{ fontFamily: "'Noto Serif KR', serif" }}
@@ -303,15 +347,15 @@ export default function TheaterEndingCredits() {
               {ending.title}
             </h2>
             <motion.button
-              onClick={() => navigate("/lobby")}
+              onClick={() => navigate("/")}
               whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.03 }}
-              className="flex items-center gap-2 px-6 py-3 rounded-full bg-white/10 border border-white/20 text-white font-bold backdrop-blur-md hover:bg-white/20"
+              className="flex items-center gap-2 px-6 py-3 rounded-full bg-white/10 border border-white/20 text-white font-bold backdrop-blur-md hover:bg-white/15 transition-colors"
             >
               <Home size={16} /> 로비로 돌아가기
             </motion.button>
             <button
-              onClick={() => { /* TODO: 공유 기능 */ }}
-              className="text-white/40 text-xs hover:text-white/60 flex items-center gap-1 mt-2"
+              onClick={() => { /* TODO: 공유 기능 (Phase IV) */ }}
+              className="text-white/45 text-xs hover:text-white/70 flex items-center gap-1 mt-2 transition-colors"
             >
               <Share2 size={11} /> 이야기 공유
             </button>

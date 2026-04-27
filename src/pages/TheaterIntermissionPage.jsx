@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useParams, useNavigate } from "react-router-dom";
 import {
-  Coffee, Zap, Crown, Sparkles, ArrowRight, X, Heart
+  Coffee, Zap, Sparkles, ArrowRight
 } from "lucide-react";
 import {
   fetchIntermissionView,
@@ -23,12 +23,19 @@ import {
  *  5. 피로도 소진 시 에너지 사용 프롬프트 or 종료 버튼
  */
 
+/**
+ * [Phase III · B-2] STAT_META — 정적 className으로 매핑
+ * 기존: `from-${meta.color}-500 to-${meta.color}-400` 동적 합성 →
+ *       Tailwind purge가 잡지 못해 실제로는 색이 적용되지 않는 버그
+ *       (스탯 바가 무색으로 렌더되는 원인이었음)
+ * 수정: 풀 클래스 문자열을 직접 매핑하여 빌드 시 추출 가능하게.
+ */
 const STAT_META = {
-  CHARM: { label: "매력", icon: "✨", color: "pink" },
-  WIT: { label: "입담", icon: "💬", color: "cyan" },
-  BOLDNESS: { label: "담력", icon: "🔥", color: "orange" },
-  INTELLECT: { label: "지성", icon: "📘", color: "indigo" },
-  EMPATHY: { label: "감수성", icon: "🌸", color: "rose" },
+  CHARM:     { label: "매력",   icon: "✨", barClass: "from-pink-500 to-pink-400",     textClass: "text-pink-200",    pillClass: "bg-pink-500/20 border-pink-400/30 text-pink-200" },
+  WIT:       { label: "입담",   icon: "💬", barClass: "from-cyan-500 to-cyan-400",     textClass: "text-cyan-200",    pillClass: "bg-cyan-500/20 border-cyan-400/30 text-cyan-200" },
+  BOLDNESS:  { label: "담력",   icon: "🔥", barClass: "from-orange-500 to-orange-400", textClass: "text-orange-200",  pillClass: "bg-orange-500/20 border-orange-400/30 text-orange-200" },
+  INTELLECT: { label: "지성",   icon: "📘", barClass: "from-indigo-500 to-indigo-400", textClass: "text-indigo-200",  pillClass: "bg-indigo-500/20 border-indigo-400/30 text-indigo-200" },
+  EMPATHY:   { label: "감수성", icon: "🌸", barClass: "from-rose-500 to-rose-400",     textClass: "text-rose-200",    pillClass: "bg-rose-500/20 border-rose-400/30 text-rose-200" },
 };
 
 const OUTCOME_CONFIG = {
@@ -154,21 +161,33 @@ export default function TheaterIntermissionPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-amber-950/30 via-slate-950 to-slate-950 relative overflow-hidden">
-      {/* 배경 — 카페 무드 */}
-      <div className="absolute inset-0 opacity-20 pointer-events-none">
-        {[...Array(20)].map((_, i) => (
-          <motion.div
-            key={i}
-            className="absolute w-[3px] h-[3px] bg-amber-300/40 rounded-full"
-            style={{
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-            }}
-            animate={{ opacity: [0.1, 0.6, 0.1], scale: [0.5, 1.2, 0.5] }}
-            transition={{ duration: 3 + Math.random() * 3, repeat: Infinity, delay: Math.random() * 5 }}
-          />
-        ))}
+    <div className="min-h-screen bg-slate-950 relative overflow-hidden">
+      {/*
+        [Phase III · B-2] 배경 톤 재설계
+         - 기존: amber-only ("카페")
+         - 신규: violet (Theater 정체성) + emerald (휴식의 색) 하이브리드
+                "영사기 꺼진 극장 로비"의 따뜻하지만 차분한 인상
+      */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute inset-0 bg-gradient-to-br from-violet-950/40 via-slate-950 to-emerald-950/25" />
+        {/* 별빛 입자 — Theater의 시그니처. 이번엔 emerald 톤도 섞어서 "휴식" 정체성 표현 */}
+        {[...Array(28)].map((_, i) => {
+          const tone = i % 3 === 0 ? "bg-emerald-300/45" : "bg-violet-200/45";
+          return (
+            <motion.div
+              key={i}
+              className={`absolute w-[2px] h-[2px] rounded-full ${tone}`}
+              style={{
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+              }}
+              animate={{ opacity: [0.1, 0.55, 0.1], scale: [0.5, 1.2, 0.5] }}
+              transition={{ duration: 3 + Math.random() * 3, repeat: Infinity, delay: Math.random() * 5 }}
+            />
+          );
+        })}
+        {/* 하단 그림자 */}
+        <div className="absolute bottom-0 inset-x-0 h-1/4 bg-gradient-to-t from-slate-950 to-transparent" />
       </div>
 
       {/* ═══ 활동 오버레이 ═══ */}
@@ -185,57 +204,80 @@ export default function TheaterIntermissionPage() {
       {/* ═══ 메인 컨텐츠 ═══ */}
       {!performingActivity && (
         <div className="relative z-10 max-w-4xl mx-auto px-6 py-10">
-          {/* 헤더 */}
+          {/* [B-2] 헤더 — Theater 폼팩터에 맞게 정돈 (LobbyPage / TheaterPortalPage와 같은 시스템) */}
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             className="text-center mb-10"
           >
-            <Coffee size={32} className="mx-auto text-amber-300/80 mb-3" />
-            <div className="text-xs uppercase tracking-[0.4em] text-amber-300/60 mb-2">
-              Intermission
+            <div className="inline-flex items-center gap-2 mb-3">
+              <Coffee size={18} className="text-emerald-300/85" />
+              <span className="text-[10px] uppercase tracking-[0.4em] text-emerald-200/60 font-medium">
+                Intermission
+              </span>
             </div>
             <h1
-              className="text-3xl font-bold text-white"
-              style={{ fontFamily: "'Noto Serif KR', serif" }}
+              className="text-3xl sm:text-4xl font-bold text-white tracking-wider"
+              style={{ fontFamily: "'Pretendard', sans-serif" }}
             >
               잠시의 휴식
             </h1>
-            <p className="text-sm text-white/50 mt-2">
-              다음 막이 오르기 전, 주인공이 성장할 시간입니다.
+            <p className="text-xs sm:text-sm text-white/45 mt-2 tracking-wider">
+              다음 막이 오르기 전, 주인공이 성장할 시간입니다
             </p>
           </motion.div>
 
           {/* 피로도 & 스탯 */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-8">
-            {/* 피로도 */}
+            {/* [B-2] 피로도 — 별 5개로 시각화 (감성 + 즉각 인지) */}
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               className="p-5 rounded-2xl bg-white/[0.04] border border-white/10"
             >
               <div className="flex items-center justify-between mb-3">
-                <div className="text-sm text-white/70 font-bold">피로도</div>
-                <div className="text-xs text-white/40">{view.stamina} / {view.maxStamina}</div>
+                <div className="flex items-center gap-1.5 text-sm text-white/75 font-bold">
+                  <Sparkles size={14} className="text-emerald-300" />
+                  <span>피로도</span>
+                </div>
+                <div className="text-xs text-white/45 font-mono tabular-nums">
+                  {view.stamina} <span className="text-white/25">/ {view.maxStamina}</span>
+                </div>
               </div>
-              <div className="flex gap-1.5">
-                {[...Array(view.maxStamina)].map((_, i) => (
-                  <motion.div
-                    key={i}
-                    className={`flex-1 h-2 rounded-full ${
-                      i < view.stamina
-                        ? "bg-gradient-to-r from-emerald-400 to-teal-400"
-                        : "bg-white/5"
-                    }`}
-                    initial={{ scaleX: 0 }}
-                    animate={{ scaleX: 1 }}
-                    transition={{ delay: 0.1 * i, duration: 0.4 }}
-                  />
-                ))}
+              {/* 별 5개 게이지 */}
+              <div className="flex items-center gap-2.5 py-1">
+                {[...Array(view.maxStamina)].map((_, i) => {
+                  const filled = i < view.stamina;
+                  return (
+                    <motion.div
+                      key={i}
+                      initial={{ scale: 0, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{
+                        delay: 0.05 * i,
+                        type: "spring",
+                        stiffness: 280,
+                        damping: 18,
+                      }}
+                      className="relative"
+                    >
+                      <Sparkles
+                        size={22}
+                        className={
+                          filled
+                            ? "text-emerald-300 drop-shadow-[0_0_6px_rgba(110,231,183,0.5)]"
+                            : "text-white/15"
+                        }
+                        fill={filled ? "currentColor" : "none"}
+                      />
+                    </motion.div>
+                  );
+                })}
               </div>
               {view.stamina === 0 && (
-                <div className="mt-3 text-xs text-amber-300/80 flex items-center gap-1">
-                  <Zap size={11} /> 에너지 2개로 추가 활동 가능
+                <div className="mt-3 text-xs text-amber-300/85 flex items-center gap-1.5 bg-amber-500/8 border border-amber-300/20 rounded-lg px-2.5 py-1.5">
+                  <Zap size={11} />
+                  <span>에너지 2개로 추가 활동 가능</span>
                 </div>
               )}
             </motion.div>
@@ -246,23 +288,28 @@ export default function TheaterIntermissionPage() {
               animate={{ opacity: 1, x: 0 }}
               className="p-5 rounded-2xl bg-white/[0.04] border border-white/10"
             >
-              <div className="text-sm text-white/70 font-bold mb-3">현재 스탯</div>
-              <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 text-sm text-white/75 font-bold mb-3">
+                <TrendingUpIcon />
+                <span>현재 스탯</span>
+              </div>
+              <div className="space-y-2">
                 {Object.entries(view.currentStats || {}).map(([key, value]) => {
                   const meta = STAT_META[key] || {};
                   return (
                     <div key={key} className="flex items-center gap-2 text-xs">
                       <span className="w-4">{meta.icon}</span>
-                      <span className="text-white/60 w-14">{meta.label}</span>
-                      <div className="flex-1 h-1 rounded-full bg-white/5 overflow-hidden">
+                      <span className="text-white/65 w-14 font-medium">{meta.label}</span>
+                      <div className="flex-1 h-1.5 rounded-full bg-white/8 overflow-hidden">
                         <motion.div
-                          className={`h-full bg-gradient-to-r from-${meta.color}-500 to-${meta.color}-400`}
+                          className={`h-full bg-gradient-to-r ${meta.barClass || "from-white/30 to-white/30"}`}
                           initial={{ width: 0 }}
                           animate={{ width: `${value}%` }}
-                          transition={{ duration: 0.6 }}
+                          transition={{ duration: 0.6, delay: 0.05 }}
                         />
                       </div>
-                      <span className="text-white/70 font-bold w-8 text-right">{value}</span>
+                      <span className={`font-bold w-8 text-right tabular-nums ${meta.textClass || "text-white/70"}`}>
+                        {value}
+                      </span>
                     </div>
                   );
                 })}
@@ -272,7 +319,7 @@ export default function TheaterIntermissionPage() {
 
           {/* 활동 카드 */}
           <div className="mb-8">
-            <h3 className="text-sm font-bold text-white/70 mb-3">
+            <h3 className="text-sm font-bold text-white/75 mb-3 tracking-wide">
               {view.stamina > 0 ? "무엇을 할까?" : "피로도가 바닥났습니다"}
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -287,28 +334,39 @@ export default function TheaterIntermissionPage() {
             </div>
           </div>
 
-          {/* 종료 버튼 */}
+          {/* 종료 버튼 — mode-theater 그라디언트 통일 */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.5 }}
             className="flex justify-center"
           >
-            <button
+            <motion.button
               onClick={handleFinish}
               disabled={finishing}
-              className="flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold shadow-xl disabled:opacity-50"
+              whileTap={!finishing ? { scale: 0.96 } : {}}
+              whileHover={!finishing ? { scale: 1.03 } : {}}
+              className="flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500 hover:from-indigo-400 hover:via-violet-400 hover:to-purple-400 text-white font-bold shadow-xl shadow-violet-500/25 disabled:opacity-50 transition-colors"
             >
               {finishing ? "이동 중..." : (
                 <>다음 막으로 <ArrowRight size={16} /></>
               )}
-            </button>
+            </motion.button>
           </motion.div>
         </div>
       )}
     </div>
   );
 }
+
+// 작은 헬퍼 — 스탯 헤더용 아이콘 (Sparkles와 구분되도록 별도 SVG)
+const TrendingUpIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-violet-300">
+    <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+    <polyline points="16 7 22 7 22 13" />
+  </svg>
+);
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  활동 카드
@@ -325,10 +383,10 @@ function ActivityCard({ activity, stamina, onSelect }) {
       whileTap={{ scale: 0.97 }}
       whileHover={{ scale: 1.03, y: -2 }}
       onClick={() => onSelect(needsExtra)}
-      className={`relative p-4 rounded-2xl border text-center transition-all overflow-hidden ${
+      className={`relative p-4 rounded-2xl border text-center transition-colors duration-200 overflow-hidden ${
         activity.special
-          ? "bg-gradient-to-br from-amber-500/15 to-rose-500/15 border-amber-400/40"
-          : "bg-white/[0.04] border-white/10 hover:border-white/20"
+          ? "bg-gradient-to-br from-amber-500/15 to-rose-500/15 border-amber-400/40 hover:border-amber-300/60"
+          : "bg-white/[0.04] border-white/10 hover:border-violet-300/30"
       } cursor-pointer`}
     >
       {activity.special && (
@@ -343,19 +401,23 @@ function ActivityCard({ activity, stamina, onSelect }) {
         {activity.description}
       </div>
 
-      {/* 대상 스탯 */}
+      {/* [B-2] 대상 스탯 — 동적 클래스 합성 버그 수정 (정적 pillClass 사용) */}
       {statMeta && (
         <div
-          className={`mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-${statMeta.color}-500/20 border border-${statMeta.color}-400/30 text-[10px] text-${statMeta.color}-200 font-bold`}
+          className={`mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold ${statMeta.pillClass || "bg-white/10 border-white/20 text-white/70"}`}
         >
-          {statMeta.icon} {statMeta.label}
+          <span>{statMeta.icon}</span>
+          <span>{statMeta.label}</span>
         </div>
       )}
 
       {/* 비용 */}
-      <div className="mt-2 text-[10px] text-white/40">
+      <div className="mt-2 text-[10px] text-white/45">
         {exhausted ? (
-          <span className="text-amber-300 font-bold">⚡ 에너지 {activity.extraEnergyCost}</span>
+          <span className="text-amber-300 font-bold inline-flex items-center gap-0.5">
+            <Zap size={9} className="inline" />
+            에너지 {activity.extraEnergyCost}
+          </span>
         ) : (
           <span>피로도 {activity.staminaCost}</span>
         )}

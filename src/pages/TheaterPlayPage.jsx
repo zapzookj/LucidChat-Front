@@ -44,6 +44,29 @@ import api from "../api/axios";
 
 const AUTO_ADVANCE_MS = { SLOW: 6500, NORMAL: 4500, FAST: 2500 };
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  [Phase III · A-1] Act 진행 도트
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  Chapter 진행을 도트로 시각화 (● ● ◉ ○ ○ — 완료/현재/남음).
+//  텍스트만 있는 "Ch 3"보다 호흡감이 즉각 전달된다.
+//
+const ActProgressDots = ({ currentChapter, totalChapters }) => {
+  const total = Math.max(1, totalChapters || 5);
+  const current = Math.max(1, Math.min(total, currentChapter || 1));
+  return (
+    <div className="flex items-center gap-1 ml-0.5" aria-label={`Chapter ${current} / ${total}`}>
+      {Array.from({ length: total }).map((_, i) => {
+        const idx = i + 1;
+        let cls = "w-1 h-1 rounded-full transition-all duration-300";
+        if (idx < current) cls += " bg-violet-300/85";
+        else if (idx === current) cls += " bg-violet-200 w-1.5 h-1.5 shadow-[0_0_6px_rgba(199,210,254,0.7)]";
+        else cls += " bg-white/15";
+        return <span key={i} className={cls} />;
+      })}
+    </div>
+  );
+};
+
 export default function TheaterPlayPage() {
   const { roomId } = useParams();
   const numericRoomId = Number(roomId);
@@ -337,7 +360,7 @@ export default function TheaterPlayPage() {
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-center px-4">
         <p className="text-red-300 mb-4">{loadError}</p>
         <button
-          onClick={() => navigate("/lobby")}
+          onClick={() => navigate("/")}
           className="px-4 py-2 rounded-lg bg-white/5 border border-white/10 text-white/70 hover:bg-white/10"
         >
           <Home size={14} className="inline mr-1" /> 로비로
@@ -406,26 +429,42 @@ export default function TheaterPlayPage() {
       </div>
 
       {/* ═══ 4. 상단 HUD ═══ */}
+      {/*
+        [Phase III · A-1] HUD 폴리싱:
+        ─ 좌측 배지: 세계관/Act/Chapter + Act 진행 도트(● ● ○ ○ ○) — Theater의 4-Act 호흡 시각화
+        ─ 우측: 멀티 히로인 카드 — 활성 시 pulse + violet glow, 비활성은 톤 다운
+        ─ 모드 토큰(violet/indigo) 일관 적용
+      */}
       <div className="absolute top-0 left-0 right-0 z-20 p-4 flex items-start justify-between pointer-events-none">
+        {/* ─── 좌측: 뒤로 버튼 + 세계관·Act 배지 ─── */}
         <div className="flex items-center gap-2 pointer-events-auto">
           <button
-            onClick={(e) => { e.stopPropagation(); navigate("/lobby"); }}
-            className="p-2 rounded-full bg-black/50 backdrop-blur-md border border-white/10 text-white/70 hover:text-white"
+            onClick={(e) => { e.stopPropagation(); navigate("/"); }}
+            aria-label="로비로"
+            className="p-2 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-white/70 hover:text-white hover:border-violet-300/30 hover:bg-black/70 transition-colors duration-200"
           >
             <ArrowLeft size={14} />
           </button>
-          <div className="bg-black/50 backdrop-blur-md rounded-full px-3 py-1.5 border border-white/10">
+
+          <div className="bg-black/55 backdrop-blur-md rounded-full pl-3 pr-3.5 py-1.5 border border-white/10 hover:border-violet-300/25 transition-colors">
             <div className="flex items-center gap-2 text-xs">
-              <Drama size={11} className="text-indigo-300" />
-              <span className="text-white/80 font-bold">{roomInfo.worldDisplayName}</span>
-              <span className="text-white/30">·</span>
-              <span className="text-white/50">
-                Act {roomInfo.progress?.currentAct} / Ch {roomInfo.progress?.currentChapter}
+              <Drama size={11} className="text-violet-300/90" />
+              <span className="text-white/85 font-bold tracking-wide">{roomInfo.worldDisplayName}</span>
+              <span className="text-white/20">·</span>
+              <span className="text-violet-200/85 font-semibold">
+                Act {roomInfo.progress?.currentAct}
               </span>
+
+              {/* [A-1] Act 진행 도트 — Chapter 진척 시각화 */}
+              <ActProgressDots
+                currentChapter={roomInfo.progress?.currentChapter || 1}
+                totalChapters={actTotalChapters}
+              />
+
               {historyViewIndex !== null && (
                 <>
-                  <span className="text-white/30">·</span>
-                  <span className="text-amber-300/80 text-[10px] uppercase tracking-wider">
+                  <span className="text-white/20">·</span>
+                  <span className="text-amber-300/80 text-[10px] uppercase tracking-wider font-bold">
                     이전 보기
                   </span>
                 </>
@@ -434,7 +473,7 @@ export default function TheaterPlayPage() {
           </div>
         </div>
 
-        {/* 히로인 멀티 HUD (멀티만 표시) */}
+        {/* ─── 우측: 멀티 히로인 HUD (멀티 세션만) ─── */}
         {roomInfo.heroines?.length > 1 && (
           <div className="flex flex-col gap-1.5 pointer-events-auto">
             {roomInfo.heroines.map((h) => {
@@ -442,25 +481,52 @@ export default function TheaterPlayPage() {
               return (
                 <motion.div
                   key={h.characterId}
-                  animate={{ scale: isActive ? 1.03 : 1 }}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full backdrop-blur-md border ${
+                  // [A-1] 활성 히로인 — pulse 글로우
+                  animate={
                     isActive
-                      ? "bg-rose-500/20 border-rose-400/50"
-                      : "bg-black/40 border-white/10"
+                      ? {
+                          scale: [1, 1.04, 1],
+                          boxShadow: [
+                            "0 0 0px rgba(167,139,250,0)",
+                            "0 0 18px rgba(167,139,250,0.45)",
+                            "0 0 0px rgba(167,139,250,0)",
+                          ],
+                        }
+                      : { scale: 1, boxShadow: "0 0 0px rgba(167,139,250,0)" }
+                  }
+                  transition={
+                    isActive
+                      ? { duration: 2.4, repeat: Infinity, ease: "easeInOut" }
+                      : { duration: 0.3 }
+                  }
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full backdrop-blur-md border transition-colors duration-300 ${
+                    isActive
+                      ? "bg-violet-500/22 border-violet-300/50"
+                      : "bg-black/45 border-white/10"
                   }`}
                 >
                   <div
-                    className="w-5 h-5 rounded-full bg-cover bg-center"
+                    className={`w-5 h-5 rounded-full bg-cover bg-center transition-all ${
+                      isActive ? "ring-1 ring-violet-200/60" : "opacity-60"
+                    }`}
                     style={{
                       backgroundImage: h.thumbnailUrl ? `url(${h.thumbnailUrl})` : "none",
                       backgroundColor: "#4c1d95",
                     }}
                   />
-                  <span className={`text-[10px] font-bold ${isActive ? "text-rose-100" : "text-white/60"}`}>
+                  <span
+                    className={`text-[10px] font-bold tracking-wide ${
+                      isActive ? "text-violet-50" : "text-white/55"
+                    }`}
+                  >
                     {h.name}
                   </span>
-                  <Heart size={8} className={isActive ? "text-rose-300" : "text-white/40"} fill="currentColor" />
-                  <span className={`text-[9px] ${isActive ? "text-rose-200" : "text-white/50"}`}>
+                  <Heart
+                    size={8}
+                    className={isActive ? "text-rose-300" : "text-white/35"}
+                    fill="currentColor"
+                  />
+                  <span className={`text-[9px] tabular-nums ${isActive ? "text-rose-100" : "text-white/45"}`}>
                     {h.affection}
                   </span>
                   {h.confirmedMain && <Crown size={9} className="text-amber-300" />}
@@ -545,6 +611,19 @@ export default function TheaterPlayPage() {
             branchOptions={branchModalData.options}
             onConfirm={handleBranchConfirm}
             onCancel={null}
+            // [Phase III · A-3] Stat-gated 진척도 바 + LOCATION 히로인 썸네일
+            currentStats={
+              roomInfo.avatar?.stats
+                ? roomInfo.avatar.stats
+                : null
+            }
+            heroines={(roomInfo.heroines || []).map((h) => ({
+              characterId: h.characterId,
+              name: h.name,
+              slug: h.characterSlug,
+              thumbnailUrl: h.thumbnailUrl,
+              affection: h.affection,
+            }))}
           />
         )}
       </AnimatePresence>

@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
   X, ChevronLeft, ChevronRight, Check, Sparkles, Users, User,
-  Lock, Unlock, RotateCcw, Heart, Zap, Crown, Star
+  Lock, RotateCcw, Heart, Crown, Star, Gem
 } from "lucide-react";
 import { createTheaterSession } from "../../api/TheaterLobbyApi";
 import { useAuth } from "../../context/AuthContext";
@@ -70,6 +70,14 @@ const STAT_AXES = [
   { key: "empathy", label: "감수성", icon: "🌸", color: "rose", desc: "공감과 섬세함" },
 ];
 
+// [Phase III · B-4] 스텝 인디케이터 라벨
+const STEP_LABELS = [
+  { n: 1, label: "히로인" },
+  { n: 2, label: "아바타" },
+  { n: 3, label: "페르소나" },
+  { n: 4, label: "스탯" },
+];
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  공통 버튼 스타일
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -94,7 +102,21 @@ const ChipButton = ({ selected, onClick, children, disabled, className = "" }) =
 //  메인 컴포넌트
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-export default function TheaterCreateFlow({ world, onClose }) {
+/**
+ * Props:
+ *   world             : 선택된 세계관 카드 (TheaterPortalPage / LobbyPage에서 전달)
+ *   onClose           : 닫기
+ *   initialHeroineIds : Long[]  — 진입 시 미리 선택될 히로인 ID 배열
+ *                       (LobbyPage의 ModeSelectOverlay에서 Theater 선택 시 사용)
+ *   onOpenStore       : () => void  — [Phase III · B-4] 무료 유저 Step 4 업셀
+ *                       Lucid Store를 열기 위한 콜백 (옵션, 없으면 버튼 미노출)
+ */
+export default function TheaterCreateFlow({
+  world,
+  onClose,
+  initialHeroineIds = [],
+  onOpenStore = null,
+}) {
   const { user } = useAuth();
   const navigate = useNavigate();
 
@@ -112,7 +134,14 @@ export default function TheaterCreateFlow({ world, onClose }) {
   const [error, setError] = useState(null);
 
   // 폼 상태
-  const [selectedHeroineIds, setSelectedHeroineIds] = useState([]);
+  // [Phase I] LobbyPage의 ModeSelectOverlay 진입 경로 지원 —
+  //          캐릭터 카드에서 Theater를 고른 경우 그 캐릭터가 prefilled.
+  //          단, 잘못된 ID 주입 방지를 위해 world.heroines와 교집합 처리.
+  const [selectedHeroineIds, setSelectedHeroineIds] = useState(() => {
+    if (!Array.isArray(initialHeroineIds) || initialHeroineIds.length === 0) return [];
+    const validIds = new Set((world?.heroines || []).map((h) => h.id));
+    return initialHeroineIds.filter((id) => validIds.has(id)).slice(0, 3);
+  });
   const [form, setForm] = useState({
     avatarName: "",
     gender: "MALE",
@@ -262,35 +291,61 @@ export default function TheaterCreateFlow({ world, onClose }) {
             <h2 className="text-xl font-black text-white mb-1">{world.displayName}</h2>
             <p className="text-sm text-white/50">{world.tagline}</p>
 
-            {/* 스텝 인디케이터 */}
-            <div className="mt-4 flex items-center gap-2">
-              {[1, 2, 3, 4].map((n) => {
-                const isCurrent = n === step;
-                const isPast = n < step;
-                const isDisabled = n === 4 && statTier.total === 0;
-                return (
-                  <div key={n} className="flex items-center gap-2">
-                    <motion.div
-                      className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border transition-colors ${
-                        isPast
-                          ? "bg-indigo-500 border-indigo-400 text-white"
-                          : isCurrent
-                          ? "bg-indigo-500/20 border-indigo-400 text-indigo-200"
-                          : isDisabled
-                          ? "bg-white/[0.02] border-white/10 text-white/20"
-                          : "bg-white/[0.04] border-white/20 text-white/50"
-                      }`}
-                    >
-                      {isPast ? <Check size={14} /> : n}
-                    </motion.div>
-                    {n < 4 && (
-                      <div
-                        className={`h-[1px] w-8 ${isPast ? "bg-indigo-400" : "bg-white/10"}`}
-                      />
-                    )}
-                  </div>
-                );
-              })}
+            {/*
+              [Phase III · B-4] 스텝 인디케이터 — 라벨 추가
+              기존: 숫자 버블만 (1-2-3-4)
+              신규: 숫자 + 한글 라벨로 "지금 무엇을 정하고 있는지" 즉시 인지
+                   비활성(무료 유저의 Step 4)도 dim 톤으로 전환
+            */}
+            <div className="mt-5">
+              <div className="flex items-start gap-1.5 sm:gap-2">
+                {STEP_LABELS.map(({ n, label }) => {
+                  const isCurrent = n === step;
+                  const isPast = n < step;
+                  const isDisabled = n === 4 && statTier.total === 0;
+                  return (
+                    <div key={n} className="flex items-start gap-1.5 sm:gap-2 flex-1 last:flex-initial">
+                      {/* 동그란 도트 + 라벨 */}
+                      <div className="flex flex-col items-center min-w-0">
+                        <motion.div
+                          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border transition-colors ${
+                            isPast
+                              ? "bg-violet-500 border-violet-300 text-white shadow-md shadow-violet-500/20"
+                              : isCurrent
+                              ? "bg-violet-500/22 border-violet-300 text-violet-100"
+                              : isDisabled
+                              ? "bg-white/[0.02] border-white/10 text-white/20"
+                              : "bg-white/[0.04] border-white/15 text-white/45"
+                          }`}
+                        >
+                          {isPast ? <Check size={14} /> : n}
+                        </motion.div>
+                        <span
+                          className={`mt-1.5 text-[9px] sm:text-[10px] tracking-wider font-medium uppercase whitespace-nowrap transition-colors ${
+                            isCurrent
+                              ? "text-violet-100"
+                              : isPast
+                              ? "text-violet-200/70"
+                              : isDisabled
+                              ? "text-white/20"
+                              : "text-white/35"
+                          }`}
+                        >
+                          {label}
+                        </span>
+                      </div>
+                      {/* 연결선 */}
+                      {n < 4 && (
+                        <div
+                          className={`flex-1 h-[1px] mt-3.5 transition-colors ${
+                            isPast ? "bg-violet-300/60" : "bg-white/10"
+                          }`}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -554,19 +609,36 @@ export default function TheaterCreateFlow({ world, onClose }) {
                   </h3>
 
                   {statTier.total === 0 ? (
-                    <div className="p-6 rounded-2xl bg-gradient-to-br from-amber-500/10 to-orange-500/10 border border-amber-500/20 text-center">
-                      <Lock size={24} className="mx-auto text-amber-300/60 mb-3" />
+                    <div className="p-6 rounded-2xl bg-gradient-to-br from-amber-500/12 to-orange-500/8 border border-amber-400/30 text-center">
+                      <Lock size={24} className="mx-auto text-amber-300/80 mb-3" />
                       <div className="text-sm text-amber-100 font-bold mb-1">
                         Lucid Pass 전용 기능
                       </div>
-                      <div className="text-xs text-white/60 mb-4">
+                      <div className="text-xs text-white/65 mb-2 leading-relaxed">
                         Lucid Pass 가입자는 최대 20포인트(Premium 40포인트)를
                         <br />
                         5개 스탯에 자유롭게 분배할 수 있습니다.
                       </div>
-                      <div className="text-xs text-white/40">
-                        무료 플레이어는 모든 스탯 0에서 시작해 인터미션으로 성장시켜요.
+                      <div className="text-[11px] text-white/45 mb-4 leading-relaxed">
+                        무료 플레이어는 모든 스탯 0에서 시작해
+                        <br />
+                        인터미션으로 성장시키며 자신만의 길을 만듭니다.
                       </div>
+
+                      {/* [B-4] 업셀 CTA — onOpenStore가 주입된 경우에만 노출 */}
+                      {onOpenStore && (
+                        <motion.button
+                          type="button"
+                          onClick={() => onOpenStore?.()}
+                          whileHover={{ scale: 1.03 }}
+                          whileTap={{ scale: 0.97 }}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-gradient-to-r from-amber-500/85 to-orange-500/85 hover:from-amber-400 hover:to-orange-400 text-white text-xs font-bold shadow-lg shadow-amber-500/25 transition-colors"
+                        >
+                          <Gem size={12} />
+                          Lucid Pass 보러가기
+                          <ChevronRight size={12} />
+                        </motion.button>
+                      )}
                     </div>
                   ) : (
                     <>
@@ -669,7 +741,7 @@ export default function TheaterCreateFlow({ world, onClose }) {
                 (step === 1 && !canProceedStep1) ||
                 (step === 2 && !canProceedStep2)
               }
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-400 hover:to-purple-400 text-white font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed shadow-lg"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500 hover:from-indigo-400 hover:via-violet-400 hover:to-purple-400 text-white font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-violet-500/25 transition-colors"
             >
               {submitting ? (
                 <>

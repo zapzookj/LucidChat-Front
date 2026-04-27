@@ -6,10 +6,15 @@ import api from "../api/axios";
 import {
   Zap, User, Settings, Sparkles, ChevronLeft, ChevronRight,
   Clock, Heart, BookOpen, Compass, Archive, Play, X, Star,
-  LogOut, Volume2, VolumeX, Gem
+  LogOut, Volume2, VolumeX, Gem, Drama, Crown
 } from "lucide-react";
 import AchievementGallery from "../components/AchievementGallery";
 import LucidStore from "../components/LucidStore";
+
+// [Phase 5.5-Theater-Polish · Phase I] 통합 진입점
+import TheaterDoorway from "../components/lobby/TheaterDoorway";
+import TheaterCreateFlow from "../components/theater/TheaterCreateFlow";
+import { fetchMyTheaterSessions } from "../api/TheaterLobbyApi";
 
 // ═══════════════════════════════════════════════════════════════
 //  Lucid Station — 자각몽의 정거장
@@ -224,6 +229,47 @@ const ModeSelectOverlay = ({ character, onSelect, onClose }) => {
               </div>
             </div>
           </motion.button>
+
+          {/* [Phase I] 극장 모드 — Theater (indigo/violet 톤) */}
+          <motion.button
+            onClick={() => {
+              if (!character.theaterAvailable) return;
+              playSfx("/sounds/sfx_button_click.wav", 0.35);
+              onSelect("THEATER");
+            }}
+            onMouseEnter={() => character.theaterAvailable && playSfx("/sounds/sfx_button_hover.ogg", 0.2)}
+            disabled={!character.theaterAvailable}
+            className={`
+              relative group text-left p-6 rounded-xl border overflow-hidden transition-colors duration-300
+              ${character.theaterAvailable
+                ? "border-violet-400/30 hover:border-violet-400/60 cursor-pointer"
+                : "border-white/10 opacity-40 cursor-not-allowed"}
+            `}
+            whileHover={character.theaterAvailable
+              ? { scale: 1.025, boxShadow: "0 0 36px rgba(167,139,250,0.22)", transition: { type: "spring", stiffness: 400, damping: 25 } }
+              : {}}
+            whileTap={character.theaterAvailable ? { scale: 0.975 } : {}}
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-violet-900/25 via-indigo-900/12 to-transparent" />
+            <motion.div className="absolute top-0 left-0 right-0 h-[1.5px] bg-gradient-to-r from-transparent via-violet-400/60 to-transparent" initial={{ scaleX: 0 }} whileHover={{ scaleX: 1 }} transition={{ duration: 0.4 }} />
+            <div className="relative">
+              <div className="flex items-center gap-3 mb-3">
+                <Drama size={20} className="text-violet-300" />
+                <span className="text-lg font-bold text-violet-100 tracking-wide">극장 모드</span>
+                <span className="text-[11px] font-medium text-violet-300/80 bg-violet-400/10 px-2 py-0.5 rounded-full ml-auto">Theater</span>
+              </div>
+              <p className="text-sm text-white/55 leading-relaxed">
+                당신은 감독이 됩니다. 이야기가 자동으로 펼쳐지고, 결정적 순간에만 개입하세요.
+              </p>
+              <div className="flex items-center gap-1.5 mt-4 text-violet-300/85">
+                <Zap size={14} />
+                <span className="text-xs font-semibold">배치 당 에너지 1 소모 (5~8 씬)</span>
+              </div>
+              {!character.theaterAvailable && (
+                <p className="text-xs text-white/30 mt-2 italic">아직 준비 중인 모드입니다</p>
+              )}
+            </div>
+          </motion.button>
         </div>
       </motion.div>
     </motion.div>
@@ -239,23 +285,199 @@ const STAT_META = {
   trust:       { label: "신뢰도", icon: "🤝", color: "#fbbf24", gradient: "from-amber-500/60 to-yellow-400/60" },
 };
 
-// ── 기억의 끈 사이드바 ──
-const ContinuePanel = ({ rooms, onSelect, onClose }) => {
-  const getStatusColor = (s) => ({ LOVER: "text-rose-400", FRIEND: "text-amber-400", ACQUAINTANCE: "text-emerald-400" }[s] || "text-white/50");
-  const getModeBadge = (m) => m === "STORY" ? { label: "스토리", cls: "bg-amber-400/15 text-amber-300 border-amber-400/30" } : { label: "자유", cls: "bg-cyan-400/15 text-cyan-300 border-cyan-400/30" };
-  const formatTime = (d) => {
-    if (!d) return "";
-    const ms = Date.now() - new Date(d).getTime();
-    const m = Math.floor(ms / 60000);
-    if (m < 1) return "방금 전";
-    if (m < 60) return `${m}분 전`;
-    const h = Math.floor(m / 60);
-    if (h < 24) return `${h}시간 전`;
-    const dy = Math.floor(h / 24);
-    if (dy < 7) return `${dy}일 전`;
-    return new Date(d).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
-  };
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  [Phase I] 시간 포맷터 (모듈 스코프 유틸로 끌어올림 — 카드 컴포넌트들이 공유)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const formatRelativeTime = (d) => {
+  if (!d) return "";
+  const ms = Date.now() - new Date(d).getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return "방금 전";
+  if (m < 60) return `${m}분 전`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}시간 전`;
+  const dy = Math.floor(h / 24);
+  if (dy < 7) return `${dy}일 전`;
+  return new Date(d).toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
+};
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  Dialogue 세션 카드 — 기존 로직 유지
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const DialogueRoomCard = ({ room, onSelect }) => {
+  const getStatusColor = (s) => ({ LOVER: "text-rose-400", FRIEND: "text-amber-400", ACQUAINTANCE: "text-emerald-400" }[s] || "text-white/50");
+  const getModeBadge = (m) =>
+    m === "STORY"
+      ? { label: "스토리", cls: "bg-amber-400/15 text-amber-300 border-amber-400/30" }
+      : { label: "자유", cls: "bg-cyan-400/15 text-cyan-300 border-cyan-400/30" };
+
+  const badge = getModeBadge(room.chatMode);
+  const domStatKey = room.dominantStatName || "affection";
+  const domStatMeta = STAT_META[domStatKey] || STAT_META.affection;
+  const domStatValue =
+    room.dominantStatValue !== undefined ? room.dominantStatValue : room.affectionScore;
+  const displayRelation = room.dynamicRelationTag || null;
+
+  return (
+    <motion.div
+      onClick={() => { playSfx("/sounds/sfx_button_click.wav", 0.3); onSelect(room.roomId); }}
+      onMouseEnter={() => playSfx("/sounds/sfx_button_hover.ogg", 0.12)}
+      className="relative group p-4 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.06] hover:border-white/10 cursor-pointer transition-colors duration-200"
+      whileHover={{ scale: 1.01, transition: { type: "spring", stiffness: 400, damping: 25 } }}
+      whileTap={{ scale: 0.99 }}
+    >
+      <div className="flex items-start gap-3.5">
+        <div className="relative w-12 h-12 rounded-full overflow-hidden border border-white/10 flex-shrink-0 bg-slate-800">
+          {room.characterThumbnailUrl
+            ? <img src={room.characterThumbnailUrl} alt={room.characterName} className="w-full h-full object-cover" />
+            : <div className="w-full h-full flex items-center justify-center text-white/20"><User size={20} /></div>
+          }
+          {room.endingReached && (
+            <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 flex items-center justify-center rounded-full bg-slate-900 border border-white/20">
+              <Star size={8} className={room.endingType === "HAPPY" ? "text-amber-400" : "text-rose-400"} fill="currentColor" />
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-white text-sm">{room.characterName}</span>
+            <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${badge.cls}`}>{badge.label}</span>
+          </div>
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-xs leading-none" title={domStatMeta.label}>{domStatMeta.icon}</span>
+            <div className="flex-1 h-1 rounded-full bg-white/5 overflow-hidden">
+              <motion.div
+                className={`h-full rounded-full bg-gradient-to-r ${domStatMeta.gradient}`}
+                initial={{ width: 0 }}
+                animate={{ width: `${Math.max(Math.abs(domStatValue), 0)}%` }}
+                transition={{ duration: 0.8, delay: 0.1 }}
+              />
+            </div>
+            <span className="text-[10px] text-white/30 w-6 text-right tabular-nums">{domStatValue}</span>
+          </div>
+          <div className="flex items-center gap-2 mt-1.5">
+            {displayRelation ? (
+              <span className="text-[10px] font-medium truncate max-w-[120px]" style={{ color: domStatMeta.color + "99" }}>
+                {displayRelation}
+              </span>
+            ) : (
+              <Heart size={10} className={getStatusColor(room.statusLevel)} />
+            )}
+            <span className="text-[10px] text-white/15 mx-0.5">·</span>
+            <Clock size={10} className="text-white/20" />
+            <span className="text-[11px] text-white/25">{formatRelativeTime(room.lastActiveAt)}</span>
+            {room.endingReached && (
+              <span className="text-[10px] text-white/40 ml-auto italic">
+                {room.endingTitle || (room.endingType === "HAPPY" ? "해피엔딩" : "배드엔딩")}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 group-hover:bg-white/10 transition-colors duration-200 mt-1">
+          <Play size={12} className="text-white/40 group-hover:text-white/70 transition-colors duration-200 ml-0.5" />
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  [Phase I] Theater 세션 카드 — Continue 패널용 컴팩트 변형
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const ACT_TITLES = {
+  1: "Act 1",
+  2: "Act 2",
+  3: "Act 3",
+  4: "Act 4",
+};
+
+const TheaterSessionCard = ({ session, onSelect }) => {
+  const leadImgUrl =
+    session.leadHeroineThumbnailUrl ||
+    (session.leadHeroineSlug ? `/characters/${session.leadHeroineSlug}/thumb.jpg` : null);
+  const actLabel = ACT_TITLES[session.currentAct] || `Act ${session.currentAct}`;
+
+  return (
+    <motion.div
+      onClick={() => { playSfx("/sounds/sfx_button_click.wav", 0.3); onSelect(session.roomId); }}
+      onMouseEnter={() => playSfx("/sounds/sfx_button_hover.ogg", 0.12)}
+      className="relative group p-4 rounded-xl border border-violet-400/15 bg-violet-500/[0.04] hover:bg-violet-500/[0.08] hover:border-violet-400/30 cursor-pointer transition-colors duration-200"
+      whileHover={{ scale: 1.01, transition: { type: "spring", stiffness: 400, damping: 25 } }}
+      whileTap={{ scale: 0.99 }}
+    >
+      <div className="flex items-start gap-3.5">
+        <div className="relative w-12 h-12 rounded-full overflow-hidden border border-violet-400/30 flex-shrink-0 bg-slate-800">
+          {leadImgUrl ? (
+            <img src={leadImgUrl} alt={session.leadHeroineName || ""} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-violet-300/50">
+              <Drama size={18} />
+            </div>
+          )}
+          {session.endingReached && (
+            <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 flex items-center justify-center rounded-full bg-slate-900 border border-amber-400/40">
+              <Crown size={8} className="text-amber-400" fill="currentColor" />
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-white text-sm truncate max-w-[140px]">
+              {session.worldDisplayName || "극장 세션"}
+            </span>
+            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full border bg-violet-400/15 text-violet-200 border-violet-400/30">
+              극장
+            </span>
+          </div>
+          <div className="flex items-center gap-2 mt-1.5 text-[11px] text-white/55">
+            <Drama size={10} className="text-violet-300/80" />
+            <span className="font-medium text-violet-200/90">{actLabel}</span>
+            <span className="text-white/15">·</span>
+            <BookOpen size={10} className="text-white/30" />
+            <span>Ch {session.currentChapter}</span>
+            {session.leadHeroineName && (
+              <>
+                <span className="text-white/15">·</span>
+                <Heart size={10} className="text-rose-300/70" fill="currentColor" />
+                <span className="text-rose-200/85 truncate max-w-[60px]">{session.leadHeroineName}</span>
+                <span className="text-rose-300/60">{session.leadHeroineAffection}</span>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-1.5">
+            <span className="text-[10px] text-white/40 truncate max-w-[120px]">
+              감독 {session.avatarName || "이름 없음"}
+            </span>
+            <span className="text-[10px] text-white/15 mx-0.5">·</span>
+            <Clock size={10} className="text-white/20" />
+            <span className="text-[11px] text-white/25">{formatRelativeTime(session.lastActiveAt)}</span>
+            {session.endingReached && (
+              <span className="text-[10px] text-amber-300/80 ml-auto italic truncate max-w-[100px]">
+                {session.endingTitle || "엔딩"}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-violet-500/10 group-hover:bg-violet-500/20 transition-colors duration-200 mt-1">
+          <Play size={12} className="text-violet-200/70 group-hover:text-violet-100 transition-colors duration-200 ml-0.5" />
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  기억의 끈 사이드바 — Dialogue + Theater 통합
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  rooms props 시그니처:
+//    [
+//      { type: "DIALOGUE", roomId, ...RoomSummaryResponse },
+//      { type: "THEATER",  roomId, ...TheaterSessionCard },
+//    ]
+//  각 항목은 lastActiveAt 기준으로 이미 정렬되어 있다고 가정.
+//
+// onSelect(roomId, type) — 호출부가 type에 따라 라우팅 분기
+const ContinuePanel = ({ rooms, onSelect, onClose }) => {
   return (
     <motion.div className="fixed inset-0 z-50 flex justify-end" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <motion.div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} />
@@ -281,74 +503,21 @@ const ContinuePanel = ({ rooms, onSelect, onClose }) => {
               <p className="text-xs mt-1 opacity-60">새로운 만남에서 여정을 시작하세요</p>
             </div>
           )}
-          {rooms.map((room) => {
-            const badge = getModeBadge(room.chatMode);
-            // [Phase 5.5-Fix] 지배 스탯 정보 — 레거시 호환 (dominantStatName 없으면 affection 폴백)
-            const domStatKey = room.dominantStatName || "affection";
-            const domStatMeta = STAT_META[domStatKey] || STAT_META.affection;
-            const domStatValue = room.dominantStatValue !== undefined ? room.dominantStatValue : room.affectionScore;
-            const displayRelation = room.dynamicRelationTag || null;
-            return (
-              <motion.div
-                key={room.roomId}
-                onClick={() => { playSfx("/sounds/sfx_button_click.wav", 0.3); onSelect(room.roomId); }}
-                onMouseEnter={() => playSfx("/sounds/sfx_button_hover.ogg", 0.12)}
-                className="relative group p-4 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.06] hover:border-white/10 cursor-pointer transition-colors duration-200"
-                whileHover={{ scale: 1.01, transition: { type: "spring", stiffness: 400, damping: 25 } }}
-                whileTap={{ scale: 0.99 }}
-              >
-                <div className="flex items-start gap-3.5">
-                  <div className="relative w-12 h-12 rounded-full overflow-hidden border border-white/10 flex-shrink-0 bg-slate-800">
-                    {room.characterThumbnailUrl
-                      ? <img src={room.characterThumbnailUrl} alt={room.characterName} className="w-full h-full object-cover" />
-                      : <div className="w-full h-full flex items-center justify-center text-white/20"><User size={20} /></div>
-                    }
-                    {room.endingReached && (
-                      <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 flex items-center justify-center rounded-full bg-slate-900 border border-white/20">
-                        <Star size={8} className={room.endingType === "HAPPY" ? "text-amber-400" : "text-rose-400"} fill="currentColor" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-white text-sm">{room.characterName}</span>
-                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${badge.cls}`}>{badge.label}</span>
-                    </div>
-                    {/* [Phase 5.5-Fix] 지배 스탯 진척도 바 — 레거시 호감도 대체 */}
-                    <div className="flex items-center gap-2 mt-2">
-                      <span className="text-xs leading-none" title={domStatMeta.label}>{domStatMeta.icon}</span>
-                      <div className="flex-1 h-1 rounded-full bg-white/5 overflow-hidden">
-                        <motion.div
-                          className={`h-full rounded-full bg-gradient-to-r ${domStatMeta.gradient}`}
-                          initial={{ width: 0 }}
-                          animate={{ width: `${Math.max(Math.abs(domStatValue), 0)}%` }}
-                          transition={{ duration: 0.8, delay: 0.1 }}
-                        />
-                      </div>
-                      <span className="text-[10px] text-white/30 w-6 text-right tabular-nums">{domStatValue}</span>
-                    </div>
-                    {/* [Phase 5.5-Fix] 동적 관계 태그 + 마지막 대화 시간 */}
-                    <div className="flex items-center gap-2 mt-1.5">
-                      {displayRelation ? (
-                        <span className="text-[10px] font-medium truncate max-w-[120px]" style={{ color: domStatMeta.color + "99" }}>
-                          {displayRelation}
-                        </span>
-                      ) : (
-                        <Heart size={10} className={getStatusColor(room.statusLevel)} />
-                      )}
-                      <span className="text-[10px] text-white/15 mx-0.5">·</span>
-                      <Clock size={10} className="text-white/20" />
-                      <span className="text-[11px] text-white/25">{formatTime(room.lastActiveAt)}</span>
-                      {room.endingReached && <span className="text-[10px] text-white/40 ml-auto italic">{room.endingTitle || (room.endingType === "HAPPY" ? "해피엔딩" : "배드엔딩")}</span>}
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-white/5 group-hover:bg-white/10 transition-colors duration-200 mt-1">
-                    <Play size={12} className="text-white/40 group-hover:text-white/70 transition-colors duration-200 ml-0.5" />
-                  </div>
-                </div>
-              </motion.div>
-            );
-          })}
+          {rooms.map((entry) =>
+            entry.type === "THEATER" ? (
+              <TheaterSessionCard
+                key={`T-${entry.roomId}`}
+                session={entry}
+                onSelect={(id) => onSelect(id, "THEATER")}
+              />
+            ) : (
+              <DialogueRoomCard
+                key={`D-${entry.roomId}`}
+                room={entry}
+                onSelect={(id) => onSelect(id, "DIALOGUE")}
+              />
+            )
+          )}
         </div>
       </motion.div>
     </motion.div>
@@ -399,13 +568,21 @@ const SettingsModal = ({ onClose, onLogout, bgmMuted, onToggleBgm }) => (
 // ═══════════════════════════════════════════════════════════════
 //  메인 로비 페이지
 // ═══════════════════════════════════════════════════════════════
-const LobbyPage = ({ topbarExtras }) => {
+//
+// [Phase 5.5-Theater-Polish · Phase I]
+//   - topbarExtras prop 제거 (LobbyTabShell이 사라졌으므로 더 이상 외부 주입 불필요)
+//   - rooms / theaterSessions를 별도 state로 두고, 머지된 mergedRooms를 ContinuePanel에 전달
+//   - hub의 "기억의 끈" disabled 조건도 머지 기준으로 평가
+//
+const LobbyPage = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
 
   const [view, setView] = useState("hub");
   const [characters, setCharacters] = useState([]);
   const [rooms, setRooms] = useState([]);
+  // [Phase I] Theater 세션 — Dialogue rooms와 분리 저장. 머지는 mergedRooms에서.
+  const [theaterSessions, setTheaterSessions] = useState([]);
   const [activeCharIdx, setActiveCharIdx] = useState(0);
   const [selectedCharacter, setSelectedCharacter] = useState(null);
   const [showAchievements, setShowAchievements] = useState(false);
@@ -416,6 +593,11 @@ const LobbyPage = ({ topbarExtras }) => {
   const [bgmMuted, setBgmMuted] = useState(false);
   const [showStore, setShowStore] = useState(false);
   const [storeInitialTab, setStoreInitialTab] = useState("energy");
+
+  // [Phase I] 캐릭터 카드 → Theater 모드 선택 → CreateFlow 진입 시
+  //          이 캐릭터의 worldId를 가진 임시 world 객체와 미리 선택된 히로인 ID를 전달.
+  const [createFlowState, setCreateFlowState] = useState(null);
+  // shape: { world: {...}, initialHeroineIds: [Long] } | null
 
   // [BETA] 베타 테스터 이스터에그 — 로고 5회 클릭
   const betaClickRef = useRef(0);
@@ -466,10 +648,35 @@ const LobbyPage = ({ topbarExtras }) => {
   };
 
   // ── 데이터 로딩 ──
-  useEffect(() => { fetchUserInfo(); fetchCharacters(); fetchRooms(); }, []);
+  // [Phase I] Theater 세션도 함께 로드. 두 API를 병렬 호출 후 lastActiveAt 기준 머지.
+  useEffect(() => {
+    fetchUserInfo();
+    fetchCharacters();
+    fetchRoomsAll();
+  }, []);
   const fetchUserInfo = async () => { try { setUserInfo((await api.get("/users/me")).data); } catch {} };
   const fetchCharacters = async () => { try { setCharacters((await api.get("/lobby/characters")).data); } catch {} };
   const fetchRooms = async () => { try { setRooms((await api.get("/lobby/rooms")).data); } catch {} };
+  const fetchTheaterSessions = async () => {
+    try { setTheaterSessions(await fetchMyTheaterSessions()); }
+    catch (e) { console.warn("[Lobby] Theater sessions fetch failed:", e?.message); }
+  };
+  const fetchRoomsAll = async () => {
+    await Promise.all([fetchRooms(), fetchTheaterSessions()]);
+  };
+
+  // [Phase I] Dialogue rooms + Theater sessions 통합 — type 필드 부여 후 시간 정렬
+  const mergedRooms = useMemo(() => {
+    const dialogueEntries = (rooms || []).map((r) => ({ ...r, type: "DIALOGUE" }));
+    const theaterEntries = (theaterSessions || []).map((s) => ({ ...s, type: "THEATER" }));
+    const all = [...dialogueEntries, ...theaterEntries];
+    all.sort((a, b) => {
+      const ta = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0;
+      const tb = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0;
+      return tb - ta;
+    });
+    return all;
+  }, [rooms, theaterSessions]);
 
   // ── 카루셀 ──
   const goNext = () => { playSfx("/sounds/sfx_button_click.wav", 0.2); setActiveCharIdx((p) => Math.min(p + 1, characters.length - 1)); };
@@ -491,8 +698,44 @@ const LobbyPage = ({ topbarExtras }) => {
     idx === activeCharIdx ? setSelectedCharacter(characters[idx]) : setActiveCharIdx(idx);
   };
 
+  // [Phase I] 모드 선택 분기:
+  //   STORY/SANDBOX → 기존 /lobby/rooms POST 후 /chat/:id
+  //   THEATER       → CreateFlow 오픈 (이 캐릭터의 worldId / id 미리 채움)
+  //
+  // 캐릭터의 worldId가 없으면 백엔드 isTheaterAvailable=false 이므로
+  // 카드는 disabled 상태이며 이 함수가 호출되더라도 안전 처리한다.
   const handleModeSelect = async (mode) => {
     if (loading) return;
+    if (!selectedCharacter) return;
+
+    if (mode === "THEATER") {
+      // 1. theaterAvailable 가드 (UI에서도 disabled지만 이중 안전)
+      if (!selectedCharacter.theaterAvailable) {
+        return;
+      }
+      // 2. 임시 world 객체 — 실제 디테일(heroImageUrl/openingNarration)은
+      //    CreateFlow에서 fetchWorlds로 충분. 여기서는 id + heroines 시드만 채움.
+      const tempWorld = {
+        id: selectedCharacter.worldId,
+        displayName: selectedCharacter.worldDisplayName || "이야기의 무대",
+        // CreateFlow의 step1에서 다른 히로인을 추가하려면 같은 세계관의 heroines 목록이 필요.
+        // 일단 현재 캐릭터 1명만 시드로 넣고, CreateFlow가 마운트된 후 fetchWorld로 보강한다.
+        heroines: [{
+          id: selectedCharacter.id,
+          name: selectedCharacter.name,
+          characterSlug: selectedCharacter.slug,
+          thumbnailUrl: selectedCharacter.thumbnailUrl,
+          tagline: selectedCharacter.tagline,
+        }],
+        secretAllowed: false,
+      };
+      // ModeSelectOverlay 닫고 CreateFlow 오픈
+      setSelectedCharacter(null);
+      setCreateFlowState({ world: tempWorld, initialHeroineIds: [selectedCharacter.id] });
+      return;
+    }
+
+    // STORY / SANDBOX
     setLoading(true);
     try {
       const res = await api.post("/lobby/rooms", { characterId: selectedCharacter.id, chatMode: mode });
@@ -506,11 +749,24 @@ const LobbyPage = ({ topbarExtras }) => {
     }
   };
 
-  const handleContinue = (roomId) => {
-    localStorage.setItem("roomId", roomId);
+  // [Phase I] 통합 Continue: type에 따라 라우팅 분기
+  const handleContinue = (roomId, type = "DIALOGUE") => {
     fadeBgmOut();
     setEntering(true);
-    setTimeout(() => navigate(`/chat/${roomId}`), 800);
+    if (type === "THEATER") {
+      setTimeout(() => navigate(`/theater/${roomId}`), 800);
+    } else {
+      localStorage.setItem("roomId", roomId);
+      setTimeout(() => navigate(`/chat/${roomId}`), 800);
+    }
+  };
+
+  // [Phase I] 극장 입구(Doorway) 클릭 → /theater 페이지로 이동
+  const handleEnterTheaterPortal = () => {
+    playSfx("/sounds/sfx_button_click.wav", 0.4);
+    fadeBgmOut();
+    setEntering(true);
+    setTimeout(() => navigate("/theater"), 700);
   };
 
   const handleLogout = () => {
@@ -585,11 +841,8 @@ const LobbyPage = ({ topbarExtras }) => {
         </motion.div>
 
         <div className="flex items-center gap-3 sm:gap-4">
-          {/* ─── 탭바 슬롯 ─── */}
-          {topbarExtras && (
-            <div className="mr-1">{topbarExtras}</div>
-          )}
-          <div className="flex items-center gap-1.5 bg-black/20 ...">
+          {/* [Phase I] topbarExtras 슬롯 제거 — LobbyTabShell이 더 이상 존재하지 않음 */}
+          <div className="flex items-center gap-1.5 bg-black/20 backdrop-blur-md rounded-full px-3 py-1.5 border border-white/10 text-amber-300">
             <Zap size={14} />
             <span className="text-sm font-semibold text-white">{displayEnergy}</span>
           </div>
@@ -597,17 +850,17 @@ const LobbyPage = ({ topbarExtras }) => {
             <User size={14} /><span>{displayNickname}</span>
           </div>
           {/* 💎 Lucid Store 버튼 */}
-        <button
-        onClick={() => {
-            playSfx("/sounds/sfx_button_click.wav", 0.25);
-            setStoreInitialTab("energy"); // 기본 탭
-            setShowStore(true);
-        }}
-        onMouseEnter={() => playSfx("/sounds/sfx_button_hover.ogg", 0.15)}
-        className="w-8 h-8 flex items-center justify-center rounded-full bg-black/20 backdrop-blur-md border border-white/10 text-amber-400/70 hover:text-amber-300 hover:bg-black/40 transition-colors duration-200"
-        >
-        <Gem size={14} />
-        </button>
+          <button
+            onClick={() => {
+              playSfx("/sounds/sfx_button_click.wav", 0.25);
+              setStoreInitialTab("energy");
+              setShowStore(true);
+            }}
+            onMouseEnter={() => playSfx("/sounds/sfx_button_hover.ogg", 0.15)}
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-black/20 backdrop-blur-md border border-white/10 text-amber-400/70 hover:text-amber-300 hover:bg-black/40 transition-colors duration-200"
+          >
+            <Gem size={14} />
+          </button>
           {/* [Fix #6] 설정 모달 열기 */}
           <button
             onClick={() => { playSfx("/sounds/sfx_button_click.wav", 0.25); setShowSettings(true); }}
@@ -624,27 +877,33 @@ const LobbyPage = ({ topbarExtras }) => {
         {view === "hub" && (
           <motion.div
             key="hub"
-            className="relative z-10 flex flex-col items-center justify-center h-[calc(100%-80px)]"
+            className="relative z-10 flex flex-col items-center h-[calc(100%-80px)] overflow-y-auto custom-scrollbar pt-4 sm:pt-6 pb-8"
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.5 }}
           >
             {/* [Fix #5] 서비스 로고 이미지 — [BETA] 5회 클릭 이스터에그 */}
-            <motion.div className="mb-10 cursor-pointer" onClick={handleLogoClick} initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.6 }}>
+            <motion.div
+              className="mb-6 sm:mb-8 cursor-pointer flex-shrink-0"
+              onClick={handleLogoClick}
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: 0.6 }}
+            >
               <img
                 src="/logo.png"
                 alt="Lucid Chat"
-                className="h-28 sm:h-40 md:h-48 drop-shadow-[0_0_40px_rgba(255,255,255,0.25)] object-contain select-none"
+                className="h-24 sm:h-32 md:h-40 drop-shadow-[0_0_40px_rgba(255,255,255,0.25)] object-contain select-none"
                 draggable={false}
                 onError={(e) => { e.target.style.display = "none"; if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = "block"; }}
               />
               <p className="text-white/25 text-xs sm:text-sm tracking-[0.3em] uppercase text-center hidden">Lucid Station</p>
             </motion.div>
 
-            {/* [Fix #2] 부드러운 호버 spring + [Fix #7] SFX */}
-            <div className="flex flex-col items-center gap-6 sm:gap-8">
+            {/* [Fix #2] 3-way 미니멀 메뉴 + [Phase I] mergedRooms 기준으로 disabled */}
+            <div className="flex flex-col items-center gap-5 sm:gap-7 flex-shrink-0">
               {[
                 { label: "새로운 만남", sub: "New Encounter", action: () => setView("characters") },
-                { label: "기억의 끈", sub: "Continue", action: () => { fetchRooms(); setView("continue"); }, disabled: rooms.length === 0 },
+                { label: "기억의 끈", sub: "Continue", action: () => { fetchRoomsAll(); setView("continue"); }, disabled: mergedRooms.length === 0 },
                 { label: "수집품", sub: "Archives", action: () => setShowAchievements(true) },
               ].map((item, i) => (
                 <motion.button
@@ -660,7 +919,7 @@ const LobbyPage = ({ topbarExtras }) => {
                   whileTap={!item.disabled ? { scale: 0.96 } : {}}
                 >
                   <motion.span
-                    className="text-2xl sm:text-4xl font-bold text-white tracking-wider"
+                    className="text-2xl sm:text-3xl md:text-4xl font-bold text-white tracking-wider"
                     style={{ fontFamily: "'Pretendard', sans-serif" }}
                     whileHover={{ textShadow: "0 0 30px rgba(255,255,255,0.5), 0 0 60px rgba(147,130,255,0.35)", transition: { duration: 0.3 } }}
                   >
@@ -669,7 +928,6 @@ const LobbyPage = ({ topbarExtras }) => {
                   <span className="text-[11px] text-white/20 tracking-[0.25em] uppercase group-hover:text-white/45 transition-colors duration-300">
                     {item.sub}
                   </span>
-                  {/* 호버 시 하단 glow 언더라인 */}
                   <motion.div
                     className="h-[1px] bg-gradient-to-r from-transparent via-white/30 to-transparent"
                     initial={{ width: 0, opacity: 0 }}
@@ -680,10 +938,24 @@ const LobbyPage = ({ topbarExtras }) => {
               ))}
             </div>
 
+            {/* [Phase I] 메뉴 ↔ Doorway 사이 구분선 */}
             <motion.div
-              className="absolute bottom-12 left-1/2 -translate-x-1/2 w-32 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent"
-              initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ delay: 0.8, duration: 1 }}
+              className="my-7 sm:my-8 w-40 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent flex-shrink-0"
+              initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ delay: 0.55, duration: 0.9 }}
             />
+
+            {/* [Phase I] 시네마틱 극장 입구 — Hub의 일부로 자연스럽게 박힌 프롭 */}
+            <motion.div
+              className="flex-shrink-0 mb-6"
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.7, duration: 0.7, ease: "easeOut" }}
+            >
+              <TheaterDoorway
+                onEnter={handleEnterTheaterPortal}
+                sessionCount={theaterSessions.length}
+              />
+            </motion.div>
           </motion.div>
         )}
 
@@ -742,22 +1014,64 @@ const LobbyPage = ({ topbarExtras }) => {
       </AnimatePresence>
 
       {/* ═══ Overlays ═══ */}
-      <AnimatePresence>{selectedCharacter && <ModeSelectOverlay character={selectedCharacter} onSelect={handleModeSelect} onClose={() => setSelectedCharacter(null)} />}</AnimatePresence>
-      <AnimatePresence>{view === "continue" && <ContinuePanel rooms={rooms} onSelect={handleContinue} onClose={() => setView("hub")} />}</AnimatePresence>
+      <AnimatePresence>
+        {selectedCharacter && (
+          <ModeSelectOverlay
+            character={selectedCharacter}
+            onSelect={handleModeSelect}
+            onClose={() => setSelectedCharacter(null)}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {view === "continue" && (
+          <ContinuePanel
+            rooms={mergedRooms}
+            onSelect={handleContinue}
+            onClose={() => setView("hub")}
+          />
+        )}
+      </AnimatePresence>
       <AnimatePresence>{showAchievements && <AchievementGallery onClose={() => setShowAchievements(false)} />}</AnimatePresence>
+
+      {/* [Phase I] 캐릭터 카드 → Theater 모드 선택 시 진입하는 CreateFlow */}
+      <AnimatePresence>
+        {createFlowState && (
+          <TheaterCreateFlow
+            world={createFlowState.world}
+            initialHeroineIds={createFlowState.initialHeroineIds || []}
+            onClose={() => setCreateFlowState(null)}
+            // [Phase III · B-4] 무료 유저 Step 4 업셀
+            onOpenStore={() => {
+              setStoreInitialTab("subscription");
+              setShowStore(true);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* 💎 Lucid Store Overlay */}
       <LucidStore
-      isOpen={showStore}
-      onClose={() => setShowStore(false)}
-      initialTab={storeInitialTab}
-      userInfo={userInfo}
-      characters={characters}
-      onPaymentComplete={() => {
-      setShowStore(false);
-      fetchUserInfo(); // 결제 후 에너지 갱신
-      }}
+        isOpen={showStore}
+        onClose={() => setShowStore(false)}
+        initialTab={storeInitialTab}
+        userInfo={userInfo}
+        characters={characters}
+        onPaymentComplete={() => {
+          setShowStore(false);
+          fetchUserInfo(); // 결제 후 에너지 갱신
+        }}
       />
-      <AnimatePresence>{showSettings && <SettingsModal onClose={() => setShowSettings(false)} onLogout={handleLogout} bgmMuted={bgmMuted} onToggleBgm={() => setBgmMuted((m) => !m)} />}</AnimatePresence>
+      <AnimatePresence>
+        {showSettings && (
+          <SettingsModal
+            onClose={() => setShowSettings(false)}
+            onLogout={handleLogout}
+            bgmMuted={bgmMuted}
+            onToggleBgm={() => setBgmMuted((m) => !m)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* [BETA] 베타 테스터 토스트 알림 */}
       <AnimatePresence>
