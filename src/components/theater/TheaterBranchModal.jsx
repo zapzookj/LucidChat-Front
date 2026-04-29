@@ -49,12 +49,27 @@ const LEVEL_THEMES = {
   },
 };
 
+/**
+ * Theater 분기 모달 — MINOR / MAJOR / CLIMAX / LOCATION 공통.
+ *
+ * Props:
+ *   branchOptions  : 분기 옵션 (서버 응답)
+ *   onConfirm      : 선택 콜백 (selectedIndex)
+ *   onCancel       : 취소 콜백 (MINOR에서만 노출)
+ *   currentStats   : 스탯 게이트 진척도 표시용 (옵션)
+ *   heroines       : LOCATION 분기에서 히로인 썸네일 매핑 (옵션)
+ *   inline         : [Phase 5.5 UX Polish · R2]
+ *                    true이면 풀스크린이 아니라 dialogue box 위에 떠있는 인라인
+ *                    오버레이로 렌더 (MINOR 전용 — 흐름 단절 최소화).
+ *                    MINOR가 아닐 때 inline=true가 들어와도 풀스크린으로 강제.
+ */
 export default function TheaterBranchModal({
   branchOptions,
   onConfirm,
   onCancel,
   currentStats = null,
   heroines = [],
+  inline = false,
 }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const [confirming, setConfirming] = useState(false);
@@ -64,6 +79,9 @@ export default function TheaterBranchModal({
   const theme = LEVEL_THEMES[branchOptions.branchLevel] || LEVEL_THEMES.MINOR;
   const isLocation = branchOptions.branchLevel === "LOCATION";
   const isClimax = branchOptions.branchLevel === "CLIMAX";
+  const isMinor = branchOptions.branchLevel === "MINOR";
+  // 인라인 모드는 MINOR에서만 의미 있음 (CTO 결정)
+  const useInline = inline && isMinor;
 
   const handleSelect = async (option) => {
     if (!option.unlocked || confirming) return;
@@ -74,6 +92,87 @@ export default function TheaterBranchModal({
       setConfirming(false);
     }
   };
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  [R2] 인라인 모드 렌더 — DialogueBox 위 슬라이드업 오버레이
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  if (useInline) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 60 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 40 }}
+        transition={{ type: "spring", stiffness: 260, damping: 30 }}
+        // PlayPage가 z-[60] 영역에 마운트하므로 모달은 z-[80]로 그 위에.
+        // 풀스크린 wrapper 없이 부모(PlayPage hud-bottom area)에 직접 위치.
+        className="absolute inset-x-0 bottom-0 z-[80] pointer-events-none"
+      >
+        {/* dim 배경 — DialogueBox 위만 살짝 어둡게 */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent pointer-events-auto" />
+
+        <div className="relative z-10 max-w-3xl mx-auto px-4 pb-4 pointer-events-auto">
+          {/* 미니 타이틀 */}
+          <div className="text-center mb-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-violet-500/20 border border-violet-300/40 backdrop-blur-md">
+              <span className="text-[10px] uppercase tracking-[0.3em] text-violet-100 font-bold">
+                Choose
+              </span>
+              <span className="text-violet-200/60 text-[10px]">·</span>
+              <span className="text-violet-100/85 text-[11px] italic">
+                {theme.title}
+              </span>
+            </div>
+          </div>
+
+          {/* 상황 나레이션 (간결하게) */}
+          {branchOptions.contextNarration && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.15 }}
+              className="mb-3 text-center text-white/85 italic text-sm leading-relaxed"
+              style={{ fontFamily: "'Noto Serif KR', serif" }}
+            >
+              {branchOptions.contextNarration}
+            </motion.div>
+          )}
+
+          {/* 인라인 카드 — 2지선다 가로 배치 */}
+          <div className="grid gap-2.5 grid-cols-1 sm:grid-cols-2">
+            {branchOptions.options?.map((option, i) => (
+              <BranchCard
+                key={option.index}
+                option={option}
+                index={i}
+                isLocation={false}
+                hovered={hoveredIdx === option.index}
+                onHover={() => setHoveredIdx(option.index)}
+                onLeave={() => setHoveredIdx(null)}
+                onSelect={() => handleSelect(option)}
+                disabled={confirming}
+                currentStats={currentStats}
+                heroines={heroines}
+                compact={true}
+              />
+            ))}
+          </div>
+
+          {/* 취소 */}
+          {onCancel && (
+            <div className="mt-2 text-center">
+              <button
+                onClick={onCancel}
+                disabled={confirming}
+                className="text-[11px] text-white/45 hover:text-white/75 transition-colors"
+              >
+                나중에 결정
+              </button>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
@@ -186,7 +285,7 @@ export default function TheaterBranchModal({
 //
 function BranchCard({
   option, index, isLocation, hovered, onHover, onLeave, onSelect, disabled,
-  currentStats, heroines,
+  currentStats, heroines, compact = false,
 }) {
   const locked = !option.unlocked;
   const gate = option.statGate;
@@ -217,20 +316,31 @@ function BranchCard({
     introspective: "text-violet-200",
   }[option.tone] || "text-white";
 
+  // [Phase 5.5 UX Polish · R2] compact = MINOR 인라인 모드용 (패딩/스케일 축소)
+  const padClass = compact ? "p-3" : "p-5";
+  const labelClass = compact
+    ? "text-sm font-bold leading-snug"
+    : "text-base font-bold leading-snug";
+  const detailClass = compact
+    ? "text-[11px] text-white/65 mt-1 leading-relaxed"
+    : "text-xs text-white/70 mt-1.5 leading-relaxed";
+
   return (
     <motion.button
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: compact ? 8 : 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.2 + index * 0.12 }}
+      transition={{ delay: (compact ? 0.1 : 0.2) + index * (compact ? 0.06 : 0.12) }}
       onMouseEnter={onHover}
       onMouseLeave={onLeave}
       onClick={onSelect}
       disabled={disabled || locked}
       whileTap={!disabled && !locked ? { scale: 0.98 } : {}}
-      whileHover={!disabled && !locked ? { scale: 1.02, y: -2 } : {}}
-      className={`relative text-left rounded-2xl p-5 border transition-colors duration-200 overflow-hidden ${
+      whileHover={!disabled && !locked ? { scale: compact ? 1.015 : 1.02, y: -2 } : {}}
+      className={`relative text-left rounded-2xl ${padClass} border transition-colors duration-200 overflow-hidden ${
         locked
           ? "bg-white/[0.02] border-white/10 cursor-not-allowed"
+          : compact
+          ? "bg-slate-900/85 backdrop-blur-md border-violet-300/20 hover:border-violet-300/55 cursor-pointer shadow-lg shadow-violet-500/5"
           : "bg-white/[0.04] border-white/10 hover:border-white/30 cursor-pointer"
       }`}
     >
@@ -310,13 +420,13 @@ function BranchCard({
       )}
 
       {/* 라벨 */}
-      <div className={`text-lg font-bold mb-1 ${locked ? "text-white/65" : toneColor}`}>
+      <div className={`mb-1 ${compact ? "text-sm font-bold leading-snug" : "text-lg font-bold"} ${locked ? "text-white/65" : toneColor}`}>
         {option.label}
       </div>
 
       {/* 디테일 */}
       {option.detail && (
-        <div className={`text-sm leading-relaxed ${locked ? "text-white/30" : "text-white/55"}`}>
+        <div className={`${compact ? "text-[11px] leading-relaxed" : "text-sm leading-relaxed"} ${locked ? "text-white/30" : "text-white/55"}`}>
           {option.detail}
         </div>
       )}

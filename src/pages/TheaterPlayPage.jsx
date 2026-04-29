@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Drama, Crown, Heart, Home, BookMarked, Save } from "lucide-react";
+import { ArrowLeft, Drama, Crown, Heart, Home, Megaphone, BookOpen, Save } from "lucide-react";
 
 // 기존 프로젝트 에셋 재활용
 import BackgroundDisplay from "../components/BackgroundDisplay";
@@ -14,8 +14,9 @@ import TheaterCinematicLoader from "../components/theater/TheaterCinematicLoader
 import TheaterSceneHistoryPanel from "../components/theater/TheaterSceneHistoryPanel";
 import TheaterChapterReportModal from "../components/theater/TheaterChapterReportModal";
 import TheaterBranchModal from "../components/theater/TheaterBranchModal";
-// [Phase III · 작업 2] 감독 노트 + 세이브/로드 패널 통합
-import TheaterDirectorNotePanel from "../components/theater/TheaterDirectorNotePanel";
+// [Phase 5.5 UX Polish · R3] 감독 명령어 + 이야기 다이어리로 두 패널 분리
+import TheaterDirectorCommandPanel from "../components/theater/TheaterDirectorCommandPanel";
+import TheaterDiaryPanel from "../components/theater/TheaterDiaryPanel";
 import TheaterSaveLoadPanel from "../components/theater/TheaterSaveLoadPanel";
 
 import { fetchTheaterRoom } from "../api/TheaterLobbyApi";
@@ -93,8 +94,11 @@ export default function TheaterPlayPage() {
   const [branchModalData, setBranchModalData] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [locationBranchRequested, setLocationBranchRequested] = useState(false);
-  // [Phase III · 작업 2] 감독 노트 + 세이브/로드
-  const [notesOpen, setNotesOpen] = useState(false);
+  // [Phase 5.5 UX Polish · R3] 감독 명령어 + 이야기 다이어리 (분리된 두 패널)
+  // - commandOpen : 좌측 — 유저 입력 명령어 (다음 배치 환경 주입)
+  // - diaryOpen   : 우측 — 자동 캡처 노트들 (사진첩)
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [diaryOpen, setDiaryOpen] = useState(false);
   const [saveLoadOpen, setSaveLoadOpen] = useState(false);
 
   // ─── 이전 씬 네비게이션 (배치 밖으로 나갈 때 사용) ───
@@ -189,8 +193,8 @@ export default function TheaterPlayPage() {
     if (!autoPlayEnabled || !typingDone) return;
     if (loadingNext || chapterEnding) return;
     if (chapterReport || branchModalData || historyOpen) return;
-    // [Phase III · 작업 2] 노트/세이브 패널이 열린 동안에도 자동 진행 일시정지
-    if (notesOpen || saveLoadOpen) return;
+    // [Phase 5.5 UX Polish · R3] 감독 명령어/다이어리 패널이 열린 동안에도 자동 진행 일시정지
+    if (commandOpen || diaryOpen || saveLoadOpen) return;
     if (historyViewIndex !== null) return; // 이전 보기 중엔 자동 진행 안 함
 
     const delay = AUTO_ADVANCE_MS[playSpeed] || AUTO_ADVANCE_MS.NORMAL;
@@ -203,7 +207,7 @@ export default function TheaterPlayPage() {
   }, [
     typingDone, autoPlayEnabled, playSpeed, loadingNext,
     chapterEnding, chapterReport, branchModalData, historyOpen,
-    notesOpen, saveLoadOpen,
+    commandOpen, diaryOpen, saveLoadOpen,
     historyViewIndex, nextScene
   ]);
 
@@ -333,6 +337,26 @@ export default function TheaterPlayPage() {
     }
     return currentScene;
   }, [historyViewIndex, historicalScenes, currentScene]);
+
+  // [Phase 5.5 UX Polish · R3] 배치의 마지막 씬 도달 여부 — 감독 명령어 펄스 알림용.
+  // 마지막 씬에 닿으면 다음 배치 LLM 호출 직전이므로, 명령어 발동의 골든 타임.
+  // 라이브 시점 + typingDone + 모달/패널 닫혀있을 때만 강조 (산만함 방지).
+  const isLastScene = useMemo(() => {
+    if (historyViewIndex !== null) return false;
+    const total = currentBatch?.scenes?.length || 0;
+    if (total === 0) return false;
+    return currentSceneIndex >= total - 1 && typingDone;
+  }, [historyViewIndex, currentBatch, currentSceneIndex, typingDone]);
+  // 펄스는 어떤 모달도 떠있지 않을 때만 (산만 회피)
+  const showCommandPulse = useMemo(() => {
+    return isLastScene
+      && !chapterReport && !branchModalData && !historyOpen
+      && !commandOpen && !diaryOpen && !saveLoadOpen
+      && !chapterEnding && !loadingNext;
+  }, [
+    isLastScene, chapterReport, branchModalData, historyOpen,
+    commandOpen, diaryOpen, saveLoadOpen, chapterEnding, loadingNext,
+  ]);
 
   // 현재 화자 히로인 정보 결정
   const activeHeroine = useMemo(() => {
@@ -482,24 +506,63 @@ export default function TheaterPlayPage() {
           </div>
 
           {/*
-            [Phase III · 작업 2] 감독 노트 + 세이브/로드 버튼
-            기존 HUD 톤(black/55 backdrop pill)과 같은 디자인 DNA로 묶음.
+            [Phase 5.5 UX Polish · R3] 감독 명령어 + 이야기 다이어리 + 세이브/로드
+            - 🎬 명령어: 좌측 슬라이드 패널 (유저 입력)
+            - 📖 다이어리: 우측 슬라이드 패널 (자동 캡처 노트)
+            - 마지막 씬 도달 시 명령어 버튼 펄스 — "이 기능을 써봐!" 안내
           */}
-          <button
-            onClick={(e) => { e.stopPropagation(); setNotesOpen(true); }}
-            aria-label="감독의 메모"
-            title="감독의 메모"
-            className="p-2 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-white/65 hover:text-amber-200 hover:border-amber-300/35 transition-colors duration-200"
+          <motion.button
+            onClick={(e) => { e.stopPropagation(); setCommandOpen(true); }}
+            aria-label="감독 명령어"
+            title="감독 명령어 (다음 배치에 환경 이벤트 추가)"
+            animate={
+              showCommandPulse
+                ? {
+                    scale: [1, 1.08, 1],
+                    boxShadow: [
+                      "0 0 0px rgba(251,191,36,0)",
+                      "0 0 18px rgba(251,191,36,0.5)",
+                      "0 0 0px rgba(251,191,36,0)",
+                    ],
+                  }
+                : { scale: 1, boxShadow: "0 0 0px rgba(0,0,0,0)" }
+            }
+            transition={{
+              duration: 2,
+              repeat: showCommandPulse ? Infinity : 0,
+              ease: "easeInOut",
+            }}
+            className={`relative inline-flex items-center justify-center w-8 h-8 rounded-full backdrop-blur-md border transition-colors duration-200 ${
+              showCommandPulse
+                ? "bg-amber-500/15 border-amber-300/40 text-amber-200"
+                : "bg-black/55 border-white/10 text-white/65 hover:text-amber-200 hover:border-amber-300/35"
+            }`}
           >
-            <BookMarked size={13} />
+            <Megaphone size={14} />
+            {/* 마지막 씬 도달 시 우상단 도트 */}
+            {showCommandPulse && (
+              <motion.span
+                className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-300"
+                animate={{ opacity: [0.3, 1, 0.3] }}
+                transition={{ duration: 1.4, repeat: Infinity }}
+              />
+            )}
+          </motion.button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setDiaryOpen(true); }}
+            aria-label="이야기 다이어리"
+            title="이야기 다이어리"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-white/65 hover:text-cyan-200 hover:border-cyan-300/35 transition-colors duration-200"
+          >
+            <BookOpen size={14} />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); setSaveLoadOpen(true); }}
             aria-label="세이브 / 로드"
             title="세이브 / 로드"
-            className="p-2 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-white/65 hover:text-violet-200 hover:border-violet-300/35 transition-colors duration-200"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-white/65 hover:text-violet-200 hover:border-violet-300/35 transition-colors duration-200"
           >
-            <Save size={13} />
+            <Save size={14} />
           </button>
         </div>
 
@@ -640,7 +703,12 @@ export default function TheaterPlayPage() {
           <TheaterBranchModal
             branchOptions={branchModalData.options}
             onConfirm={handleBranchConfirm}
-            onCancel={null}
+            // [Phase 5.5 UX Polish · R2] MINOR는 인라인이면서 "나중에 결정" 허용 (가벼움)
+            onCancel={
+              branchModalData.options?.branchLevel === "MINOR"
+                ? () => setBranchModalData(null)
+                : null
+            }
             // [Phase III · A-3] Stat-gated 진척도 바 + LOCATION 히로인 썸네일
             currentStats={
               roomInfo.avatar?.stats
@@ -654,6 +722,9 @@ export default function TheaterPlayPage() {
               thumbnailUrl: h.thumbnailUrl,
               affection: h.affection,
             }))}
+            // [Phase 5.5 UX Polish · R2] MINOR만 인라인 (DialogueBox 위 슬라이드업).
+            // MAJOR / CLIMAX / LOCATION은 풀스크린 (의식성·무게감 유지)
+            inline={branchModalData.options?.branchLevel === "MINOR"}
           />
         )}
       </AnimatePresence>
@@ -682,13 +753,35 @@ export default function TheaterPlayPage() {
         )}
       </AnimatePresence>
 
-      {/* [Phase III · 작업 2] 감독 노트 패널 */}
+      {/* [Phase 5.5 UX Polish · R3] 감독 명령어 패널 (좌측 슬라이드) */}
       <AnimatePresence>
-        {notesOpen && (
-          <TheaterDirectorNotePanel
+        {commandOpen && (
+          <TheaterDirectorCommandPanel
             roomId={numericRoomId}
-            visible={notesOpen}
-            onClose={() => setNotesOpen(false)}
+            visible={commandOpen}
+            onClose={() => setCommandOpen(false)}
+            energy={roomInfo?.energy ?? 0}
+            onSpent={() => {
+              // 명령어 발동 시 에너지 1 차감 — 정확한 잔량은 다음 배치 응답에서 동기화.
+              // 즉시 UI 반영을 위해 낙관적 업데이트.
+              setRoomInfo((prev) => prev
+                ? { ...prev, energy: Math.max(0, (prev.energy ?? 0) - 1) }
+                : prev);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* [Phase 5.5 UX Polish · R3] 이야기 다이어리 패널 (우측 슬라이드) */}
+      <AnimatePresence>
+        {diaryOpen && (
+          <TheaterDiaryPanel
+            roomId={numericRoomId}
+            visible={diaryOpen}
+            onClose={() => setDiaryOpen(false)}
+            currentAct={currentBatch?.actNumber || 1}
+            currentChapter={currentBatch?.chapterNumber || 1}
+            currentBatchId={currentBatch?.batchId || 0}
           />
         )}
       </AnimatePresence>

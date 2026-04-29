@@ -48,3 +48,31 @@ export async function updateDirectorNote(roomId, noteId, content) {
 export async function deleteDirectorNote(roomId, noteId) {
   await api.delete(`/theater/rooms/${roomId}/notes/${noteId}`);
 }
+
+// ━━━ [Phase 5.5 UX Polish · R3] 감독 명령어 ━━━
+
+/**
+ * 감독 명령어 발동.
+ *
+ * 응답 구조 (200):
+ *   { accepted: boolean, verdict: string, userMessage: string, note: {...} }
+ *
+ * - accepted=true:  검증 통과, 다음 1배치에 환경 이벤트 주입
+ * - accepted=false: 거부됨, userMessage를 UI에 노출 (유저 학습 자료)
+ *
+ * 검증 외 오류(권한/길이초과 등)는 4xx로 던져짐 → axios가 throw.
+ *
+ * @param {number} roomId
+ * @param {string} content      명령어 텍스트 (≤ 300자)
+ * @param {object} [options]
+ * @param {boolean} [options.overwriteActive=true]  활성 명령어 덮어쓰기 동의 여부
+ * @returns {Promise<{accepted, verdict, userMessage, note}>}
+ */
+export async function triggerDirectorCommand(roomId, content, options = {}) {
+  const { overwriteActive = true } = options;
+  const res = await api.post(
+    `/theater/rooms/${roomId}/director-commands`,
+    { content, overwriteActive }
+  );
+  return res.data;
+}

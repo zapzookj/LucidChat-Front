@@ -14,7 +14,7 @@ import {
  * ────────────────────────────────────────────────────────────
  *
  * Props:
- *   scene                 : 현재 씬 객체 { narration, innerNarration, dialogue, speakerType, speakerName, emotion }
+ *   scene                 : 현재 씬 객체 { narration, protagonistInner, heroineInner, innerNarration(legacy), dialogue, speakerType, speakerName, emotion, sceneType }
  *   speakerName           : 대사 화자 표시 이름
  *   avatarName            : 주인공(유저 아바타) 이름
  *   playSpeed             : "SLOW" | "NORMAL" | "FAST"
@@ -162,9 +162,11 @@ export default function TheaterDialogueBox({
     if (scene.narration) {
       result.push({ key: "narration", text: scene.narration, kind: "narration" });
     }
-    // 2. 속마음
-    if (scene.innerNarration) {
-      result.push({ key: "inner", text: scene.innerNarration, kind: "inner" });
+    // 2. 주인공 속마음 (protagonist_inner 우선, 구버전 inner_narration fallback)
+    //    [Phase 5.5 UX Polish · R1] 화자 분리 — 히로인 속내(heroine_inner)는 UI 미노출.
+    const protagonistInner = scene.protagonistInner ?? scene.innerNarration;
+    if (protagonistInner) {
+      result.push({ key: "inner", text: protagonistInner, kind: "inner" });
     }
     // 3-a. 유저(아바타) 대사 (있을 때만)
     if (scene.dialogue && isAvatarSpeaking) {
@@ -246,8 +248,9 @@ export default function TheaterDialogueBox({
               </motion.div>
             )}
 
-            {/* 속마음 — Theater 시그니처 (violet 좌측 라인) */}
-            {scene?.innerNarration && narrationText.length >= (scene.narration?.length || 0) && (
+            {/* 속마음 — Theater 시그니처 (violet 좌측 라인)
+                [Phase 5.5 UX Polish · R1] protagonistInner 우선, innerNarration fallback */}
+            {(scene?.protagonistInner ?? scene?.innerNarration) && narrationText.length >= (scene.narration?.length || 0) && (
               <motion.div
                 initial={{ opacity: 0, x: 8 }}
                 animate={{ opacity: 1, x: 0 }}
@@ -268,7 +271,7 @@ export default function TheaterDialogueBox({
                   <span className="text-violet-300/55 mr-1">「</span>
                   {innerText}
                   <span className="text-violet-300/55 ml-1">」</span>
-                  {innerText.length < (scene.innerNarration?.length || 0) && (
+                  {innerText.length < ((scene.protagonistInner ?? scene.innerNarration)?.length || 0) && (
                     <TypingCursor color="rgba(196,181,253,0.65)" />
                   )}
                 </div>

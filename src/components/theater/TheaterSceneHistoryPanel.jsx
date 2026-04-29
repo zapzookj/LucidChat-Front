@@ -191,7 +191,9 @@ function SceneHistoryCard({ scene, avatarName }) {
   const isAvatar = scene.speakerType === "AVATAR";
   const isHeroine = scene.speakerType === "HEROINE";
 
-  const hasInner = !!scene.innerNarration;
+  // [Phase 5.5 UX Polish · R1] protagonistInner 우선, innerNarration fallback
+  const protagonistInner = scene.protagonistInner ?? scene.innerNarration;
+  const hasInner = !!protagonistInner;
   const hasDialogue = !!scene.dialogue;
 
   return (
@@ -255,7 +257,7 @@ function SceneHistoryCard({ scene, avatarName }) {
           />
           <div className="text-violet-200/85 text-xs italic leading-relaxed">
             <span className="text-violet-300/55">「</span>
-            {scene.innerNarration}
+            {protagonistInner}
             <span className="text-violet-300/55">」</span>
           </div>
         </div>
