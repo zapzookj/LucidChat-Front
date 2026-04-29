@@ -48,16 +48,23 @@ const TheaterCinematicLoader = ({
       </motion.div>
 
       <motion.div
-        className="mt-3 flex gap-1"
+        className="mt-3 flex items-end gap-1"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.3 }}
       >
+        {/*
+          [Phase III · 작업 1] 점 3개에 사이즈 변화도 함께 — 단순 페이드보다 호흡감.
+        */}
         {[0, 1, 2].map((i) => (
           <motion.div
             key={i}
-            className="w-1 h-1 rounded-full bg-white/50"
-            animate={{ opacity: [0.3, 1, 0.3] }}
+            className="rounded-full bg-violet-200/65"
+            animate={{
+              opacity: [0.3, 1, 0.3],
+              width: ["3px", "5px", "3px"],
+              height: ["3px", "5px", "3px"],
+            }}
             transition={{
               duration: 1.2,
               delay: i * 0.2,
@@ -168,7 +175,7 @@ const InkBloom = () => (
 
 const MinimalSpinner = () => (
   <motion.div
-    className="w-10 h-10 border-2 border-white/20 border-t-purple-400 rounded-full"
+    className="w-10 h-10 border-2 border-white/15 border-t-violet-300 rounded-full shadow-[0_0_18px_rgba(167,139,250,0.25)]"
     animate={{ rotate: 360 }}
     transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
   />

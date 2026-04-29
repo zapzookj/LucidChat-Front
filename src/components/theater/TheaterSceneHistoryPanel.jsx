@@ -75,7 +75,7 @@ export default function TheaterSceneHistoryPanel({
         {/* 헤더 */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
           <div className="flex items-center gap-2">
-            <BookOpen size={18} className="text-indigo-300" />
+            <BookOpen size={18} className="text-violet-300" />
             <div>
               <div className="text-[10px] uppercase tracking-widest text-white/40">
                 Scene History
@@ -85,7 +85,8 @@ export default function TheaterSceneHistoryPanel({
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-white/10 text-white/50"
+            aria-label="닫기"
+            className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
           >
             <X size={16} />
           </button>
@@ -95,7 +96,7 @@ export default function TheaterSceneHistoryPanel({
         <div className="px-5 py-3 border-b border-white/5 bg-black/30">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
-              <span className="text-xs text-white/40 font-bold">Act</span>
+              <span className="text-[10px] uppercase tracking-widest text-white/40 font-bold">Act</span>
               <div className="flex gap-1">
                 {[1, 2, 3, 4].map((act) => (
                   <button
@@ -105,12 +106,12 @@ export default function TheaterSceneHistoryPanel({
                       setSelectedChapter(1);
                     }}
                     disabled={act > currentAct}
-                    className={`px-3 py-1 rounded-full text-xs font-bold border transition ${
+                    className={`px-3 py-1 rounded-full text-xs font-bold border transition-colors duration-200 ${
                       selectedAct === act
-                        ? "bg-indigo-500/20 border-indigo-400/60 text-indigo-100"
+                        ? "bg-violet-500/22 border-violet-300/55 text-violet-100 shadow-[inset_0_0_0_1px_rgba(167,139,250,0.3)]"
                         : act > currentAct
                         ? "bg-white/[0.02] border-white/5 text-white/20 cursor-not-allowed"
-                        : "bg-white/[0.04] border-white/10 text-white/60 hover:bg-white/[0.08]"
+                        : "bg-white/[0.04] border-white/10 text-white/60 hover:bg-white/[0.08] hover:text-white/85"
                     }`}
                   >
                     {act}
@@ -120,18 +121,18 @@ export default function TheaterSceneHistoryPanel({
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="text-xs text-white/40 font-bold">Chapter</span>
+              <span className="text-[10px] uppercase tracking-widest text-white/40 font-bold">Chapter</span>
               <div className="flex gap-1 flex-wrap">
-                {Array.from({ length: selectedAct === currentAct ? currentChapter : 8 }, (_, i) => i + 1)
-                  .slice(0, 8)
+                {Array.from({ length: selectedAct === currentAct ? currentChapter : 6 }, (_, i) => i + 1)
+                  .slice(0, 6)
                   .map((ch) => (
                     <button
                       key={ch}
                       onClick={() => setSelectedChapter(ch)}
-                      className={`w-7 h-7 rounded-lg text-xs font-bold border transition ${
+                      className={`w-7 h-7 rounded-lg text-xs font-bold border transition-colors duration-200 ${
                         selectedChapter === ch
-                          ? "bg-purple-500/20 border-purple-400/60 text-purple-100"
-                          : "bg-white/[0.04] border-white/10 text-white/60 hover:bg-white/[0.08]"
+                          ? "bg-indigo-500/22 border-indigo-300/55 text-indigo-100"
+                          : "bg-white/[0.04] border-white/10 text-white/60 hover:bg-white/[0.08] hover:text-white/85"
                       }`}
                     >
                       {ch}
@@ -143,11 +144,11 @@ export default function TheaterSceneHistoryPanel({
         </div>
 
         {/* 씬 리스트 */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+        <div className="flex-1 overflow-y-auto p-5 space-y-3 custom-scrollbar">
           {loading && (
             <div className="flex justify-center py-12">
               <motion.div
-                className="w-8 h-8 border-2 border-white/20 border-t-white/70 rounded-full"
+                className="w-8 h-8 border-2 border-white/15 border-t-violet-300 rounded-full"
                 animate={{ rotate: 360 }}
                 transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
               />
@@ -171,7 +172,7 @@ export default function TheaterSceneHistoryPanel({
 
         {/* 푸터 */}
         <div className="px-5 py-3 border-t border-white/5 bg-black/30 text-center">
-          <div className="text-[10px] text-white/40">
+          <div className="text-[10px] text-white/40 tracking-wider">
             Act {selectedAct} · Chapter {selectedChapter} · {scenes.length}개 씬
           </div>
         </div>
@@ -205,7 +206,7 @@ function SceneHistoryCard({ scene, avatarName }) {
             #{scene.sceneSeqInChapter + 1}
           </span>
           {scene.location && (
-            <span className="text-[10px] text-indigo-300/60 bg-indigo-500/10 rounded-full px-2 py-0.5 border border-indigo-400/20">
+            <span className="text-[10px] text-violet-300/65 bg-violet-500/10 rounded-full px-2 py-0.5 border border-violet-400/20">
               {scene.location}
             </span>
           )}
@@ -242,13 +243,20 @@ function SceneHistoryCard({ scene, avatarName }) {
         </div>
       )}
 
-      {/* 속마음 (expanded일 때만) */}
+      {/* 속마음 (expanded일 때만) — A-2와 같은 violet 그라디언트 라인 */}
       {hasInner && expanded && (
-        <div className="pl-3 border-l-2 border-purple-400/40 my-2">
-          <div className="text-purple-200/80 text-xs italic leading-relaxed">
-            <span className="text-purple-400/60">「</span>
+        <div className="relative pl-3 my-2">
+          <div
+            className="absolute left-0 top-1 bottom-1 w-[2px] rounded-full"
+            style={{
+              background:
+                "linear-gradient(180deg, rgba(167,139,250,0) 0%, rgba(167,139,250,0.7) 30%, rgba(167,139,250,0.7) 70%, rgba(167,139,250,0) 100%)",
+            }}
+          />
+          <div className="text-violet-200/85 text-xs italic leading-relaxed">
+            <span className="text-violet-300/55">「</span>
             {scene.innerNarration}
-            <span className="text-purple-400/60">」</span>
+            <span className="text-violet-300/55">」</span>
           </div>
         </div>
       )}

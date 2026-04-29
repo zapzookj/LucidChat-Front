@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Drama, Crown, Heart, Home } from "lucide-react";
+import { ArrowLeft, Drama, Crown, Heart, Home, BookMarked, Save } from "lucide-react";
 
 // 기존 프로젝트 에셋 재활용
 import BackgroundDisplay from "../components/BackgroundDisplay";
@@ -14,6 +14,9 @@ import TheaterCinematicLoader from "../components/theater/TheaterCinematicLoader
 import TheaterSceneHistoryPanel from "../components/theater/TheaterSceneHistoryPanel";
 import TheaterChapterReportModal from "../components/theater/TheaterChapterReportModal";
 import TheaterBranchModal from "../components/theater/TheaterBranchModal";
+// [Phase III · 작업 2] 감독 노트 + 세이브/로드 패널 통합
+import TheaterDirectorNotePanel from "../components/theater/TheaterDirectorNotePanel";
+import TheaterSaveLoadPanel from "../components/theater/TheaterSaveLoadPanel";
 
 import { fetchTheaterRoom } from "../api/TheaterLobbyApi";
 import { updatePlaySettings } from "../api/TheaterPlayApi";
@@ -90,6 +93,9 @@ export default function TheaterPlayPage() {
   const [branchModalData, setBranchModalData] = useState(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [locationBranchRequested, setLocationBranchRequested] = useState(false);
+  // [Phase III · 작업 2] 감독 노트 + 세이브/로드
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [saveLoadOpen, setSaveLoadOpen] = useState(false);
 
   // ─── 이전 씬 네비게이션 (배치 밖으로 나갈 때 사용) ───
   const [historicalScenes, setHistoricalScenes] = useState([]); // recent API 결과
@@ -183,6 +189,8 @@ export default function TheaterPlayPage() {
     if (!autoPlayEnabled || !typingDone) return;
     if (loadingNext || chapterEnding) return;
     if (chapterReport || branchModalData || historyOpen) return;
+    // [Phase III · 작업 2] 노트/세이브 패널이 열린 동안에도 자동 진행 일시정지
+    if (notesOpen || saveLoadOpen) return;
     if (historyViewIndex !== null) return; // 이전 보기 중엔 자동 진행 안 함
 
     const delay = AUTO_ADVANCE_MS[playSpeed] || AUTO_ADVANCE_MS.NORMAL;
@@ -195,6 +203,7 @@ export default function TheaterPlayPage() {
   }, [
     typingDone, autoPlayEnabled, playSpeed, loadingNext,
     chapterEnding, chapterReport, branchModalData, historyOpen,
+    notesOpen, saveLoadOpen,
     historyViewIndex, nextScene
   ]);
 
@@ -471,6 +480,27 @@ export default function TheaterPlayPage() {
               )}
             </div>
           </div>
+
+          {/*
+            [Phase III · 작업 2] 감독 노트 + 세이브/로드 버튼
+            기존 HUD 톤(black/55 backdrop pill)과 같은 디자인 DNA로 묶음.
+          */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setNotesOpen(true); }}
+            aria-label="감독의 메모"
+            title="감독의 메모"
+            className="p-2 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-white/65 hover:text-amber-200 hover:border-amber-300/35 transition-colors duration-200"
+          >
+            <BookMarked size={13} />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setSaveLoadOpen(true); }}
+            aria-label="세이브 / 로드"
+            title="세이브 / 로드"
+            className="p-2 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-white/65 hover:text-violet-200 hover:border-violet-300/35 transition-colors duration-200"
+          >
+            <Save size={13} />
+          </button>
         </div>
 
         {/* ─── 우측: 멀티 히로인 HUD (멀티 세션만) ─── */}
@@ -648,6 +678,33 @@ export default function TheaterPlayPage() {
             currentAct={roomInfo.progress?.currentAct || 1}
             currentChapter={roomInfo.progress?.currentChapter || 1}
             avatarName={avatarName}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* [Phase III · 작업 2] 감독 노트 패널 */}
+      <AnimatePresence>
+        {notesOpen && (
+          <TheaterDirectorNotePanel
+            roomId={numericRoomId}
+            visible={notesOpen}
+            onClose={() => setNotesOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* [Phase III · 작업 2] 세이브 / 로드 패널 */}
+      <AnimatePresence>
+        {saveLoadOpen && (
+          <TheaterSaveLoadPanel
+            roomId={numericRoomId}
+            onClose={() => setSaveLoadOpen(false)}
+            initialMode="save"
+            onLoaded={() => {
+              setSaveLoadOpen(false);
+              // 로드 후 페이지를 새로 불러와 state 동기화
+              window.location.reload();
+            }}
           />
         )}
       </AnimatePresence>

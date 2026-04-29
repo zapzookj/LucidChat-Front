@@ -9,10 +9,20 @@ import { fetchSaveSlots, saveSlot, loadSlot } from "../../api/TheaterFinalityApi
  * Props:
  *   roomId
  *   onClose
- *   mode: "save" | "load"
+ *   initialMode?: "save" | "load"  — 진입 시 기본 모드 (기본 "save")
  *   onLoaded(slot): 로드 성공 시 콜백 (페이지가 리로드 등 처리)
+ *
+ * [Phase III · 작업 2] 패널 내부에서 모드 토글 가능하도록 변경
+ *  - 기존: mode prop이 외부에서 고정
+ *  - 신규: initialMode로 시작값만 받고, 헤더 토글로 자유롭게 전환
  */
-export default function TheaterSaveLoadPanel({ roomId, onClose, mode = "save", onLoaded }) {
+export default function TheaterSaveLoadPanel({
+  roomId,
+  onClose,
+  initialMode = "save",
+  onLoaded,
+}) {
+  const [mode, setMode] = useState(initialMode);
   const [slots, setSlots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [workingSlot, setWorkingSlot] = useState(null);
@@ -75,25 +85,53 @@ export default function TheaterSaveLoadPanel({ roomId, onClose, mode = "save", o
         onClick={(e) => e.stopPropagation()}
       >
         {/* 헤더 */}
-        <div className="p-5 border-b border-white/5 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="p-5 border-b border-white/5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
             {mode === "save" ? (
-              <Save size={18} className="text-indigo-300" />
+              <Save size={18} className="text-violet-300 flex-shrink-0" />
             ) : (
-              <Download size={18} className="text-amber-300" />
+              <Download size={18} className="text-amber-300 flex-shrink-0" />
             )}
-            <div>
-              <div className="text-xs uppercase tracking-widest text-white/40">
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-widest text-white/40">
                 {mode === "save" ? "Save" : "Load"}
               </div>
-              <h2 className="text-lg font-bold text-white">
+              <h2 className="text-lg font-bold text-white truncate">
                 {mode === "save" ? "이야기 저장" : "이야기 불러오기"}
               </h2>
             </div>
           </div>
+
+          {/* [Phase III · 작업 2] 모드 토글 segmented */}
+          <div className="flex items-center gap-0.5 bg-black/40 rounded-full p-0.5 border border-white/10 flex-shrink-0">
+            {[
+              { v: "save", label: "저장", Icon: Save },
+              { v: "load", label: "불러오기", Icon: Download },
+            ].map(({ v, label, Icon }) => {
+              const active = mode === v;
+              return (
+                <button
+                  key={v}
+                  onClick={() => setMode(v)}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide transition-colors ${
+                    active
+                      ? v === "save"
+                        ? "bg-violet-500/30 text-violet-50 shadow-[inset_0_0_0_1px_rgba(167,139,250,0.4)]"
+                        : "bg-amber-500/30 text-amber-50 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.4)]"
+                      : "text-white/45 hover:text-white/75"
+                  }`}
+                >
+                  <Icon size={10} />
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+
           <button
             onClick={onClose}
-            className="p-2 rounded-lg hover:bg-white/10 text-white/50"
+            aria-label="닫기"
+            className="p-2 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors flex-shrink-0"
           >
             <X size={16} />
           </button>

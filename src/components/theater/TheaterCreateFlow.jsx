@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
-  X, ChevronLeft, ChevronRight, Check, Sparkles, Users, User,
+  X, ChevronLeft, ChevronRight, Check, Sparkles, Users,
   Lock, RotateCcw, Heart, Crown, Star, Gem
 } from "lucide-react";
 import { createTheaterSession } from "../../api/TheaterLobbyApi";
