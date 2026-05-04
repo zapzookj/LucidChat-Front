@@ -5,7 +5,7 @@ import {
   finalizeChapter,
   triggerPrefetch,
 } from "../api/TheaterPlayApi";
-import { fetchSceneBranch } from "../api/TheaterGameplayApi";
+import { fetchSceneBranch } from "../api/TheaterGamePlayApi";
 
 /**
  * [Phase 5.5-Theater] Theater Scene 배치 흐름 관리 훅
