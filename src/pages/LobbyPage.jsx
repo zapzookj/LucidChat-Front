@@ -26,7 +26,7 @@ const baseUrl = import.meta.env.VITE_ASSET_BASE_URL || ""; // CDN이 설정된 �
 const sfxCache = {};
 const playSfx = (src, volume = 0.35) => {
   try {
-    if (!sfxCache[src]) sfxCache[src] = new Audio(`${baseUrl}${src}`);
+    if (!sfxCache[src]) sfxCache[src] = new Audio(`${src}`);
     const a = sfxCache[src];
     a.volume = volume;
     a.currentTime = 0;
@@ -396,7 +396,7 @@ const ACT_TITLES = {
 const TheaterSessionCard = ({ session, onSelect }) => {
   const leadImgUrl =
     session.leadHeroineThumbnailUrl ||
-    (session.leadHeroineSlug ? `/characters/${session.leadHeroineSlug}/thumb.jpg` : null);
+    (session.leadHeroineSlug ? `${baseUrl}/characters/${session.leadHeroineSlug}/thumb.jpg` : null);
   const actLabel = ACT_TITLES[session.currentAct] || `Act ${session.currentAct}`;
 
   return (
@@ -493,7 +493,7 @@ const ContinuePanel = ({ rooms, onSelect, onClose }) => {
             <h2 className="text-lg font-bold text-white tracking-wide">기억의 끈</h2>
             <p className="text-xs text-white/30 mt-0.5">Continue · 진행 중인 이야기</p>
           </div>
-          <button onClick={onClose} onMouseEnter={() => playSfx("/sounds/sfx_button_hover.ogg", 0.15)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/5 text-white/40 hover:text-white hover:bg-white/10 transition-colors duration-200">
+          <button onClick={onClose} onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.15)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/5 text-white/40 hover:text-white hover:bg-white/10 transition-colors duration-200">
             <X size={16} />
           </button>
         </div>
@@ -544,7 +544,7 @@ const SettingsModal = ({ onClose, onLogout, bgmMuted, onToggleBgm }) => (
       </div>
       <button
         onClick={onToggleBgm}
-        onMouseEnter={() => playSfx("/sounds/sfx_button_hover.ogg", 0.15)}
+        onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.15)}
         className="w-full flex items-center justify-between p-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/5 hover:border-white/10 transition-colors duration-200 mb-3"
       >
         <div className="flex items-center gap-3 text-sm text-white/70">
@@ -556,8 +556,8 @@ const SettingsModal = ({ onClose, onLogout, bgmMuted, onToggleBgm }) => (
         </span>
       </button>
       <button
-        onClick={() => { playSfx("/sounds/sfx_button_click.wav", 0.3); onLogout(); }}
-        onMouseEnter={() => playSfx("/sounds/sfx_button_hover.ogg", 0.15)}
+        onClick={() => { playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.3); onLogout(); }}
+        onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.15)}
         className="w-full flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] hover:bg-rose-500/10 border border-white/5 hover:border-rose-500/20 transition-colors duration-200 text-sm text-white/50 hover:text-rose-400"
       >
         <LogOut size={16} /><span>로그아웃</span>
