@@ -5,7 +5,7 @@ import CharacterDisplay from "../components/CharacterDisplay";
 import DialogueBox from "../components/DialogueBox";
 import BackgroundDisplay from "../components/BackgroundDisplay";
 import AudioEngine from "../components/AudioEngine";
-import EndingCredits from "../components/Endingcredits";
+import EndingCredits from "../components/EndingCredits";
 import useResourcePreloader from "../hooks/UseResourcePreloader";
 import EasterEggEffects from "../components/EasterEggEffects";
 import AchievementUnlockModal from "../components/AchievementUnlockModal";
