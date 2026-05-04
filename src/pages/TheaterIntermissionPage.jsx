@@ -8,7 +8,7 @@ import {
   fetchIntermissionView,
   performIntermissionActivity,
   finishIntermission,
-} from "../api/TheaterGameplayApi";
+} from "../api/TheaterGamePlayApi";
 
 /**
  * [Phase 5.5-Theater] 인터미션 페이지
