@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, Link } from "react-router-dom";
 import {
   ArrowLeft, Drama, Sparkles, ChevronRight, Clock, Heart, Crown,
-  Users, BookOpen, Zap, User, Settings, Gem
+  Users, BookOpen, Zap, User, Settings, Gem, Archive
 } from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
@@ -241,6 +241,8 @@ export default function TheaterPortalPage() {
 
   const [worlds, setWorlds] = useState([]);
   const [sessions, setSessions] = useState([]);
+  // [Phase 5.5 UX Polish · R4] 아카이브 카운트 — 진입 버튼에 표시
+  const [archiveCount, setArchiveCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -256,10 +258,16 @@ export default function TheaterPortalPage() {
     (async () => {
       try {
         setLoading(true);
+        // [R4] 모든 세션 fetch (활성/아카이브 분리는 sessionStatus로)
         const [w, s] = await Promise.all([fetchWorlds(), fetchMyTheaterSessions()]);
         if (!alive) return;
         setWorlds(w || []);
         setSessions(s || []);
+        // 아카이브 카운트 계산 (별도 API 호출 안 함 — 로컬 필터)
+        const archCount = (s || []).filter(
+          (x) => x.sessionStatus === "ARCHIVED" || x.sessionStatus === "ENDED"
+        ).length;
+        setArchiveCount(archCount);
       } catch (e) {
         if (!alive) return;
         console.error("[Theater] Portal load failed:", e);
@@ -453,41 +461,72 @@ export default function TheaterPortalPage() {
           {/* ─── 컨텐츠 ─── */}
           {!loading && !error && (
             <div className="space-y-12">
-              {/* 진행 중 세션 */}
-              <AnimatePresence>
-                {sessions.length > 0 && (
+              {/* [Phase 5.5 UX Polish · R4] 활성 세션 (메인 카드) + 아카이브 진입 */}
+              {(() => {
+                // 활성/아카이브 분리 (legacy null은 활성으로 간주)
+                const activeSessions = sessions.filter(
+                  (s) => !s.sessionStatus || s.sessionStatus === "ACTIVE"
+                );
+                if (activeSessions.length === 0 && archiveCount === 0) return null;
+                return (
                   <motion.section
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
                   >
-                    <div className="flex items-end justify-between mb-4">
+                    <div className="flex items-end justify-between mb-4 gap-3 flex-wrap">
                       <div>
                         <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2 tracking-wide">
                           <Drama size={18} className="text-indigo-300" />
                           상연 중인 극
                         </h2>
                         <p className="text-xs text-white/40 mt-0.5 tracking-wider">
-                          이어서 감상하거나, 새 엔딩을 향해 돌아가세요
+                          {activeSessions.length > 0
+                            ? "이어서 감상하거나, 새 엔딩을 향해 돌아가세요"
+                            : "진행 중인 극이 없습니다. 새로운 극을 시작해 보세요."}
                         </p>
                       </div>
-                      <span className="text-[11px] text-white/35 tracking-widest uppercase">
-                        {sessions.length}편
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {archiveCount > 0 && (
+                          <button
+                            onClick={() => navigate("/theater/archive")}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-500/10 hover:bg-amber-500/20 border border-amber-300/25 hover:border-amber-300/50 text-amber-100 text-[11px] font-bold tracking-wide transition-colors"
+                          >
+                            <Archive size={11} />
+                            아카이브
+                            <span className="px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-100 text-[9px] font-mono tabular-nums">
+                              {archiveCount}
+                            </span>
+                          </button>
+                        )}
+                        {activeSessions.length > 0 && (
+                          <span className="text-[11px] text-white/35 tracking-widest uppercase">
+                            {activeSessions.length}편
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {sessions.map((s, i) => (
-                        <SessionCard
-                          key={s.roomId}
-                          session={s}
-                          onResume={() => handleResume(s.roomId)}
-                          index={i}
-                        />
-                      ))}
-                    </div>
+
+                    {activeSessions.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {activeSessions.map((s, i) => (
+                          <SessionCard
+                            key={s.roomId}
+                            session={s}
+                            onResume={() => handleResume(s.roomId)}
+                            index={i}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl bg-white/[0.02] border border-dashed border-white/10 px-6 py-8 text-center">
+                        <p className="text-white/35 text-xs leading-relaxed">
+                          새 극을 시작하면 진행 중인 극이 이곳에 표시됩니다.
+                        </p>
+                      </div>
+                    )}
                   </motion.section>
-                )}
-              </AnimatePresence>
+                );
+              })()}
 
               {/* 세계관 */}
               <section>

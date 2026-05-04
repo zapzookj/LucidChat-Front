@@ -33,6 +33,47 @@ export async function fetchMyTheaterSessions() {
   return res.data;
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  [Phase 5.5 UX Polish · R4] 활성 / 아카이브 / Resume
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * 활성 Theater 세션 1개만 — 로비 메인 카드용.
+ * 빈 배열이면 새 극 시작 CTA를 메인에 표시.
+ */
+export async function fetchActiveTheaterSessions() {
+  const res = await api.get("/theater/lobby/sessions/active");
+  return res.data;
+}
+
+/**
+ * 아카이브 세션 (ARCHIVED + ENDED). 최근 변경순.
+ */
+export async function fetchArchivedTheaterSessions() {
+  const res = await api.get("/theater/lobby/sessions/archive");
+  return res.data;
+}
+
+/**
+ * 아카이브된 극을 다시 활성화. ARCHIVED만 가능, ENDED는 BadRequest.
+ * 다른 활성극이 있으면 자동으로 ARCHIVED로 전환됨.
+ *
+ * @param {number} roomId
+ * @returns {Promise<TheaterRoomInfo>} resume된 방의 정보
+ */
+export async function resumeArchivedSession(roomId) {
+  const res = await api.post(`/theater/lobby/sessions/${roomId}/resume`);
+  return res.data;
+}
+
+/**
+ * 활성극을 명시적으로 아카이브 (잠시 멈추기).
+ * 활성극이 없으면 no-op.
+ */
+export async function archiveActiveSession() {
+  await api.post(`/theater/lobby/sessions/active/archive`);
+}
+
 /**
  * Theater 세션 생성
  * @param {object} payload
@@ -40,10 +81,15 @@ export async function fetchMyTheaterSessions() {
  *     worldId: "MODERN_KOREA",
  *     heroineIds: [3, 4],
  *     avatarName: "강건우",
- *     avatarProfile: { gender, ageRange, physique, appearance, role, personalityTags, relationStart, backstory },
+ *     avatarProfile: { ... },
  *     personaText: "...",
- *     initialStats: { charm, wit, boldness, intellect, empathy }  // optional
+ *     initialStats: { ... } | null,
+ *     overwriteActive: true | false  // [R4] 기존 활성극 덮어쓰기 동의
  *   }
+ *
+ * 응답:
+ *   - 200 + TheaterRoomInfo: 정상 생성
+ *   - 409 Conflict: 활성극 충돌. UI에서 confirm 후 overwriteActive=true로 재호출.
  */
 export async function createTheaterSession(payload) {
   const res = await api.post("/theater/lobby/sessions", payload);

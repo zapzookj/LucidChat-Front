@@ -210,49 +210,76 @@ export default function TheaterCreateFlow({
   const canProceedStep3 = true; // 성격/백스토리는 선택 항목
   const canSubmit = canProceedStep1 && canProceedStep2;
 
+  // [Phase 5.5 UX Polish · R4] 활성극 충돌 confirm 모달 상태
+  const [conflictData, setConflictData] = useState(null); // { payload, message } or null
+
   // ─── 최종 제출 ───
-  const handleSubmit = async () => {
-    if (!canSubmit) return;
+  const submitWithPayload = async (payload) => {
     setSubmitting(true);
     setError(null);
     try {
-      const payload = {
-        worldId: world.id,
-        heroineIds: selectedHeroineIds,
-        avatarName: form.avatarName.trim() || null,
-        avatarProfile: {
-          name: form.avatarName.trim() || null,
-          gender: form.gender,
-          ageRange: form.ageRange,
-          physique: form.physique,
-          appearance: form.appearance.trim() || null,
-          role: form.role.trim() || null,
-          personalityTags: form.personalityTags.length > 0 ? form.personalityTags : null,
-          relationStart: form.relationStart,
-          backstory: form.backstory.trim() || null,
-        },
-        personaText: form.personaText.trim() || null,
-        initialStats: statTier.total > 0 ? stats : null,
-      };
       const room = await createTheaterSession(payload);
       // 세션 생성 성공 → Theater 페이지로 이동
       navigate(`/theater/${room.roomId}`);
     } catch (e) {
+      const status = e?.response?.status;
+      // [R4] 409 Conflict — 활성극 존재 → confirm 받고 overwriteActive=true로 재호출
+      if (status === 409 && !payload.overwriteActive) {
+        setConflictData({
+          payload,
+          message:
+            e?.response?.data?.message ||
+            "이미 진행 중인 극이 있습니다. 이 극을 시작하면 기존 극은 아카이브로 보관됩니다.",
+        });
+        setSubmitting(false);
+        return;
+      }
       console.error("[Theater] Create failed:", e);
       setError(e?.response?.data?.message || "세션 생성에 실패했습니다.");
       setSubmitting(false);
     }
   };
 
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    const payload = {
+      worldId: world.id,
+      heroineIds: selectedHeroineIds,
+      avatarName: form.avatarName.trim() || null,
+      avatarProfile: {
+        name: form.avatarName.trim() || null,
+        gender: form.gender,
+        ageRange: form.ageRange,
+        physique: form.physique,
+        appearance: form.appearance.trim() || null,
+        role: form.role.trim() || null,
+        personalityTags: form.personalityTags.length > 0 ? form.personalityTags : null,
+        relationStart: form.relationStart,
+        backstory: form.backstory.trim() || null,
+      },
+      personaText: form.personaText.trim() || null,
+      initialStats: statTier.total > 0 ? stats : null,
+      overwriteActive: false,
+    };
+    await submitWithPayload(payload);
+  };
+
+  // [R4] confirm 모달에서 "기존 극 보관하고 시작" 클릭 시
+  const handleConfirmOverwrite = async () => {
+    if (!conflictData) return;
+    const overwritePayload = { ...conflictData.payload, overwriteActive: true };
+    setConflictData(null);
+    await submitWithPayload(overwritePayload);
+  };
+
   // ─── 다음/이전 ───
-  const skipToSubmitAllowed = step === 3 && statTier.total === 0;
+  // [Phase 5.5 UX Polish · R5] silent skip 제거.
+  // 기존: 무료 유저(statTier.total===0)는 step 3에서 바로 submit → step 4 잠긴 화면을 영원히 못 봄
+  // 신규: step 4를 항상 표시 → 잠긴 화면 + 업셀 CTA를 보여주고 그 위에서 submit
+  //       (4단계 일관성 + 업셀 노출 + 유저가 무엇을 놓치는지 명확히 인지)
   const goNext = () => {
     if (step === 1 && !canProceedStep1) return;
     if (step === 2 && !canProceedStep2) return;
-    if (skipToSubmitAllowed) {
-      handleSubmit();
-      return;
-    }
     if (step < 4) setStep((s) => s + 1);
     else handleSubmit();
   };
@@ -302,7 +329,10 @@ export default function TheaterCreateFlow({
                 {STEP_LABELS.map(({ n, label }) => {
                   const isCurrent = n === step;
                   const isPast = n < step;
-                  const isDisabled = n === 4 && statTier.total === 0;
+                  // [Phase 5.5 UX Polish · R5] step 4는 무료 유저에게 잠긴 상태로 표시(자물쇠) —
+                  // 단, dim 처리하지 않고 amber 톤으로 "보이지만 잠금됐다"를 시각적으로 명시.
+                  // 클릭은 가능 (Step 4에서 업셀 카드 + handleSubmit 진행).
+                  const isLockedStep4 = n === 4 && statTier.total === 0;
                   return (
                     <div key={n} className="flex items-start gap-1.5 sm:gap-2 flex-1 last:flex-initial">
                       {/* 동그란 도트 + 라벨 */}
@@ -312,22 +342,24 @@ export default function TheaterCreateFlow({
                             isPast
                               ? "bg-violet-500 border-violet-300 text-white shadow-md shadow-violet-500/20"
                               : isCurrent
-                              ? "bg-violet-500/22 border-violet-300 text-violet-100"
-                              : isDisabled
-                              ? "bg-white/[0.02] border-white/10 text-white/20"
+                              ? isLockedStep4
+                                ? "bg-amber-500/20 border-amber-300/60 text-amber-100"
+                                : "bg-violet-500/22 border-violet-300 text-violet-100"
+                              : isLockedStep4
+                              ? "bg-amber-500/8 border-amber-300/30 text-amber-200/70"
                               : "bg-white/[0.04] border-white/15 text-white/45"
                           }`}
                         >
-                          {isPast ? <Check size={14} /> : n}
+                          {isPast ? <Check size={14} /> : isLockedStep4 ? <Lock size={11} /> : n}
                         </motion.div>
                         <span
                           className={`mt-1.5 text-[9px] sm:text-[10px] tracking-wider font-medium uppercase whitespace-nowrap transition-colors ${
                             isCurrent
-                              ? "text-violet-100"
+                              ? isLockedStep4 ? "text-amber-100" : "text-violet-100"
                               : isPast
                               ? "text-violet-200/70"
-                              : isDisabled
-                              ? "text-white/20"
+                              : isLockedStep4
+                              ? "text-amber-200/65"
                               : "text-white/35"
                           }`}
                         >
@@ -606,39 +638,94 @@ export default function TheaterCreateFlow({
                   <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
                     <Star size={16} className="text-amber-300" />
                     초기 스탯 분배
+                    {statTier.total === 0 && (
+                      <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-300/35 text-amber-200 text-[10px] font-bold">
+                        <Lock size={9} />
+                        잠김
+                      </span>
+                    )}
                   </h3>
 
                   {statTier.total === 0 ? (
-                    <div className="p-6 rounded-2xl bg-gradient-to-br from-amber-500/12 to-orange-500/8 border border-amber-400/30 text-center">
-                      <Lock size={24} className="mx-auto text-amber-300/80 mb-3" />
-                      <div className="text-sm text-amber-100 font-bold mb-1">
-                        Lucid Pass 전용 기능
-                      </div>
-                      <div className="text-xs text-white/65 mb-2 leading-relaxed">
-                        Lucid Pass 가입자는 최대 20포인트(Premium 40포인트)를
-                        <br />
-                        5개 스탯에 자유롭게 분배할 수 있습니다.
-                      </div>
-                      <div className="text-[11px] text-white/45 mb-4 leading-relaxed">
-                        무료 플레이어는 모든 스탯 0에서 시작해
-                        <br />
-                        인터미션으로 성장시키며 자신만의 길을 만듭니다.
-                      </div>
+                    /* [Phase 5.5 UX Polish · R5] 무료 유저용 잠금 + 업셀 화면
+                       silent skip 제거 → 4단계 일관성 + 명확한 가치 제안 */
+                    <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-amber-500/10 via-orange-500/8 to-rose-500/10 border border-amber-400/25">
+                      {/* 장식 글로우 */}
+                      <div className="absolute -top-12 -right-12 w-40 h-40 rounded-full bg-amber-500/15 blur-3xl pointer-events-none" />
+                      <div className="absolute -bottom-12 -left-12 w-32 h-32 rounded-full bg-rose-500/10 blur-3xl pointer-events-none" />
 
-                      {/* [B-4] 업셀 CTA — onOpenStore가 주입된 경우에만 노출 */}
-                      {onOpenStore && (
-                        <motion.button
-                          type="button"
-                          onClick={() => onOpenStore?.()}
-                          whileHover={{ scale: 1.03 }}
-                          whileTap={{ scale: 0.97 }}
-                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-gradient-to-r from-amber-500/85 to-orange-500/85 hover:from-amber-400 hover:to-orange-400 text-white text-xs font-bold shadow-lg shadow-amber-500/25 transition-colors"
-                        >
-                          <Gem size={12} />
-                          Lucid Pass 보러가기
-                          <ChevronRight size={12} />
-                        </motion.button>
-                      )}
+                      <div className="relative p-6">
+                        <div className="flex flex-col items-center text-center">
+                          <div className="relative mb-4">
+                            <div className="w-14 h-14 rounded-full bg-amber-500/15 border border-amber-300/40 flex items-center justify-center">
+                              <Lock size={22} className="text-amber-200" />
+                            </div>
+                            <motion.div
+                              className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-gradient-to-br from-amber-300 to-orange-400 flex items-center justify-center shadow-lg shadow-amber-500/40"
+                              animate={{ scale: [1, 1.12, 1] }}
+                              transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+                            >
+                              <Gem size={10} className="text-white" />
+                            </motion.div>
+                          </div>
+
+                          <div className="text-base font-bold text-amber-100 mb-1.5">
+                            Lucid Pass 전용 기능
+                          </div>
+                          <div className="text-xs text-white/70 leading-relaxed mb-4 max-w-[320px]">
+                            Lucid Pass 가입자는 시작 단계에서 매력 / 위트 / 대담함 / 지성 / 공감
+                            5개 스탯에 자유롭게 포인트를 분배할 수 있습니다.
+                          </div>
+                        </div>
+
+                        {/* 비교표 — 무료 vs Pass */}
+                        <div className="grid grid-cols-2 gap-2 mb-4">
+                          <div className="rounded-xl bg-white/[0.03] border border-white/10 p-3">
+                            <div className="text-[10px] uppercase tracking-widest text-white/45 font-bold mb-1.5">
+                              무료
+                            </div>
+                            <div className="text-sm text-white/85 font-bold mb-0.5">0 포인트</div>
+                            <div className="text-[11px] text-white/45 leading-relaxed">
+                              모든 스탯 0에서 시작
+                            </div>
+                          </div>
+                          <div className="rounded-xl bg-amber-500/8 border border-amber-300/30 p-3">
+                            <div className="text-[10px] uppercase tracking-widest text-amber-200/85 font-bold mb-1.5 flex items-center gap-1">
+                              <Gem size={9} />
+                              Lucid Pass
+                            </div>
+                            <div className="text-sm text-amber-100 font-bold mb-0.5">최대 40 P</div>
+                            <div className="text-[11px] text-amber-200/65 leading-relaxed">
+                              자유 분배 + 분기 해금
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 업셀 CTA */}
+                        {onOpenStore ? (
+                          <motion.button
+                            type="button"
+                            onClick={() => onOpenStore?.()}
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500/95 to-orange-500/95 hover:from-amber-400 hover:to-orange-400 text-white text-xs font-bold shadow-lg shadow-amber-500/25 transition-colors"
+                          >
+                            <Gem size={12} />
+                            Lucid Pass 보러가기
+                            <ChevronRight size={12} />
+                          </motion.button>
+                        ) : (
+                          <p className="text-[11px] text-white/40 text-center italic">
+                            Lucid Pass는 곧 출시됩니다
+                          </p>
+                        )}
+
+                        <p className="text-[11px] text-white/40 text-center leading-relaxed mt-3">
+                          무료 유저는 그대로 진행하실 수 있습니다.
+                          <br />
+                          모든 스탯 0에서 시작해 인터미션으로 성장시키며 자신만의 길을 만듭니다.
+                        </p>
+                      </div>
                     </div>
                   ) : (
                     <>
@@ -752,8 +839,6 @@ export default function TheaterCreateFlow({
                   />
                   생성 중...
                 </>
-              ) : skipToSubmitAllowed ? (
-                <>극 시작 <Sparkles size={16} /></>
               ) : step === 4 ? (
                 <>극 시작 <Sparkles size={16} /></>
               ) : (
@@ -763,6 +848,79 @@ export default function TheaterCreateFlow({
           </div>
         </motion.div>
       </motion.div>
+
+      {/* [Phase 5.5 UX Polish · R4] 활성극 충돌 confirm 모달 */}
+      <AnimatePresence>
+        {conflictData && (
+          <motion.div
+            className="fixed inset-0 z-[110] flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+              onClick={() => !submitting && setConflictData(null)}
+            />
+            <motion.div
+              className="relative w-full max-w-md rounded-2xl bg-slate-900 border border-amber-400/30 p-6 shadow-2xl shadow-amber-500/15"
+              initial={{ scale: 0.92, y: 12 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.92, y: 12 }}
+            >
+              <div className="flex flex-col items-center text-center mb-5">
+                <div className="w-12 h-12 rounded-full bg-amber-500/15 border border-amber-300/40 flex items-center justify-center mb-3">
+                  <Sparkles size={20} className="text-amber-200" />
+                </div>
+                <h3 className="text-base font-bold text-white mb-1.5">
+                  진행 중인 극이 있습니다
+                </h3>
+                <p className="text-xs text-white/65 leading-relaxed">
+                  {conflictData.message}
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-amber-500/8 border border-amber-300/25 p-3 mb-5">
+                <p className="text-[11px] text-amber-100/85 leading-relaxed">
+                  💡 보관된 극은 <strong className="text-amber-200">아카이브</strong>에서 언제든 다시 이어서 진행할 수 있습니다.
+                  <br />
+                  단, 한 명의 유저는 한 번에 하나의 극만 진행할 수 있습니다.
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={handleConfirmOverwrite}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white text-sm font-bold shadow-lg shadow-amber-500/25 transition-colors disabled:opacity-50"
+                >
+                  {submitting ? (
+                    <>
+                      <motion.div
+                        className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full"
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
+                      />
+                      시작 중...
+                    </>
+                  ) : (
+                    <>기존 극 보관하고 새 극 시작 <ChevronRight size={14} /></>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => setConflictData(null)}
+                  className="w-full px-4 py-2 rounded-xl text-white/55 hover:text-white text-xs font-medium transition-colors disabled:opacity-50"
+                >
+                  취소하고 기존 극으로 돌아가기
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </AnimatePresence>
   );
 }

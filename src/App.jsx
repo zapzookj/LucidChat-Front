@@ -7,6 +7,7 @@ import TheaterPortalPage from "./pages/TheaterPortalPage";
 import TheaterPlayPage from "./pages/TheaterPlayPage";
 import TheaterIntermissionPage from "./pages/TheaterIntermissionPage";
 import TheaterEndingCredits from "./pages/TheaterEndingCredits";
+import TheaterArchivePage from "./pages/TheaterArchivePage";
 import OAuthSuccessPage from "./pages/OAuthSuccessPage";
 
 const ProtectedRoute = ({ children }) => {
@@ -55,6 +56,15 @@ function App() {
             element={
               <ProtectedRoute>
                 <TheaterPortalPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* [Phase 5.5 UX Polish · R4] 아카이브 — 보관된 극 + 엔딩 도달한 극 */}
+          <Route
+            path="/theater/archive"
+            element={
+              <ProtectedRoute>
+                <TheaterArchivePage />
               </ProtectedRoute>
             }
           />
