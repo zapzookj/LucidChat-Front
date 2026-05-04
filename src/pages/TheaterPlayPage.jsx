@@ -23,7 +23,7 @@ import { fetchTheaterRoom } from "../api/TheaterLobbyApi";
 import { updatePlaySettings } from "../api/TheaterPlayApi";
 import {
   fetchLocationBranch, fetchSceneBranch, confirmBranchChoice
-} from "../api/TheaterGameplayApi";
+} from "../api/TheaterGamePlayApi";
 import useTheaterStream from "../hooks/useTheaterStream";
 import api from "../api/axios";
 
