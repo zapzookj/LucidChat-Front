@@ -237,7 +237,7 @@ const SessionCard = ({ session, onResume, index }) => {
 
 export default function TheaterPortalPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
 
   const [worlds, setWorlds] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -592,7 +592,11 @@ export default function TheaterPortalPage() {
         characters={[]}
         onPaymentComplete={() => {
           setShowStore(false);
+          // [Polish · P0] 로컬 userInfo + AuthContext 동시 갱신.
           api.get("/users/me").then((r) => setUserInfo(r.data)).catch(() => {});
+          if (refreshUser) {
+            try { refreshUser(); } catch { /* noop */ }
+          }
         }}
       />
     </div>

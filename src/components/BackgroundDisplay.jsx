@@ -9,6 +9,8 @@ import { useState, useEffect, useRef } from "react";
 //    • 자유(샌드박스) 모드 기본 배경: /backgrounds/{slug}/bg_default.png
 // ═══════════════════════════════════════════════════════════════
 
+const baseUrl = import.meta.env.VITE_ASSET_BASE_URL || "";
+
 /**
  * [Phase 4 Fix] characterSlug + location + time → 캐릭터 전용 배경 파일 경로
  * 규칙: /backgrounds/{slug}/bg_{location}_{time}.png
@@ -21,7 +23,7 @@ function resolveBackground(location, time, characterSlug) {
   const t = (time || "NIGHT").toLowerCase();
   const loc = location.toLowerCase();
 
-  return `/backgrounds/${slug}/bg_${loc}_${t}.png`;
+  return `${baseUrl}/backgrounds/${slug}/bg_${loc}_${t}.png`;
 }
 
 /**
@@ -29,7 +31,7 @@ function resolveBackground(location, time, characterSlug) {
  */
 function getDefaultBg(characterSlug) {
   const slug = characterSlug || "airi";
-  return `/backgrounds/${slug}/bg_default.png`;
+  return `${baseUrl}/backgrounds/${slug}/bg_default.png`;
 }
 
 /**

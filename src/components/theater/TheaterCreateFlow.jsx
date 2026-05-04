@@ -1,8 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
-  X, ChevronLeft, ChevronRight, Check, Sparkles, Users,
+  X, ChevronLeft, ChevronRight, Check, Sparkles, Users, User,
   Lock, RotateCcw, Heart, Crown, Star, Gem
 } from "lucide-react";
 import { createTheaterSession } from "../../api/TheaterLobbyApi";
@@ -120,13 +120,21 @@ export default function TheaterCreateFlow({
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  // 구독 티어로 스탯 분배 한도 결정
+  // 구독 티어로 스탯 분배 한도 결정.
+  // [Polish · P0] 매핑 재정렬:
+  //   - LUCID_MIDNIGHT_PASS (24,900원/월, 프리미엄) → 40 / perStat 20
+  //   - LUCID_PASS         (14,900원/월, 표준)    → 20 / perStat 10
+  //   - 그 외(미구독, deprecated LUCID_PASS_PREMIUM) → 0 (분배 잠김)
+  //   기존엔 LUCID_PASS_PREMIUM이 Premium에 매핑되었지만 실제 결제 모델에는
+  //   LUCID_PASS_PREMIUM이 존재하지 않아 모든 유저가 사실상 STANDARD(20/10) 또는
+  //   FREE(0/0)였다. 백엔드(TheaterLobbyService.validateInitialStats)와 동일한
+  //   매핑을 사용해 위변조 시도 시 검증 실패가 나도록 정합성 확보.
+  // ⚠️ LUCID_MIDNIGHT_PASS는 추후 "분배 무제한" 정책으로 전환될 예정 — 지금은 임시 40/20.
   const statTier = useMemo(() => {
     const tier = user?.subscriptionTier;
-    if (tier === "LUCID_PASS_PREMIUM") return { total: 40, perStat: 20 };
-    if (tier === "LUCID_PASS" || tier === "LUCID_MIDNIGHT_PASS")
-      return { total: 20, perStat: 10 };
-    return { total: 0, perStat: 0 };
+    if (tier === "LUCID_MIDNIGHT_PASS") return { total: 500, perStat: 100, label: "프리미엄" };
+    if (tier === "LUCID_PASS") return { total: 20, perStat: 10, label: "표준" };
+    return { total: 0, perStat: 0, label: null };
   }, [user]);
 
   const [step, setStep] = useState(1);
@@ -195,6 +203,30 @@ export default function TheaterCreateFlow({
       const nextTotal = totalStatUsed + delta;
       if (nextTotal > statTier.total) return prev;
       return { ...prev, [key]: next };
+    });
+  };
+
+  /**
+   * [Polish] 슬라이더 드래그용 직접 값 설정.
+   *
+   * 단순히 다른 stat 합을 그대로 두고 target stat만 바꾼다. 다른 stat 합을
+   * 줄여서 강제로 끼워 맞추진 않는다 (사용자 의도 보존).
+   *
+   * 제약:
+   *   1) 0 <= value <= perStat
+   *   2) (다른 stat 합) + value <= total
+   *   → 위반하면 허용된 최대치로 클램프 (조용히 — 명시적 에러는 X)
+   */
+  const setStatDirect = (key, value) => {
+    setStats((prev) => {
+      const others = Object.entries(prev)
+        .filter(([k]) => k !== key)
+        .reduce((sum, [, v]) => sum + v, 0);
+      const maxByTotal = statTier.total - others;
+      const maxByPerStat = statTier.perStat;
+      const clamped = Math.max(0, Math.min(value, maxByTotal, maxByPerStat));
+      if (prev[key] === clamped) return prev;
+      return { ...prev, [key]: clamped };
     });
   };
 
@@ -382,7 +414,8 @@ export default function TheaterCreateFlow({
           </div>
 
           {/* ═══ 본문 ═══ */}
-          <div className="flex-1 overflow-y-auto p-6 scroll-smooth">
+          {/* [Polish] custom-scrollbar로 다른 모달들과 스크롤바 스타일 통일 */}
+          <div className="flex-1 overflow-y-auto p-6 scroll-smooth custom-scrollbar">
             <AnimatePresence mode="wait">
               {step === 1 && (
                 <motion.div key="step1" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
@@ -729,9 +762,14 @@ export default function TheaterCreateFlow({
                     </div>
                   ) : (
                     <>
-                      <p className="text-xs text-white/50 mb-4">
+                      <p className="text-xs text-white/50 mb-1">
                         총 {statTier.total} 포인트를 5개 스탯에 분배하세요 (스탯당 최대 {statTier.perStat})
                       </p>
+                      {statTier.label && (
+                        <p className="text-[10px] text-amber-300/70 mb-4 tracking-wider uppercase">
+                          {statTier.label} 구독자 혜택
+                        </p>
+                      )}
 
                       <div className="flex items-center justify-between mb-4 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20">
                         <div className="flex items-center gap-2">
@@ -749,50 +787,57 @@ export default function TheaterCreateFlow({
                       </div>
 
                       <div className="space-y-3">
-                        {STAT_AXES.map((axis) => (
-                          <div key={axis.key} className="p-3 rounded-xl bg-white/[0.03] border border-white/5">
-                            <div className="flex items-center justify-between mb-2">
-                              <div>
-                                <div className="text-sm font-bold text-white flex items-center gap-2">
-                                  <span>{axis.icon}</span>
-                                  {axis.label}
+                        {STAT_AXES.map((axis) => {
+                          // 다른 stat의 합 — 이 stat이 가질 수 있는 절대 상한 계산용
+                          const otherSum = Object.entries(stats)
+                            .filter(([k]) => k !== axis.key)
+                            .reduce((sum, [, v]) => sum + v, 0);
+                          const maxByTotal = statTier.total - otherSum;
+                          const maxAvailable = Math.min(statTier.perStat, maxByTotal);
+                          return (
+                            <div key={axis.key} className="p-3 rounded-xl bg-white/[0.03] border border-white/5">
+                              <div className="flex items-center justify-between mb-2">
+                                <div>
+                                  <div className="text-sm font-bold text-white flex items-center gap-2">
+                                    <span>{axis.icon}</span>
+                                    {axis.label}
+                                  </div>
+                                  <div className="text-[10px] text-white/40">{axis.desc}</div>
                                 </div>
-                                <div className="text-[10px] text-white/40">{axis.desc}</div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => adjustStat(axis.key, -1)}
+                                    disabled={stats[axis.key] === 0}
+                                    className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-30 text-white"
+                                  >
+                                    −
+                                  </button>
+                                  <span className="w-10 text-center font-bold text-white tabular-nums">
+                                    {stats[axis.key]}
+                                  </span>
+                                  <button
+                                    onClick={() => adjustStat(axis.key, +1)}
+                                    disabled={
+                                      remainingPoints === 0 ||
+                                      stats[axis.key] >= statTier.perStat
+                                    }
+                                    className="w-7 h-7 rounded-lg bg-indigo-500/30 hover:bg-indigo-500/50 disabled:opacity-30 text-white"
+                                  >
+                                    +
+                                  </button>
+                                </div>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => adjustStat(axis.key, -1)}
-                                  disabled={stats[axis.key] === 0}
-                                  className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-30 text-white"
-                                >
-                                  −
-                                </button>
-                                <span className="w-10 text-center font-bold text-white">
-                                  {stats[axis.key]}
-                                </span>
-                                <button
-                                  onClick={() => adjustStat(axis.key, +1)}
-                                  disabled={
-                                    remainingPoints === 0 ||
-                                    stats[axis.key] >= statTier.perStat
-                                  }
-                                  className="w-7 h-7 rounded-lg bg-indigo-500/30 hover:bg-indigo-500/50 disabled:opacity-30 text-white"
-                                >
-                                  +
-                                </button>
-                              </div>
-                            </div>
-                            {/* 프로그레스 바 */}
-                            <div className="h-1 rounded-full bg-white/5 overflow-hidden">
-                              <motion.div
-                                className={`h-full bg-gradient-to-r from-${axis.color}-500 to-${axis.color}-400`}
-                                style={{
-                                  width: `${(stats[axis.key] / statTier.perStat) * 100}%`,
-                                }}
+                              {/* [Polish] 인터랙티브 슬라이더 — 클릭/드래그로 값 조정 */}
+                              <StatSlider
+                                value={stats[axis.key]}
+                                max={statTier.perStat}
+                                maxAvailable={maxAvailable}
+                                colorClass={axis.color}
+                                onChange={(v) => setStatDirect(axis.key, v)}
                               />
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </>
                   )}
@@ -924,3 +969,127 @@ export default function TheaterCreateFlow({
     </AnimatePresence>
   );
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  [Polish] 스탯 분배용 인터랙티브 슬라이더
+//
+//  요구: 바를 클릭하거나 드래그해서 값을 직접 조정.
+//  접근:
+//   - <input type="range">는 브라우저별 스타일링이 까다로워 톤 통일 어려움.
+//   - 커스텀 div + pointer 이벤트로 구현. 마우스/터치/펜 모두 지원.
+//   - value/max 시각화와 thumb(원형 핸들) 위치 동기.
+//   - max를 초과하지 못함은 물론, maxAvailable(다른 stat의 합 제약)도 같이 고려.
+//
+//  접근성:
+//   - role="slider" + aria-valuemin/max/now
+//   - keyboard ←/→로도 조작 가능 (선택 시 focus, 1씩 증감)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const StatSlider = ({ value, max, maxAvailable, colorClass, onChange }) => {
+  const trackRef = useRef(null);
+  const [dragging, setDragging] = useState(false);
+
+  // [중요] colorClass를 동적으로 결합하면 Tailwind JIT가 못 잡아낸다.
+  //   컴파일 시점에 알려진 정적 매핑을 사용. (기존 progress bar에서도 같은 문제 있었으나
+  //   여기선 더 명시적으로.)
+  const gradientByColor = {
+    pink: "from-pink-500 to-pink-400",
+    rose: "from-rose-500 to-rose-400",
+    amber: "from-amber-500 to-amber-400",
+    orange: "from-orange-500 to-orange-400",
+    red: "from-red-500 to-red-400",
+    sky: "from-sky-500 to-sky-400",
+    emerald: "from-emerald-500 to-emerald-400",
+    indigo: "from-indigo-500 to-indigo-400",
+    violet: "from-violet-500 to-violet-400",
+    cyan: "from-cyan-500 to-cyan-400",
+  };
+  const gradient = gradientByColor[colorClass] || "from-indigo-500 to-indigo-400";
+
+  // pointer 좌표를 0~max 사이 정수로 변환
+  const pointerToValue = (clientX) => {
+    const el = trackRef.current;
+    if (!el) return value;
+    const rect = el.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return Math.round(ratio * max);
+  };
+
+  const handlePointerDown = (e) => {
+    e.preventDefault();
+    e.target.setPointerCapture?.(e.pointerId);
+    setDragging(true);
+    onChange(pointerToValue(e.clientX));
+  };
+
+  const handlePointerMove = (e) => {
+    if (!dragging) return;
+    onChange(pointerToValue(e.clientX));
+  };
+
+  const handlePointerUp = (e) => {
+    if (!dragging) return;
+    e.target.releasePointerCapture?.(e.pointerId);
+    setDragging(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+      e.preventDefault();
+      onChange(Math.max(0, value - 1));
+    } else if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+      e.preventDefault();
+      onChange(Math.min(maxAvailable, value + 1));
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      onChange(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      onChange(maxAvailable);
+    }
+  };
+
+  const fillPct = max > 0 ? (value / max) * 100 : 0;
+  // 사용 가능한 최대치(maxAvailable)를 시각화 — 점선 배경으로 약하게 표시
+  const availablePct = max > 0 ? (maxAvailable / max) * 100 : 0;
+
+  return (
+    <div
+      ref={trackRef}
+      role="slider"
+      aria-valuemin={0}
+      aria-valuemax={max}
+      aria-valuenow={value}
+      tabIndex={0}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onKeyDown={handleKeyDown}
+      className="relative h-2.5 rounded-full bg-white/[0.04] cursor-pointer touch-none select-none focus:outline-none focus:ring-2 focus:ring-indigo-400/40 group"
+    >
+      {/* 가용 영역 표시 — value 이상 maxAvailable까지 옅은 빛 */}
+      {availablePct > fillPct && (
+        <div
+          className="absolute left-0 top-0 h-full rounded-full bg-white/[0.06]"
+          style={{ width: `${availablePct}%` }}
+          aria-hidden
+        />
+      )}
+
+      {/* 채워진 영역 */}
+      <div
+        className={`absolute left-0 top-0 h-full rounded-full bg-gradient-to-r ${gradient} transition-[width] duration-100`}
+        style={{ width: `${fillPct}%` }}
+      />
+
+      {/* thumb — 둥근 핸들 */}
+      <div
+        className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-white shadow-md ring-2 ring-indigo-400/30 transition-transform ${
+          dragging ? "scale-125 ring-indigo-400/60" : "group-hover:scale-110"
+        }`}
+        style={{ left: `${fillPct}%` }}
+        aria-hidden
+      />
+    </div>
+  );
+};

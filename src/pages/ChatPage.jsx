@@ -44,7 +44,7 @@ import {
 } from "lucide-react";
 
 const ChatPage = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
   const { roomId } = useParams();
   const navigate = useNavigate();
   
@@ -3527,6 +3527,13 @@ const ChatPage = () => {
               subscriptionTier: res.data.subscriptionTier || null,
             }));
           });
+
+          // [Polish · P0] AuthContext도 동기화 — 다른 페이지로 이동해도 stale 방지.
+          //   ChatPage 로컬 state는 위에서 갱신됐지만 useAuth().user는 그대로였다.
+          //   TheaterCreateFlow 등이 useAuth().user.subscriptionTier를 보므로 필수.
+          if (refreshUser) {
+            try { refreshUser(); } catch { /* swallow — 로컬 state는 이미 갱신됨 */ }
+          }
 
           showToast("결제가 완료되었습니다!", "success");
         }}

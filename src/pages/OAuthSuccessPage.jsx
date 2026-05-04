@@ -17,6 +17,13 @@ import { motion } from "framer-motion";
  * 3. GET /api/v1/users/me 호출하여 실제 유저 정보 조회
  * 4. AuthContext에 유저 데이터 세팅
  * 5. 로비(/)로 이동
+ *
+ * [Polish · P0]
+ * 기존엔 res.data에서 id/username/nickname/energy 4개 필드만 골라 userData를 만들었다.
+ * 이 때문에 useAuth().user.subscriptionTier / isAdultVerified / boostMode 등이
+ * 항상 undefined → TheaterCreateFlow에서 구독자도 스탯 분배가 잠기는 등 광범위한
+ * stale-state 버그가 있었다.
+ * → res.data 전체를 그대로 userData로 사용한다. (UserResponse는 plain JSON이라 안전)
  */
 const OAuthSuccessPage = () => {
   const [searchParams] = useSearchParams();
@@ -38,17 +45,12 @@ const OAuthSuccessPage = () => {
         // 1. 토큰 저장 (axios 인터셉터가 이후 요청에 자동 주입)
         localStorage.setItem("accessToken", token);
 
-        // 2. 실제 유저 정보 조회
+        // 2. 실제 유저 정보 조회 (UserResponse 전체 — 구독/성인/에너지max 등 모두 포함)
         const res = await api.get("/users/me");
-        const userData = {
-          id: res.data.id,
-          username: res.data.username,
-          nickname: res.data.nickname,
-          energy: res.data.energy,
-        };
 
-        // 3. AuthContext 상태 업데이트
-        handleOAuthLogin(token, userData);
+        // 3. AuthContext 상태 업데이트 — 응답 전체를 그대로 user에 저장.
+        //    여기서 필드를 솎아내면 그 필드들이 영구 undefined로 남아 광범위한 게이팅 버그 발생.
+        handleOAuthLogin(token, res.data);
 
         // 4. 로비로 이동
         navigate("/", { replace: true });

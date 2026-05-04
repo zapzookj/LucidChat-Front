@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Drama, Crown, Heart, Home, Megaphone, BookOpen, Save } from "lucide-react";
+import { ArrowLeft, Drama, Crown, Heart, Home, BookOpen, Save } from "lucide-react";
 
 // 기존 프로젝트 에셋 재활용
 import BackgroundDisplay from "../components/BackgroundDisplay";
@@ -101,6 +101,15 @@ export default function TheaterPlayPage() {
   const [diaryOpen, setDiaryOpen] = useState(false);
   const [saveLoadOpen, setSaveLoadOpen] = useState(false);
 
+  // [Polish · P2 #5] 다이어리/세이브 버튼 onboarding 라벨 노출.
+  //   첫 진입 후 ~5초 간은 라벨이 자동으로 펼쳐져 있어 발견율↑.
+  //   이후엔 hover로만 펼쳐짐.
+  const [hudHintVisible, setHudHintVisible] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setHudHintVisible(false), 5500);
+    return () => clearTimeout(t);
+  }, []);
+
   // ─── 이전 씬 네비게이션 (배치 밖으로 나갈 때 사용) ───
   const [historicalScenes, setHistoricalScenes] = useState([]); // recent API 결과
   const [historyViewIndex, setHistoryViewIndex] = useState(null); // null = 현재 라이브
@@ -137,13 +146,34 @@ export default function TheaterPlayPage() {
     nextScene, goToBatchScene, resumeAfterChapter, reloadBatch,
   } = useTheaterStream({
     roomId: numericRoomId,
-    autoStart: !!roomInfo && !roomInfo.endingReached && !roomInfo.progress?.inIntermission,
+    // [Polish · P1 #7] LOCATION choice 선행 시 batch 자동 진입 차단.
+    //   기존 버그: 멀티 히로인 + 새 Chapter 진입 시 LOCATION 모달과 batch 0이 병렬 트리거 →
+    //              유저 선택 후 invalidate → batch 0 재생성 → LLM 비용 2배.
+    //   Fix: requiresLocationChoice가 true면 autoStart=false → batch 요청 보류.
+    //        유저가 LOCATION 분기 확정하면 백엔드가 플래그를 false로 만들고,
+    //        프론트가 roomInfo를 refetch하여 autoStart=true로 전환되며 batch 진입.
+    autoStart: !!roomInfo
+      && !roomInfo.endingReached
+      && !roomInfo.progress?.inIntermission
+      && !roomInfo.progress?.requiresLocationChoice,
     onChapterEnd: (report) => setChapterReport(report),
-    onBranchReady: async (branchSignal) => {
+    onBranchReady: async (branchSignal, prefetchedPromise) => {
+      // [Polish · P2 #1.2] prefetch된 분기 옵션 활용.
+      //   useTheaterStream이 currentBatch 도착 시 백그라운드에서 fetchSceneBranch를
+      //   미리 호출해 두므로, 마지막 씬 도달 시점엔 이미 응답이 와 있거나(거의) 도착 직전.
+      //   유저는 마지막 씬 → 다음 클릭 즉시 분기 모달을 본다.
+      //   prefetch 실패 / 누락 시 fallback으로 동기 호출.
       try {
-        const options = await fetchSceneBranch(
-          numericRoomId, branchSignal.level, branchSignal.contextSummary
-        );
+        let options;
+        if (prefetchedPromise) {
+          options = await prefetchedPromise;
+        }
+        if (!options) {
+          // fallback: prefetch가 실패했거나 도달 못 한 경우
+          options = await fetchSceneBranch(
+            numericRoomId, branchSignal.level, branchSignal.contextSummary
+          );
+        }
         setBranchModalData({ options, isLocation: false });
       } catch (e) {
         console.error("[Theater] branch fetch failed:", e);
@@ -153,16 +183,21 @@ export default function TheaterPlayPage() {
   });
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  //  3. 장소 선택 분기 자동 트리거 (멀티 히로인 + Chapter 초입)
+  //  3. 장소 선택 분기 자동 트리거 (멀티 히로인 + 새 Chapter 진입)
+  //
+  //  [Polish · P1 #7] 트리거 조건을 백엔드의 progress.requiresLocationChoice로 통일.
+  //    기존엔 currentBatch가 set된 후 batchId/sceneIndex로 추정했는데, 이는
+  //    "batch 먼저 생성 → 모달 트리거"를 의미해서 LLM 비용 2배 버그의 원인이었다.
+  //    이제 batch는 모달 확정 후에만 생성되며, 모달 자체는 백엔드 플래그를 보고
+  //    즉시 트리거. branchModalData가 이미 떠있거나 타 모달이 열린 상태면 skip.
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   useEffect(() => {
-    if (!roomInfo || !currentBatch) return;
+    if (!roomInfo) return;
+    if (!roomInfo.progress?.requiresLocationChoice) return;
     if (locationBranchRequested) return;
-    if (roomInfo.heroines?.length < 2) return;
-    const progress = roomInfo.progress;
-    if (!progress || progress.currentAct > 3) return;
-    if (currentBatch.batchId !== 0 || currentSceneIndex !== 0) return;
+    if (branchModalData) return;
+    if (chapterReport) return;
 
     (async () => {
       try {
@@ -171,9 +206,11 @@ export default function TheaterPlayPage() {
         setBranchModalData({ options, isLocation: true });
       } catch (e) {
         console.debug("[Theater] location branch skipped:", e?.message);
+        // 트리거 실패 시 다음 useEffect 사이클에서 재시도 가능하도록 플래그 해제
+        setLocationBranchRequested(false);
       }
     })();
-  }, [roomInfo, currentBatch, currentSceneIndex, locationBranchRequested, numericRoomId]);
+  }, [roomInfo, locationBranchRequested, branchModalData, chapterReport, numericRoomId]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  4. 씬 인덱스 변경 시 타이핑 상태 리셋
@@ -285,6 +322,7 @@ export default function TheaterPlayPage() {
 
   const handleBranchConfirm = useCallback(async (chosenIndex) => {
     if (!branchModalData) return;
+    const wasLocationChoice = branchModalData.options.branchLevel === "LOCATION";
     try {
       await confirmBranchChoice(numericRoomId, {
         level: branchModalData.options.branchLevel,
@@ -293,7 +331,27 @@ export default function TheaterPlayPage() {
         optionsSnapshot: branchModalData.options.options,
       });
       setBranchModalData(null);
-      reloadBatch();
+
+      // [Polish · P1 #7] LOCATION 분기 확정 시 흐름:
+      //   백엔드는 분기 컨텍스트 저장 + 캐시 invalidate 했지만 batch는 만들지 않았다.
+      //   프론트는 roomInfo를 refetch해서 progress.requiresLocationChoice=false가 된
+      //   상태를 받아야 한다. 그러면 useTheaterStream의 autoStart가 true로 전환되어
+      //   첫 batch가 깨끗하게 LLM 1회 호출로 만들어진다.
+      if (wasLocationChoice) {
+        try {
+          const fresh = await fetchTheaterRoom(numericRoomId);
+          setRoomInfo(fresh);
+          // locationBranchRequested 플래그도 리셋 — 다음 Chapter 진입 시 재트리거 가능
+          setLocationBranchRequested(false);
+        } catch (refetchErr) {
+          console.error("[Theater] roomInfo refetch failed:", refetchErr);
+          // refetch 실패해도 일단 reloadBatch로 fallback
+          reloadBatch();
+        }
+      } else {
+        // MINOR / MAJOR / CLIMAX 분기는 기존 흐름 유지 (batch 즉시 재로드)
+        reloadBatch();
+      }
     } catch (e) {
       console.error("[Theater] Branch confirm failed:", e);
     }
@@ -303,7 +361,7 @@ export default function TheaterPlayPage() {
   //  9. Chapter 종료 닫기
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  const handleChapterReportClose = useCallback(() => {
+  const handleChapterReportClose = useCallback(async () => {
     const report = chapterReport;
     setChapterReport(null);
     setLocationBranchRequested(false);
@@ -311,7 +369,25 @@ export default function TheaterPlayPage() {
       navigate(`/theater/${numericRoomId}/intermission`);
       return;
     }
-    resumeAfterChapter();
+
+    // [Polish · P1 #7] Chapter 종료 후 새 Chapter 진입 시 멀티 히로인이면
+    //   다시 LOCATION 분기를 받아야 한다. 백엔드는 completeChapter 후 batchId를 0으로
+    //   리셋하므로 buildRoomInfo의 requiresLocationChoice 판단이 자동으로 true가 된다.
+    //   프론트는 roomInfo를 refetch해야 그 플래그를 인지하고 batch 자동 호출을 보류.
+    //   refetch 실패 시 fallback으로 기존 resumeAfterChapter 흐름 진행.
+    try {
+      const fresh = await fetchTheaterRoom(numericRoomId);
+      setRoomInfo(fresh);
+      // 새 roomInfo가 requiresLocationChoice=true면 useEffect가 자동으로 LOCATION 모달 트리거.
+      // false면 useTheaterStream의 autoStart로 batch가 자동 진입 — 다만 이미 initializedRef가
+      // true이므로 effect가 재실행되지 않을 수 있음. 명시적으로 reloadBatch로 트리거.
+      if (!fresh?.progress?.requiresLocationChoice) {
+        resumeAfterChapter();
+      }
+    } catch (refetchErr) {
+      console.warn("[Theater] roomInfo refetch on chapter close failed:", refetchErr);
+      resumeAfterChapter();
+    }
   }, [chapterReport, resumeAfterChapter, navigate, numericRoomId]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -506,64 +582,30 @@ export default function TheaterPlayPage() {
           </div>
 
           {/*
-            [Phase 5.5 UX Polish · R3] 감독 명령어 + 이야기 다이어리 + 세이브/로드
-            - 🎬 명령어: 좌측 슬라이드 패널 (유저 입력)
+            [Phase 5.5 UX Polish · R3] 이야기 다이어리 + 세이브/로드
+            [Polish · P2 #5] 감독 명령은 DialogueBox 하단으로 이전 — 발견율↑
             - 📖 다이어리: 우측 슬라이드 패널 (자동 캡처 노트)
-            - 마지막 씬 도달 시 명령어 버튼 펄스 — "이 기능을 써봐!" 안내
+            - 💾 세이브/로드: 좌측 슬라이드 패널
+            - 첫 5초 간 onboarding 라벨 자동 노출, 이후엔 hover로만 펼쳐짐
           */}
-          <motion.button
-            onClick={(e) => { e.stopPropagation(); setCommandOpen(true); }}
-            aria-label="감독 명령어"
-            title="감독 명령어 (다음 배치에 환경 이벤트 추가)"
-            animate={
-              showCommandPulse
-                ? {
-                    scale: [1, 1.08, 1],
-                    boxShadow: [
-                      "0 0 0px rgba(251,191,36,0)",
-                      "0 0 18px rgba(251,191,36,0.5)",
-                      "0 0 0px rgba(251,191,36,0)",
-                    ],
-                  }
-                : { scale: 1, boxShadow: "0 0 0px rgba(0,0,0,0)" }
-            }
-            transition={{
-              duration: 2,
-              repeat: showCommandPulse ? Infinity : 0,
-              ease: "easeInOut",
-            }}
-            className={`relative inline-flex items-center justify-center w-8 h-8 rounded-full backdrop-blur-md border transition-colors duration-200 ${
-              showCommandPulse
-                ? "bg-amber-500/15 border-amber-300/40 text-amber-200"
-                : "bg-black/55 border-white/10 text-white/65 hover:text-amber-200 hover:border-amber-300/35"
-            }`}
-          >
-            <Megaphone size={14} />
-            {/* 마지막 씬 도달 시 우상단 도트 */}
-            {showCommandPulse && (
-              <motion.span
-                className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-300"
-                animate={{ opacity: [0.3, 1, 0.3] }}
-                transition={{ duration: 1.4, repeat: Infinity }}
-              />
-            )}
-          </motion.button>
-          <button
+          <HudPillButton
             onClick={(e) => { e.stopPropagation(); setDiaryOpen(true); }}
             aria-label="이야기 다이어리"
             title="이야기 다이어리"
-            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-white/65 hover:text-cyan-200 hover:border-cyan-300/35 transition-colors duration-200"
-          >
-            <BookOpen size={14} />
-          </button>
-          <button
+            label="다이어리"
+            hintVisible={hudHintVisible}
+            colorClass="hover:text-cyan-200 hover:border-cyan-300/45"
+            icon={<BookOpen size={14} />}
+          />
+          <HudPillButton
             onClick={(e) => { e.stopPropagation(); setSaveLoadOpen(true); }}
             aria-label="세이브 / 로드"
             title="세이브 / 로드"
-            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-white/65 hover:text-violet-200 hover:border-violet-300/35 transition-colors duration-200"
-          >
-            <Save size={14} />
-          </button>
+            label="저장 · 불러오기"
+            hintVisible={hudHintVisible}
+            colorClass="hover:text-violet-200 hover:border-violet-300/45"
+            icon={<Save size={14} />}
+          />
         </div>
 
         {/* ─── 우측: 멀티 히로인 HUD (멀티 세션만) ─── */}
@@ -643,6 +685,7 @@ export default function TheaterPlayPage() {
             <TheaterDialogueBox
               scene={displayedScene}
               avatarName={avatarName}
+              heroineNames={(roomInfo?.heroines || []).map((h) => h.name).filter(Boolean)}
               playSpeed={playSpeed}
               onSpeedChange={handleSpeedChange}
               autoPlayEnabled={autoPlayEnabled}
@@ -662,6 +705,14 @@ export default function TheaterPlayPage() {
               leadHeroineName={leadHeroine?.name}
               leadHeroineAffection={leadHeroine?.affection}
               onTypingDone={() => setTypingDone(true)}
+              // [Polish · P2 #1] inline 분기(MINOR) 활성 시 본체를 흐려 시각 위계 분리
+              branchInlineActive={
+                !!branchModalData
+                && branchModalData.options?.branchLevel === "MINOR"
+              }
+              // [Polish · P2 #5] 감독 명령 버튼을 DialogueBox로 위임
+              onOpenCommand={() => setCommandOpen(true)}
+              commandPulseActive={showCommandPulse}
             />
           </motion.div>
         )}
@@ -804,3 +855,45 @@ export default function TheaterPlayPage() {
     </div>
   );
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  [Polish · P2 #5] HUD 알약 버튼
+//
+//  기존 32px 아이콘만 있는 버튼은 발견율이 매우 낮았다. 라벨 + 아이콘
+//  expandable pill 패턴으로 가시성↑.
+//   - 기본 상태: 아이콘만 (compact)
+//   - hover 또는 hintVisible=true 시: 라벨이 부드럽게 펼쳐짐
+//   - 첫 진입 후 ~5초간 hintVisible=true로 onboarding 효과
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const HudPillButton = ({
+  onClick, "aria-label": ariaLabel, title, label, icon, hintVisible, colorClass = "",
+}) => {
+  const [hovered, setHovered] = useState(false);
+  const expanded = hovered || hintVisible;
+  return (
+    <motion.button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      aria-label={ariaLabel}
+      title={title}
+      className={`inline-flex items-center gap-2 h-9 rounded-full bg-black/60 backdrop-blur-md border border-white/15 text-white/80 transition-colors duration-200 ${colorClass}`}
+      animate={{ paddingLeft: expanded ? 12 : 9, paddingRight: expanded ? 14 : 9 }}
+      transition={{ duration: 0.25, ease: "easeOut" }}
+      whileTap={{ scale: 0.96 }}
+    >
+      <span className="flex-shrink-0">{icon}</span>
+      <motion.span
+        className="text-[11px] font-semibold tracking-wide whitespace-nowrap overflow-hidden"
+        animate={{
+          maxWidth: expanded ? 160 : 0,
+          opacity: expanded ? 1 : 0,
+          marginLeft: expanded ? 0 : -4,
+        }}
+        transition={{ duration: 0.25, ease: "easeOut" }}
+      >
+        {label}
+      </motion.span>
+    </motion.button>
+  );
+};

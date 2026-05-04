@@ -576,7 +576,7 @@ const SettingsModal = ({ onClose, onLogout, bgmMuted, onToggleBgm }) => (
 //
 const LobbyPage = () => {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
 
   const [view, setView] = useState("hub");
   const [characters, setCharacters] = useState([]);
@@ -792,8 +792,19 @@ const LobbyPage = () => {
         setBetaToast({ message: "✨ 이미 베타 테스터 혜택이 적용되어 있어요!", type: "info" });
       } else {
         setBetaToast({ message: "🎉 베타 테스터 혜택 적용 완료! 루시드 미드나잇 패스 + 에너지 300 지급", type: "success" });
-        fetchUserInfo(); // 에너지/구독 정보 갱신
       }
+
+      // [Polish · P0] 응답에 갱신된 UserResponse가 함께 오므로 즉시 동기화.
+      //   - res.data.user: 백엔드가 활성화 직후 GET /users/me에 해당하는 전체 객체 반환
+      //   - refreshUser(): AuthContext + localStorage 동기화 → useAuth().user.subscriptionTier
+      //                    / isAdultVerified가 즉시 반영되어 TheaterCreateFlow의 스탯 분배,
+      //                    SecretModeFlow의 성인인증 게이트 등이 정확히 동작.
+      //   - fetchUserInfo(): LobbyPage 로컬 userInfo도 갱신 (에너지 표시 즉시 반영).
+      if (refreshUser) {
+        try { await refreshUser(); } catch { /* sync failure fallback to fetchUserInfo */ }
+      }
+      fetchUserInfo();
+
       setTimeout(() => setBetaToast(null), 5000);
     } catch (e) {
       console.error("[BETA] Activation failed:", e);
@@ -1057,9 +1068,16 @@ const LobbyPage = () => {
         initialTab={storeInitialTab}
         userInfo={userInfo}
         characters={characters}
-        onPaymentComplete={() => {
+        onPaymentComplete={async () => {
           setShowStore(false);
-          fetchUserInfo(); // 결제 후 에너지 갱신
+          // [Polish · P0] 결제 완료 시 AuthContext + localStorage + LobbyPage 로컬
+          //   userInfo를 모두 동기화한다. refreshUser는 AuthContext의 user를 갱신하므로
+          //   TheaterCreateFlow의 구독 등급 인식, SecretModeFlow의 성인인증 게이트 등이
+          //   결제 직후 정확히 동작.
+          if (refreshUser) {
+            try { await refreshUser(); } catch { /* fallback below */ }
+          }
+          fetchUserInfo(); // 결제 후 에너지 갱신 (LobbyPage 로컬 state)
         }}
       />
       <AnimatePresence>

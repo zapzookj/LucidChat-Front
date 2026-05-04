@@ -1,9 +1,12 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:8080/api/v1', // 백엔드 주소
+  // [변경] 환경변수에서 주소를 가져오도록 수정
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1', // 백엔드 주소
+  // baseURL: 'http://localhost:8080/api/v1',
   headers: {
     'Content-Type': 'application/json',
+    'ngrok-skip-browser-warning': 'true', // [NEW] ngrok 경고 무시 헤더
   },
   withCredentials: true, // [NEW] 쿠키(Refresh Token) 전송을 위해 필수
 });
@@ -52,6 +55,15 @@ api.interceptors.response.use(
         return Promise.reject(refreshError);
       }
     }
+
+    if (error.response?.status === 429) {
+      const retryAfter = error.response.headers['retry-after'] || 3;
+      // 글로벌 토스트로 안내
+      window.dispatchEvent(new CustomEvent('rate-limited', {
+        detail: { retryAfter: Number(retryAfter) }
+      }));
+    }
+    return Promise.reject(error);
 
     return Promise.reject(error);
   }

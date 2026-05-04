@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Heart, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity, MessageSquare, Eye, Clock, EyeIcon, Gem } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
+import { sanitizeScene } from "../utils/dialogueSanitizer";
 
 /**
  * [Phase 5.5-Fix] DialogueBox
@@ -217,7 +218,7 @@ const BPM_RANGES = [
 
 const DialogueBox = ({
   characterName,
-  scene,
+  scene: rawScene,
   onSend,
   isTyping,
   affection,
@@ -261,6 +262,21 @@ const DialogueBox = ({
   const [input, setInput] = useState("");
   const [displayedText, setDisplayedText] = useState("");
   const [isTextFullyDisplayed, setIsTextFullyDisplayed] = useState(false);
+
+  // [Polish · P1 #2] 표시 직전 dialogue/narration prefix 방어 sanitize.
+  //   백엔드는 이제 깨끗이 정리하지만 과거 MongoDB에 저장된 chatLog 중 prefix가 묻은
+  //   데이터가 있을 수 있다. 화이트리스트 = 캐릭터 이름 + 유저 nickname (NPC는 보존).
+  const knownNames = useMemo(() => {
+    const list = [];
+    if (characterName) list.push(characterName);
+    if (nickname) list.push(nickname);
+    return list;
+  }, [characterName, nickname]);
+
+  const scene = useMemo(
+    () => sanitizeScene(rawScene, knownNames),
+    [rawScene, knownNames]
+  );
 
   // [Bug Fix #5] 액션 모드 감지 개선
   const isActionMode = (() => {

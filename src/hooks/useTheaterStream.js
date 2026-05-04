@@ -5,6 +5,7 @@ import {
   finalizeChapter,
   triggerPrefetch,
 } from "../api/TheaterPlayApi";
+import { fetchSceneBranch } from "../api/TheaterGameplayApi";
 
 /**
  * [Phase 5.5-Theater] Theater Scene 배치 흐름 관리 훅
@@ -14,6 +15,12 @@ import {
  * 2. 씬 감상 중 70% 지점 도달 → prefetch 트리거
  * 3. 마지막 씬 완료 → onBatchConsumed → 다음 배치 로드
  * 4. Chapter 종료 시 → finalizeChapter → 리포트 콜백
+ *
+ * [Polish · P2 #1.2] Branch options prefetch
+ *   currentBatch에 branchSignal이 있으면 마지막 씬 도달 전 백그라운드에서 분기
+ *   옵션 LLM을 미리 호출해 둔다. 유저가 5~8개 씬을 읽는 동안(~30초+) 분기 LLM
+ *   응답이 도착하므로, 마지막 씬 → 다음 클릭 시 즉시 모달이 떠 latency가 0에 가깝다.
+ *   (기존엔 마지막 씬 → 다음 클릭 → fetchSceneBranch await → 모달이 ~3-8초 멈춰있음)
  *
  * [반환]
  *   currentBatch         : 현재 재생 중인 배치 (SceneBatch | null)
@@ -39,6 +46,12 @@ export default function useTheaterStream({
   const prefetchFiredRef = useRef(false);
   const initializedRef = useRef(false);
 
+  // [Polish · P2 #1.2] 분기 옵션 prefetch 보관소.
+  //   shape: { batchId, level, promise } — Promise를 들고 있으므로 요청 중이어도 안전.
+  //   nextScene의 마지막 씬 처리 시 이 promise를 await하면 이미 끝났거나(즉시 resolve)
+  //   거의 끝나가는 상태로 거의 마스킹됨.
+  const prefetchedBranchRef = useRef(null);
+
   // ─── 배치 로드 ───
   const loadNextBatch = useCallback(async () => {
     if (!roomId) return;
@@ -49,8 +62,19 @@ export default function useTheaterStream({
       setCurrentBatch(batch);
       setCurrentSceneIndex(0);
     } catch (e) {
-      console.error("[Theater] Failed to load batch:", e);
-      if (onError) onError(e);
+      // [Polish · P1 #7] LOCATION choice 선행 가드.
+      //   백엔드가 멀티 히로인 + 새 Chapter 시작 시점에서 LOCATION_CHOICE_REQUIRED를
+      //   던지면 batch를 시도하지 않는다. autoStart 가드와 별도로 race condition
+      //   방어 (autoStart 시점에 roomInfo가 stale이거나, 분기 직후 첫 batch 로드 등).
+      //   에러를 onError로 전파하지 않고 silent로 처리 — 프론트는 위에서 LOCATION 모달을
+      //   별도 트리거하므로 사용자에게 보이는 에러는 없다.
+      const msg = e?.response?.data?.message || e?.message;
+      if (msg && msg.includes("LOCATION_CHOICE_REQUIRED")) {
+        console.debug("[Theater] batch deferred — awaiting location choice");
+      } else {
+        console.error("[Theater] Failed to load batch:", e);
+        if (onError) onError(e);
+      }
     } finally {
       setLoadingNext(false);
     }
@@ -62,6 +86,40 @@ export default function useTheaterStream({
     initializedRef.current = true;
     loadNextBatch();
   }, [autoStart, roomId, loadNextBatch]);
+
+  // ─── [Polish · P2 #1.2] Branch options prefetch ───
+  //   currentBatch가 set되고 branchSignal이 있으면 즉시 백그라운드에서 분기 옵션 LLM 호출.
+  //   결과 promise를 ref에 저장하고, 마지막 씬 도달 시 이 promise를 await하여 latency 마스킹.
+  //   chapterEndAfter면 분기가 아니므로 skip.
+  useEffect(() => {
+    if (!currentBatch) {
+      prefetchedBranchRef.current = null;
+      return;
+    }
+    if (!currentBatch.branchSignal || currentBatch.chapterEndAfter) {
+      prefetchedBranchRef.current = null;
+      return;
+    }
+
+    // 같은 배치라면 재요청 안 함
+    const existing = prefetchedBranchRef.current;
+    if (existing && existing.batchId === currentBatch.batchId) return;
+
+    const sig = currentBatch.branchSignal;
+    const promise = fetchSceneBranch(roomId, sig.level, sig.contextSummary)
+      .catch((err) => {
+        // 실패는 silent — 마지막 씬 도달 시 fallback으로 다시 시도하도록 ref clear
+        console.debug("[Theater] branch prefetch failed:", err?.message);
+        prefetchedBranchRef.current = null;
+        return null;
+      });
+
+    prefetchedBranchRef.current = {
+      batchId: currentBatch.batchId,
+      level: sig.level,
+      promise,
+    };
+  }, [currentBatch, roomId]);
 
   // ─── 씬 이동 ───
   const nextScene = useCallback(async () => {
@@ -88,7 +146,14 @@ export default function useTheaterStream({
 
       // 분기 시그널이 있으면 분기 UI 콜백
       if (currentBatch.branchSignal && onBranchReady) {
-        onBranchReady(currentBatch.branchSignal);
+        // [Polish · P2 #1.2] prefetch된 옵션을 콜백으로 함께 전달.
+        //   호출자(TheaterPlayPage)는 이 promise를 await해서 옵션을 즉시 표시 가능.
+        //   prefetch가 실패했거나 ref가 비어있으면 fallback으로 onBranchReady 호출자가
+        //   직접 fetchSceneBranch를 호출하도록 (기존 동작과 동일).
+        const ref = prefetchedBranchRef.current;
+        const prefetched =
+          ref && ref.batchId === currentBatch.batchId ? ref.promise : null;
+        onBranchReady(currentBatch.branchSignal, prefetched);
         return;
       }
 

@@ -95,6 +95,12 @@ export default function TheaterBranchModal({
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  [R2] 인라인 모드 렌더 — DialogueBox 위 슬라이드업 오버레이
+  //
+  //  [Polish · P2 #1] 시각 위계 분리 강화:
+  //   - 기존: dim 그라디언트가 약해 DialogueBox 텍스트가 비쳐 보였음.
+  //   - Fix: backdrop 진하게(from-black/85 + heavy backdrop-blur) + 카드 자체에
+  //          solid 컨테이너 background 추가. 본체 DialogueBox 쪽도
+  //          branchInlineActive=true로 동시에 흐려져 위계 명확.
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   if (useInline) {
     return (
@@ -107,10 +113,17 @@ export default function TheaterBranchModal({
         // 풀스크린 wrapper 없이 부모(PlayPage hud-bottom area)에 직접 위치.
         className="absolute inset-x-0 bottom-0 z-[80] pointer-events-none"
       >
-        {/* dim 배경 — DialogueBox 위만 살짝 어둡게 */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent pointer-events-auto" />
+        {/* dim 배경 — 강화: from-black/85 + heavy blur로 DialogueBox 텍스트 차단 */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/65 to-black/15 backdrop-blur-[2px] pointer-events-auto" />
 
         <div className="relative z-10 max-w-3xl mx-auto px-4 pb-4 pointer-events-auto">
+          {/* solid 카드 컨테이너 — DialogueBox와의 시각 분리 */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            className="rounded-2xl bg-slate-900/85 border border-violet-300/25 backdrop-blur-xl shadow-[0_-8px_60px_rgba(139,92,246,0.25)] p-4 md:p-5"
+          >
           {/* 미니 타이틀 */}
           <div className="text-center mb-3">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-violet-500/20 border border-violet-300/40 backdrop-blur-md">
@@ -169,6 +182,7 @@ export default function TheaterBranchModal({
               </button>
             </div>
           )}
+          </motion.div>
         </div>
       </motion.div>
     );
