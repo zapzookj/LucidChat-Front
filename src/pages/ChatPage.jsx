@@ -42,6 +42,8 @@ import {
   Heart, Crown, MapPin, Shirt, Award, ChevronRight, ChevronLeft, Gem, Rocket, ShoppingBag,
   ThumbsUp, ThumbsDown, MoreHorizontal, Image
 } from "lucide-react";
+import { assetUrl } from "../utils/assetUrl";
+import { sfx } from "../utils/sfx";
 
 const ChatPage = () => {
   const { user, logout, refreshUser } = useAuth();
@@ -2270,8 +2272,8 @@ const ChatPage = () => {
                       onClick={handleIntroVideoEnd}
                       onError={(e) => {
                         // [Phase 5] 캐릭터별 비디오 404 → 레거시 경로 폴백 → 그래도 실패 시 스킵
-                        const legacy = "/videos/intro_door.mp4";
-                        if (!e.target.src.endsWith(legacy)) {
+                        const legacy = assetUrl("/videos/intro_door.mp4");
+                        if (!e.target.src.endsWith(legacy.split("/").pop())) { // ⬅️ endsWith 비교 안전화
                           console.warn("🎬 [Intro] Character video not found, trying legacy path");
                           e.target.src = legacy;
                         } else {
@@ -2280,10 +2282,12 @@ const ChatPage = () => {
                         }
                       }}
                       className="w-full h-full object-cover"
-                  >
-                      {/* [Phase 5] 캐릭터별 인트로 비디오: /videos/characters/{slug}/intro.mp4 */}
-                      <source src={`/videos/characters/${roomInfo?.characterSlug || "airi"}/intro.mp4`} type="video/mp4" />
-                  </video>
+                    >
+                      <source 
+                        src={assetUrl(`/videos/characters/${roomInfo?.characterSlug || "airi"}/intro.mp4`)}  
+                        type="video/mp4" 
+                      />
+                    </video>
                   <div className="absolute bottom-10 w-full text-center animate-pulse">
                       <span className="text-white/30 text-xs tracking-widest cursor-pointer">CLICK TO SKIP</span>
                   </div>

@@ -1,5 +1,6 @@
 import { motion, AnimatePresence, useAnimation } from "framer-motion";
 import { useEffect, useRef, useMemo } from "react";
+import { assetUrl } from "../utils/assetUrl";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 5.5-NPC] CharacterDisplay — NPC UI Fix
@@ -26,7 +27,7 @@ function resolveCharacterImage(characterSlug, outfit, emotion) {
   const slug = characterSlug || "airi";
   const o = (outfit || "MAID").toLowerCase();
   const e = (emotion || "NEUTRAL").toLowerCase();
-  return `/characters/${slug}/${o}_${e}.png`;
+  return assetUrl(`/characters/${slug}/${o}_${e}.png`); // ⬅️
 }
 
 const EMOTION_ANIM = {
@@ -260,8 +261,11 @@ const CharacterDisplay = ({
                     className="h-[85%] md:h-[90%] object-contain select-none pointer-events-none"
                     style={{ filter: `drop-shadow(0 0 25px ${config.glow}) drop-shadow(0 5px 15px rgba(0,0,0,0.4)) brightness(${isMainActive ? config.imgBrightness : 0.65})` }}
                     onError={(e) => {
-                      const fb = resolveCharacterImage(characterSlug, "MAID", emotion);
-                      if (!e.target.src.endsWith(fb)) e.target.src = fb; else e.target.style.display = "none";
+                      const fb1 = resolveCharacterImage(characterSlug, outfit, "NEUTRAL");
+                      const fb2 = resolveCharacterImage(characterSlug, "MAID", emotion);
+                      // resolveCharacterImage가 절대 URL을 반환하므로 직접 비교
+                      if (e.target.src !== fb1 && e.target.src !== fb2) e.target.src = fb2;
+                      else e.target.style.display = "none";
                     }}
                   />
                 </AnimatePresence>
@@ -310,7 +314,7 @@ const CharacterDisplay = ({
                 onError={(e) => {
                   const fb1 = resolveCharacterImage(characterSlug, outfit, "NEUTRAL");
                   const fb2 = resolveCharacterImage(characterSlug, "MAID", emotion);
-                  if (e.target.src !== window.location.origin + fb1 && e.target.src !== window.location.origin + fb2) e.target.src = fb2;
+                  if (e.target.src !== fb1 && e.target.src !== fb2) e.target.src = fb2;
                   else e.target.style.display = "none";
                 }}
               />

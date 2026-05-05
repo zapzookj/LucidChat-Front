@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
+import { assetUrl } from "../utils/assetUrl";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4] AudioEngine — 동적 청각 엔진
@@ -10,19 +11,19 @@ import { useEffect, useRef, useCallback } from "react";
 //    • 나머지 BGM/Ambience/SFX는 공유 에셋 (변경 없음)
 // ═══════════════════════════════════════════════════════════════
 
-const baseUrl = import.meta.env.VITE_ASSET_BASE_URL || "";
-
 // ─── 공유 BGM 매핑 ───
-const SHARED_BGM = {
-  LOBBY:        `${baseUrl}/sounds/bgm_lobby.mp3`,
-  ROMANTIC:     `${baseUrl}/sounds/bgm_romantic.mp3`,
-  EXCITING:     `${baseUrl}/sounds/bgm_exciting.mp3`,
-  TOUCHING:     `${baseUrl}/sounds/bgm_touching.mp3`,
-  TENSE:        `${baseUrl}/sounds/bgm_tense.mp3`,
-  EROTIC:       `${baseUrl}/sounds/bgm_erotic.mp3`,
-  ENDING_HAPPY: `${baseUrl}/sounds/bgm_ending_happy.mp3`,
-  ENDING_BAD:   `${baseUrl}/sounds/bgm_ending_bad.mp3`,
-};
+const SHARED_BGM = Object.fromEntries(
+  Object.entries({
+    LOBBY:        "/sounds/bgm_lobby.mp3",
+    ROMANTIC:     "/sounds/bgm_romantic.mp3",
+    EXCITING:     "/sounds/bgm_exciting.mp3",
+    TOUCHING:     "/sounds/bgm_touching.mp3",
+    TENSE:        "/sounds/bgm_tense.mp3",
+    EROTIC:       "/sounds/bgm_erotic.mp3",
+    ENDING_HAPPY: "/sounds/bgm_ending_happy.mp3",
+    ENDING_BAD:   "/sounds/bgm_ending_bad.mp3",
+  }).map(([k, v]) => [k, assetUrl(v)])
+);
 
 /**
  * [Phase 5] bgmMode + characterSlug → BGM 파일 경로
@@ -31,36 +32,39 @@ const SHARED_BGM = {
 function resolveBgmSrc(bgmMode, characterSlug) {
   if (bgmMode === "DAILY") {
     const slug = characterSlug || "airi";
-    return `${baseUrl}/sounds/characters/${slug}/bgm_daily.mp3`;
+    return assetUrl(`/sounds/characters/${slug}/bgm_daily.mp3`); // ⬅️ assetUrl 적용
   }
   return SHARED_BGM[bgmMode] || null;
 }
 
-// ─── Ambience 매핑 (변경 없음) ───
-const AMBIENCE_MAP = {
-  BEACH:      [`${baseUrl}/sounds/amb_beach.mp3`],
-  KITCHEN:    [`${baseUrl}/sounds/amb_kitchen.mp3`],
-  DOWNTOWN:   [`${baseUrl}/sounds/amb_street.mp3`],
-  BAR:        [`${baseUrl}/sounds/amb_bar.mp3`],
-  BATHROOM:   [`${baseUrl}/sounds/amb_bathroom.mp3`],
+// ─── Ambience 매핑 ───
+const AMBIENCE_MAP = Object.fromEntries(
+  Object.entries({
+    BEACH:      ["/sounds/amb_beach.mp3"],
+    KITCHEN:    ["/sounds/amb_kitchen.mp3"],
+    DOWNTOWN:   ["/sounds/amb_street.mp3"],
+    BAR:        ["/sounds/amb_bar.mp3"],
+    BATHROOM:   ["/sounds/amb_bathroom.mp3"],
+    GARDEN_DAY:     ["/sounds/amb_birds.mp3"],
+    GARDEN_NIGHT:   ["/sounds/amb_crickets.mp3", "/sounds/amb_owl.mp3"],
+    BALCONY_DAY:    ["/sounds/amb_birds.mp3"],
+    BALCONY_NIGHT:  ["/sounds/amb_crickets.mp3", "/sounds/amb_owl.mp3"],
+  }).map(([k, arr]) => [k, arr.map(assetUrl)])
+);
 
-  GARDEN_DAY:     [`${baseUrl}/sounds/amb_birds.mp3`],
-  GARDEN_NIGHT:   [`${baseUrl}/sounds/amb_crickets.mp3`, `${baseUrl}/sounds/amb_owl.mp3`],
-  BALCONY_DAY:    [`${baseUrl}/sounds/amb_birds.mp3`],
-  BALCONY_NIGHT:  [`${baseUrl}/sounds/amb_crickets.mp3`, `${baseUrl}/sounds/amb_owl.mp3`],
-};
-
-// ─── SFX 매핑 (변경 없음) ───
-const SFX_MAP = {
-  BAR:       `${baseUrl}/sounds/sfx_door_open.mp3`,
-  BEDROOM:   `${baseUrl}/sounds/sfx_door_open.mp3`,
-  STUDY:     `${baseUrl}/sounds/sfx_door_open.mp3`,
-  LIVINGROOM:`${baseUrl}/sounds/sfx_door_open.mp3`,
-  KITCHEN:   `${baseUrl}/sounds/sfx_door_open.mp3`,
-  BATHROOM:  `${baseUrl}/sounds/sfx_door_open.mp3`,
-  ENTRANCE:  `${baseUrl}/sounds/sfx_door_open.mp3`,
-  BEACH:     `${baseUrl}/sounds/sfx_seagull.mp3`,
-};
+// ─── SFX 매핑 ───
+const SFX_MAP = Object.fromEntries(
+  Object.entries({
+    BAR:       "/sounds/sfx_door_open.mp3",
+    BEDROOM:   "/sounds/sfx_door_open.mp3",
+    STUDY:     "/sounds/sfx_door_open.mp3",
+    LIVINGROOM:"/sounds/sfx_door_open.mp3",
+    KITCHEN:   "/sounds/sfx_door_open.mp3",
+    BATHROOM:  "/sounds/sfx_door_open.mp3",
+    ENTRANCE:  "/sounds/sfx_door_open.mp3",
+    BEACH:     "/sounds/sfx_seagull.mp3",
+  }).map(([k, v]) => [k, assetUrl(v)])
+);
 
 // ─── 볼륨 & 타이밍 상수 ───
 const BGM_VOLUME_RATIO = 0.45;

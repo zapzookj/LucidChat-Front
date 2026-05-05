@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
+import { assetUrl } from "../utils/assetUrl";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4 Fix] useResourcePreloader — 단계적 리소스 프리로딩
@@ -10,49 +11,56 @@ import { useEffect, useRef, useCallback } from "react";
 //    • availableOutfits/Locations는 서버에서 받아온 데이터 기반
 // ═══════════════════════════════════════════════════════════════
 
-const baseUrl = import.meta.env.VITE_ASSET_BASE_URL || "";
-
 const ALL_EMOTIONS = [
   "neutral", "joy", "sad", "angry", "shy", "surprise",
   "panic", "disgust", "relax", "frightened", "flirtatious", "heated",
 ];
 
-// ── 관계 레벨별 공유 오디오 리소스 ──
-const AUDIO_TIERS = {
-  STRANGER: {
-    bgm: [
-      `${baseUrl}/sounds/bgm_romantic.mp3`,
-      `${baseUrl}/sounds/bgm_touching.mp3`,
-      `${baseUrl}/sounds/bgm_tense.mp3`,
-      `${baseUrl}/sounds/bgm_lobby.mp3`,
-    ],
-    ambience: [
-      `${baseUrl}/sounds/amb_birds.mp3`,
-      `${baseUrl}/sounds/amb_crickets.mp3`,
-      `${baseUrl}/sounds/amb_owl.mp3`,
-      `${baseUrl}/sounds/amb_kitchen.mp3`,
-      `${baseUrl}/sounds/amb_bathroom.mp3`,
-    ],
-    sfx: [
-      `${baseUrl}/sounds/sfx_door_open.mp3`,
-    ],
-  },
-  ACQUAINTANCE: {
-    bgm: [`${baseUrl}/sounds/bgm_exciting.mp3`],
-    ambience: [`${baseUrl}/sounds/amb_street.mp3`],
-    sfx: [],
-  },
-  FRIEND: {
-    bgm: [],
-    ambience: [`${baseUrl}/sounds/amb_beach.mp3`],
-    sfx: [`${baseUrl}/sounds/sfx_seagull.mp3`],
-  },
-  LOVER: {
-    bgm: [`${baseUrl}/sounds/bgm_erotic.mp3`],
-    ambience: [`${baseUrl}/sounds/amb_bar.mp3`],
-    sfx: [],
-  },
-};
+// ── 관계 레벨별 공유 오디오 리소스 (CDN URL로 사전 변환) ──
+const AUDIO_TIERS = (() => {
+  const raw = {
+    STRANGER: {
+      bgm: [
+        "/sounds/bgm_romantic.mp3",
+        "/sounds/bgm_touching.mp3",
+        "/sounds/bgm_tense.mp3",
+        "/sounds/bgm_lobby.mp3",
+      ],
+      ambience: [
+        "/sounds/amb_birds.mp3",
+        "/sounds/amb_crickets.mp3",
+        "/sounds/amb_owl.mp3",
+        "/sounds/amb_kitchen.mp3",
+        "/sounds/amb_bathroom.mp3",
+      ],
+      sfx: ["/sounds/sfx_door_open.mp3"],
+    },
+    ACQUAINTANCE: {
+      bgm: ["/sounds/bgm_exciting.mp3"],
+      ambience: ["/sounds/amb_street.mp3"],
+      sfx: [],
+    },
+    FRIEND: {
+      bgm: [],
+      ambience: ["/sounds/amb_beach.mp3"],
+      sfx: ["/sounds/sfx_seagull.mp3"],
+    },
+    LOVER: {
+      bgm: ["/sounds/bgm_erotic.mp3"],
+      ambience: ["/sounds/amb_bar.mp3"],
+      sfx: [],
+    },
+  };
+  // 모든 경로를 CDN URL로 사전 변환
+  return Object.fromEntries(
+    Object.entries(raw).map(([level, groups]) => [
+      level,
+      Object.fromEntries(
+        Object.entries(groups).map(([group, paths]) => [group, paths.map(assetUrl)])
+      ),
+    ])
+  );
+})();
 
 // ── 관계 레벨별 해금되는 기본 시간대 변형 ──
 const TIME_VARIANTS = ["day", "night"];
@@ -149,23 +157,23 @@ export default function useResourcePreloader(
     // 1) 캐릭터 이미지 (허용된 복장 × 12감정) — slug 기반 경로
     const outfits = (availableOutfits || []).map(o => o.toLowerCase());
     const charImages = outfits.flatMap((outfit) =>
-      ALL_EMOTIONS.map((emo) => `${baseUrl}/characters/${slug}/${outfit}_${emo}.png`)
+      ALL_EMOTIONS.map((emo) => assetUrl(`/characters/${slug}/${outfit}_${emo}.png`)) // ⬅️
     );
     await preloadBatch(charImages, preloadImage, 4);
 
     // 2) 캐릭터 전용 배경 — slug 기반 경로
     const locations = (availableLocations || []).map(l => l.toLowerCase());
-    const bgImages = [`${baseUrl}/backgrounds/${slug}/bg_default.png`];
+    const bgImages = [assetUrl(`/backgrounds/${slug}/bg_default.png`)];
     for (const loc of locations) {
       const times = (loc === "beach") ? BEACH_TIMES : TIME_VARIANTS;
       for (const t of times) {
-        bgImages.push(`${baseUrl}/backgrounds/${slug}/bg_${loc}_${t}.png`);
+        bgImages.push(assetUrl(`/backgrounds/${slug}/bg_${loc}_${t}.png`));
       }
     }
     await preloadBatch(bgImages, preloadImage, 3);
 
     // 3) 오디오 (캐릭터별 DAILY BGM + 현재 관계까지의 공유 오디오)
-    const allAudio = [`${baseUrl}/sounds/characters/${slug}/bgm_daily.mp3`];
+    const allAudio = [assetUrl(`/sounds/characters/${slug}/bgm_daily.mp3`)];
     const currentIdx = RELATION_ORDER.indexOf(statusLevel);
     const targetIdx = isSecretMode ? RELATION_ORDER.length - 1 : (currentIdx >= 0 ? currentIdx : 0);
 
@@ -200,8 +208,8 @@ export default function useResourcePreloader(
     loadedRef.current.add(cacheKey);
 
     console.log("🎨 [Preloader] Pre-loading ending BGM assets");
-    preloadAudio(`${baseUrl}/sounds/bgm_ending_happy.mp3`);
-    preloadAudio(`${baseUrl}/sounds/bgm_ending_bad.mp3`);
+    preloadAudio(assetUrl("/sounds/bgm_ending_happy.mp3"));
+    preloadAudio(assetUrl("/sounds/bgm_ending_bad.mp3"));
   }, []);
 
   return { preloadEndingAssets };

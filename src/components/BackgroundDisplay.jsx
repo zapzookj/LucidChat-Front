@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef } from "react";
+import { assetUrl } from "../utils/assetUrl";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4] BackgroundDisplay — 동적 배경 전환 엔진
@@ -17,13 +18,10 @@ const baseUrl = import.meta.env.VITE_ASSET_BASE_URL || "";
  */
 function resolveBackground(location, time, characterSlug) {
   const slug = characterSlug || "airi";
-
   if (!location) return null;
-
   const t = (time || "NIGHT").toLowerCase();
   const loc = location.toLowerCase();
-
-  return `${baseUrl}/backgrounds/${slug}/bg_${loc}_${t}.png`;
+  return assetUrl(`/backgrounds/${slug}/bg_${loc}_${t}.png`); // ⬅️
 }
 
 /**
@@ -31,7 +29,7 @@ function resolveBackground(location, time, characterSlug) {
  */
 function getDefaultBg(characterSlug) {
   const slug = characterSlug || "airi";
-  return `${baseUrl}/backgrounds/${slug}/bg_default.png`;
+  return assetUrl(`/backgrounds/${slug}/bg_default.png`); // ⬅️
 }
 
 /**
@@ -107,9 +105,8 @@ const BackgroundDisplay = ({ location, time, characterSlug, dynamicBackgroundUrl
           transition={{ duration: 1.2, ease: "easeInOut" }}
           onError={(e) => {
             console.error(`배경 이미지 로드 실패: ${currentBg}`);
-            // 캐릭터별 기본 배경으로 폴백
             const fallback = getDefaultBg(characterSlug);
-            if (e.target.src !== window.location.origin + fallback) {
+            if (e.target.src !== fallback) {        // ⬅️ window.location.origin + 제거
               e.target.src = fallback;
             }
           }}

@@ -15,24 +15,12 @@ import LucidStore from "../components/LucidStore";
 import TheaterDoorway from "../components/lobby/TheaterDoorway";
 import TheaterCreateFlow from "../components/theater/TheaterCreateFlow";
 import { fetchMyTheaterSessions } from "../api/TheaterLobbyApi";
+import { assetUrl } from "../utils/assetUrl";
+import { playSfx } from "../utils/sfx";
 
 // ═══════════════════════════════════════════════════════════════
 //  Lucid Station — 자각몽의 정거장
 // ═══════════════════════════════════════════════════════════════
-
-const baseUrl = import.meta.env.VITE_ASSET_BASE_URL || ""; // CDN이 설정된 경우 여기에 URL이 들어감
-
-// ── [Fix #7] SFX 유틸리티 ──
-const sfxCache = {};
-const playSfx = (src, volume = 0.35) => {
-  try {
-    if (!sfxCache[src]) sfxCache[src] = new Audio(`${src}`);
-    const a = sfxCache[src];
-    a.volume = volume;
-    a.currentTime = 0;
-    a.play().catch(() => {});
-  } catch {}
-};
 
 // ── 별똥별 파티클 ──
 const ShootingStar = ({ delay, startX, startY }) => (
@@ -63,7 +51,7 @@ const isNightTime = () => { const h = new Date().getHours(); return h >= 19 || h
 const CharacterCard = ({ character, isActive, onClick, onHover }) => {
   // [Phase 5] slug 기반 이미지 fallback
   const slug = character.slug || "airi";
-  const imgSrc = character.thumbnailUrl || character.defaultImageUrl || `${baseUrl}/characters/${slug}/maid_neutral.png`;
+  const imgSrc = character.thumbnailUrl || character.defaultImageUrl || assetUrl(`/characters/${slug}/maid_neutral.png`);
 
   return (
     <motion.div
@@ -133,7 +121,7 @@ const CharacterCard = ({ character, isActive, onClick, onHover }) => {
 // ── 모드 선택 오버레이 ──
 const ModeSelectOverlay = ({ character, onSelect, onClose }) => {
   const slug = character.slug || "airi";
-  const imgSrc = character.thumbnailUrl || character.defaultImageUrl || `${baseUrl}/characters/${slug}/maid_neutral.png`;
+  const imgSrc = character.thumbnailUrl || character.defaultImageUrl || assetUrl(`/characters/${slug}/maid_neutral.png`);
 
   return (
     <motion.div
@@ -167,8 +155,8 @@ const ModeSelectOverlay = ({ character, onSelect, onClose }) => {
           </div>
           <button
             onClick={onClose}
-            onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.2)}
-            onMouseDown={() => playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.3)}
+            onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.2)}
+            onMouseDown={() => playSfx(`/sounds/sfx_button_click.wav`, 0.3)}
             className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full bg-black/40 text-white/60 hover:text-white hover:bg-black/60 transition-colors duration-200"
           >
             <X size={16} />
@@ -179,8 +167,8 @@ const ModeSelectOverlay = ({ character, onSelect, onClose }) => {
         <div className="flex flex-col gap-5 w-full max-w-sm">
           {/* 스토리 모드 */}
           <motion.button
-            onClick={() => { playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.35); onSelect("STORY"); }}
-            onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.2)}
+            onClick={() => { playSfx(`/sounds/sfx_button_click.wav`, 0.35); onSelect("STORY"); }}
+            onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.2)}
             disabled={!character.storyAvailable}
             className={`
               relative group text-left p-6 rounded-xl border overflow-hidden transition-colors duration-300
@@ -211,8 +199,8 @@ const ModeSelectOverlay = ({ character, onSelect, onClose }) => {
 
           {/* 자유 모드 */}
           <motion.button
-            onClick={() => { playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.35); onSelect("SANDBOX"); }}
-            onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.2)}
+            onClick={() => { playSfx(`/sounds/sfx_button_click.wav`, 0.35); onSelect("SANDBOX"); }}
+            onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.2)}
             className="relative group text-left p-6 rounded-xl border border-cyan-400/30 hover:border-cyan-400/60 overflow-hidden transition-colors duration-300 cursor-pointer"
             whileHover={{ scale: 1.025, boxShadow: "0 0 36px rgba(34,211,238,0.18)", transition: { type: "spring", stiffness: 400, damping: 25 } }}
             whileTap={{ scale: 0.975 }}
@@ -236,10 +224,10 @@ const ModeSelectOverlay = ({ character, onSelect, onClose }) => {
           <motion.button
             onClick={() => {
               if (!character.theaterAvailable) return;
-              playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.35);
+              playSfx(`/sounds/sfx_button_click.wav`, 0.35);
               onSelect("THEATER");
             }}
-            onMouseEnter={() => character.theaterAvailable && playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.2)}
+            onMouseEnter={() => character.theaterAvailable && playSfx(`/sounds/sfx_button_hover.ogg`, 0.2)}
             disabled={!character.theaterAvailable}
             className={`
               relative group text-left p-6 rounded-xl border overflow-hidden transition-colors duration-300
@@ -322,8 +310,8 @@ const DialogueRoomCard = ({ room, onSelect }) => {
 
   return (
     <motion.div
-      onClick={() => { playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.3); onSelect(room.roomId); }}
-      onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.12)}
+      onClick={() => { playSfx(`/sounds/sfx_button_click.wav`, 0.3); onSelect(room.roomId); }}
+      onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.12)}
       className="relative group p-4 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.06] hover:border-white/10 cursor-pointer transition-colors duration-200"
       whileHover={{ scale: 1.01, transition: { type: "spring", stiffness: 400, damping: 25 } }}
       whileTap={{ scale: 0.99 }}
@@ -401,8 +389,8 @@ const TheaterSessionCard = ({ session, onSelect }) => {
 
   return (
     <motion.div
-      onClick={() => { playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.3); onSelect(session.roomId); }}
-      onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.12)}
+      onClick={() => { playSfx(`/sounds/sfx_button_click.wav`, 0.3); onSelect(session.roomId); }}
+      onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.12)}
       className="relative group p-4 rounded-xl border border-violet-400/15 bg-violet-500/[0.04] hover:bg-violet-500/[0.08] hover:border-violet-400/30 cursor-pointer transition-colors duration-200"
       whileHover={{ scale: 1.01, transition: { type: "spring", stiffness: 400, damping: 25 } }}
       whileTap={{ scale: 0.99 }}
@@ -493,7 +481,7 @@ const ContinuePanel = ({ rooms, onSelect, onClose }) => {
             <h2 className="text-lg font-bold text-white tracking-wide">기억의 끈</h2>
             <p className="text-xs text-white/30 mt-0.5">Continue · 진행 중인 이야기</p>
           </div>
-          <button onClick={onClose} onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.15)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/5 text-white/40 hover:text-white hover:bg-white/10 transition-colors duration-200">
+          <button onClick={onClose} onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.15)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/5 text-white/40 hover:text-white hover:bg-white/10 transition-colors duration-200">
             <X size={16} />
           </button>
         </div>
@@ -544,7 +532,7 @@ const SettingsModal = ({ onClose, onLogout, bgmMuted, onToggleBgm }) => (
       </div>
       <button
         onClick={onToggleBgm}
-        onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.15)}
+        onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.15)}
         className="w-full flex items-center justify-between p-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/5 hover:border-white/10 transition-colors duration-200 mb-3"
       >
         <div className="flex items-center gap-3 text-sm text-white/70">
@@ -556,8 +544,8 @@ const SettingsModal = ({ onClose, onLogout, bgmMuted, onToggleBgm }) => (
         </span>
       </button>
       <button
-        onClick={() => { playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.3); onLogout(); }}
-        onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.15)}
+        onClick={() => { playSfx(`/sounds/sfx_button_click.wav`, 0.3); onLogout(); }}
+        onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.15)}
         className="w-full flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] hover:bg-rose-500/10 border border-white/5 hover:border-rose-500/20 transition-colors duration-200 text-sm text-white/50 hover:text-rose-400"
       >
         <LogOut size={16} /><span>로그아웃</span>
@@ -613,7 +601,7 @@ const LobbyPage = () => {
 
   // ── [Fix #4] 로비 BGM ──
   useEffect(() => {
-    const audio = new Audio(`${baseUrl}/sounds/bgm_lobby.mp3`);
+    const audio = new Audio(assetUrl("/sounds/bgm_lobby.mp3"));
     audio.loop = true;
     audio.volume = 0.25;
     bgmRef.current = audio;
@@ -681,8 +669,8 @@ const LobbyPage = () => {
   }, [rooms, theaterSessions]);
 
   // ── 카루셀 ──
-  const goNext = () => { playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.2); setActiveCharIdx((p) => Math.min(p + 1, characters.length - 1)); };
-  const goPrev = () => { playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.2); setActiveCharIdx((p) => Math.max(p - 1, 0)); };
+  const goNext = () => { playSfx(`/sounds/sfx_button_click.wav`, 0.2); setActiveCharIdx((p) => Math.min(p + 1, characters.length - 1)); };
+  const goPrev = () => { playSfx(`/sounds/sfx_button_click.wav`, 0.2); setActiveCharIdx((p) => Math.max(p - 1, 0)); };
 
   useEffect(() => {
     if (view !== "characters") return;
@@ -696,7 +684,7 @@ const LobbyPage = () => {
   }, [view, selectedCharacter, characters.length]);
 
   const handleCardClick = (idx) => {
-    playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.3);
+    playSfx(`/sounds/sfx_button_click.wav`, 0.3);
     idx === activeCharIdx ? setSelectedCharacter(characters[idx]) : setActiveCharIdx(idx);
   };
 
@@ -765,7 +753,7 @@ const LobbyPage = () => {
 
   // [Phase I] 극장 입구(Doorway) 클릭 → /theater 페이지로 이동
   const handleEnterTheaterPortal = () => {
-    playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.4);
+    playSfx(`/sounds/sfx_button_click.wav`, 0.4);
     fadeBgmOut();
     setEntering(true);
     setTimeout(() => navigate("/theater"), 700);
@@ -819,7 +807,9 @@ const LobbyPage = () => {
   const displayNickname = userInfo?.nickname ?? user?.nickname ?? "";
 
   // [Fix #8] 시간대별 배경 이미지
-  const lobbyBg = isNightTime() ? `${baseUrl}/backgrounds/bg_lobby_night.png` : `${baseUrl}/backgrounds/bg_lobby_day.png`;
+  const lobbyBg = isNightTime()
+  ? assetUrl("/backgrounds/bg_lobby_night.png")
+  : assetUrl("/backgrounds/bg_lobby_day.png");
 
   return (
     <div className="relative w-full h-full overflow-hidden select-none">
@@ -847,7 +837,7 @@ const LobbyPage = () => {
           onClick={() => setView("hub")}
           whileHover={{ scale: 1.03, transition: { type: "spring", stiffness: 400, damping: 25 } }}
         >
-          <img src={`${baseUrl}/logo_icon.png`} alt="" className="h-7 sm:h-8 drop-shadow-lg" onError={(e) => { e.target.style.display = "none"; }} />
+          <img src={assetUrl("/logo_icon.png")} alt="" className="h-7 sm:h-8 drop-shadow-lg" onError={(e) => { e.target.style.display = "none"; }} />
           <span className="text-lg sm:text-xl font-bold text-white tracking-[0.12em] drop-shadow-lg" style={{ fontFamily: "'Pretendard', sans-serif" }}>
             LUCID CHAT
           </span>
@@ -865,19 +855,19 @@ const LobbyPage = () => {
           {/* 💎 Lucid Store 버튼 */}
           <button
             onClick={() => {
-              playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.25);
+              playSfx(`/sounds/sfx_button_click.wav`, 0.25);
               setStoreInitialTab("energy");
               setShowStore(true);
             }}
-            onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.15)}
+            onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.15)}
             className="w-8 h-8 flex items-center justify-center rounded-full bg-black/20 backdrop-blur-md border border-white/10 text-amber-400/70 hover:text-amber-300 hover:bg-black/40 transition-colors duration-200"
           >
             <Gem size={14} />
           </button>
           {/* [Fix #6] 설정 모달 열기 */}
           <button
-            onClick={() => { playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.25); setShowSettings(true); }}
-            onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.15)}
+            onClick={() => { playSfx(`/sounds/sfx_button_click.wav`, 0.25); setShowSettings(true); }}
+            onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.15)}
             className="w-8 h-8 flex items-center justify-center rounded-full bg-black/20 backdrop-blur-md border border-white/10 text-white/50 hover:text-white hover:bg-black/40 transition-colors duration-200"
           >
             <Settings size={14} />
@@ -903,7 +893,7 @@ const LobbyPage = () => {
               transition={{ delay: 0.2, duration: 0.6 }}
             >
               <img
-                src={`${baseUrl}/logo.png`}
+                src={assetUrl("/logo.png")}
                 alt="Lucid Chat"
                 className="h-24 sm:h-32 md:h-40 drop-shadow-[0_0_40px_rgba(255,255,255,0.25)] object-contain select-none"
                 draggable={false}
@@ -921,8 +911,8 @@ const LobbyPage = () => {
               ].map((item, i) => (
                 <motion.button
                   key={item.label}
-                  onClick={() => { if (item.disabled) return; playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.35); item.action(); }}
-                  onMouseEnter={() => { if (!item.disabled) playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.2); }}
+                  onClick={() => { if (item.disabled) return; playSfx(`/sounds/sfx_button_click.wav`, 0.35); item.action(); }}
+                  onMouseEnter={() => { if (!item.disabled) playSfx(`/sounds/sfx_button_hover.ogg`, 0.2); }}
                   disabled={item.disabled}
                   className={`group flex flex-col items-center gap-1.5 ${item.disabled ? "opacity-25 cursor-not-allowed" : "cursor-pointer"}`}
                   initial={{ opacity: 0, y: 30 }}
@@ -977,8 +967,8 @@ const LobbyPage = () => {
           <motion.div key="characters" className="relative z-10 flex flex-col h-[calc(100%-80px)]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.4 }}>
             <div className="px-6 py-2">
               <button
-                onClick={() => { playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.2); setView("hub"); }}
-                onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.15)}
+                onClick={() => { playSfx(`/sounds/sfx_button_click.wav`, 0.2); setView("hub"); }}
+                onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.15)}
                 className="flex items-center gap-1.5 text-white/40 hover:text-white/70 text-sm transition-colors duration-200"
               >
                 <ChevronLeft size={16} /><span>돌아가기</span>
@@ -995,18 +985,18 @@ const LobbyPage = () => {
               ) : (
                 <>
                   {activeCharIdx > 0 && (
-                    <motion.button onClick={goPrev} onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.15)}
+                    <motion.button onClick={goPrev} onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.15)}
                       className="absolute left-4 sm:left-8 z-20 w-10 h-10 flex items-center justify-center rounded-full bg-black/30 backdrop-blur-md border border-white/10 text-white/50 hover:text-white hover:bg-black/50 transition-colors duration-200"
                       whileHover={{ scale: 1.1, transition: { type: "spring", stiffness: 400, damping: 20 } }} whileTap={{ scale: 0.9 }}
                     ><ChevronLeft size={18} /></motion.button>
                   )}
                   <div className="flex items-center justify-center gap-4 sm:gap-6">
                     {characters.map((c, idx) => (
-                      <CharacterCard key={c.id} character={c} isActive={idx === activeCharIdx} onClick={() => handleCardClick(idx)} onHover={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.12)} />
+                      <CharacterCard key={c.id} character={c} isActive={idx === activeCharIdx} onClick={() => handleCardClick(idx)} onHover={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.12)} />
                     ))}
                   </div>
                   {activeCharIdx < characters.length - 1 && (
-                    <motion.button onClick={goNext} onMouseEnter={() => playSfx(`${baseUrl}/sounds/sfx_button_hover.ogg`, 0.15)}
+                    <motion.button onClick={goNext} onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.15)}
                       className="absolute right-4 sm:right-8 z-20 w-10 h-10 flex items-center justify-center rounded-full bg-black/30 backdrop-blur-md border border-white/10 text-white/50 hover:text-white hover:bg-black/50 transition-colors duration-200"
                       whileHover={{ scale: 1.1, transition: { type: "spring", stiffness: 400, damping: 20 } }} whileTap={{ scale: 0.9 }}
                     ><ChevronRight size={18} /></motion.button>
@@ -1017,7 +1007,7 @@ const LobbyPage = () => {
             {characters.length > 1 && (
               <div className="flex justify-center gap-2 pb-8">
                 {characters.map((_, idx) => (
-                  <button key={idx} onClick={() => { playSfx(`${baseUrl}/sounds/sfx_button_click.wav`, 0.15); setActiveCharIdx(idx); }}
+                  <button key={idx} onClick={() => { playSfx(`/sounds/sfx_button_click.wav`, 0.15); setActiveCharIdx(idx); }}
                     className={`h-2 rounded-full transition-all duration-300 ${idx === activeCharIdx ? "bg-white/70 w-6" : "bg-white/20 w-2"}`} />
                 ))}
               </div>
