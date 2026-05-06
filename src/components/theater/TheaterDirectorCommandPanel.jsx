@@ -8,6 +8,7 @@ import {
   fetchDirectorNotes,
   triggerDirectorCommand,
 } from "../../api/TheaterFinalityApi";
+import { sfx } from "../../utils/sfx";
 
 /**
  * [Phase 5.5 UX Polish · R3] TheaterDirectorCommandPanel
@@ -128,6 +129,7 @@ export default function TheaterDirectorCommandPanel({
 
   useEffect(() => {
     if (visible) {
+      sfx.wooshLight();
       loadHistory();
       setLastResult(null);
       setText("");
@@ -180,12 +182,16 @@ export default function TheaterDirectorCommandPanel({
       ]);
     } catch (e) {
       console.error("[Director] command failed:", e);
+      sfx.thud();
       const message = e?.response?.data?.message || "명령어 발동에 실패했습니다.";
       setLastResult({ accepted: false, verdict: "REJECTED_UNCLEAR", userMessage: message });
       setSubmitting(false);
       setVerifyStep(0);
       return;
     }
+
+    if (result?.verdict?.startsWith("ALLOWED_")) sfx.sparkle();
+    else if (result?.verdict?.startsWith("REJECTED_")) sfx.thud();
 
     setLastResult(result);
     if (result.accepted) {
@@ -242,7 +248,7 @@ export default function TheaterDirectorCommandPanel({
             <p className="text-xs text-white/30 mt-0.5">Director Commands · 환경에 손길을 더하다</p>
           </div>
           <button
-            onClick={() => !submitting && onClose?.()}
+            onClick={() => { if (!submitting) { sfx.click(); onClose?.(); } }}
             disabled={submitting}
             aria-label="닫기"
             className="relative w-8 h-8 flex items-center justify-center rounded-full bg-white/5 text-white/45 hover:text-white hover:bg-white/10 transition-colors disabled:opacity-30"

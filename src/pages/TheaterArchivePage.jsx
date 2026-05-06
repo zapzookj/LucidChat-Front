@@ -9,6 +9,7 @@ import {
   fetchArchivedTheaterSessions,
   resumeArchivedSession,
 } from "../api/TheaterLobbyApi";
+import { sfx } from "../utils/sfx";
 
 /**
  * [Phase 5.5 UX Polish · R4] TheaterArchivePage
@@ -108,7 +109,7 @@ export default function TheaterArchivePage() {
         {/* ═══ 헤더 ═══ */}
         <header className="flex items-center justify-between mb-8">
           <button
-            onClick={() => navigate("/theater")}
+            onClick={() => { sfx.click(); navigate("/theater"); }}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-white/70 hover:text-white text-xs transition-colors"
           >
             <ArrowLeft size={13} />
@@ -308,7 +309,7 @@ function ArchiveCard({ session, kind, busy, onAction }) {
 
         {/* CTA */}
         <button
-          onClick={onAction}
+          onClick={() => { sfx.click(); onAction?.(); }}
           disabled={busy}
           className={`w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-white text-xs font-bold shadow-lg transition-colors disabled:opacity-50 ${ctaClass}`}
         >

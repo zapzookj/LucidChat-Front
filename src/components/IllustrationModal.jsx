@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Download, X, Loader2, ImageIcon } from 'lucide-react';
 import api from '../api/axios';
+import { sfx } from '../utils/sfx';
 
 /**
  * [Phase 5.5-Illust] 실시간 캐릭터 일러스트 생성 모달
@@ -35,8 +36,12 @@ const IllustrationModal = ({
 
   // ━━━ 생성 요청 ━━━
   const handleGenerate = useCallback(async () => {
-    if (energy < 10) return;
+    if (energy < 10) {
+      sfx.locked();
+      return;
+    }
 
+    sfx.sparkle();
     setStatus('generating');
     setImageUrl(null);
     setErrorMsg('');
@@ -49,6 +54,7 @@ const IllustrationModal = ({
       onEnergyUpdate?.(-10);
       startPolling(reqId);
     } catch (err) {
+      sfx.thud();
       setStatus('error');
       setErrorMsg(err.response?.data?.message || '생성 요청에 실패했습니다.');
     }
@@ -74,10 +80,12 @@ const IllustrationModal = ({
 
         if (s === 'COMPLETED' && url) {
           clearInterval(pollRef.current);
+          sfx.chime();
           setImageUrl(url);
           setStatus('completed');
         } else if (s === 'FAILED') {
           clearInterval(pollRef.current);
+          sfx.thud();
           setStatus('error');
           setErrorMsg(res.data.errorMessage || '이미지 생성에 실패했습니다.');
         }
@@ -102,6 +110,8 @@ const IllustrationModal = ({
       setImageUrl(null);
       setErrorMsg('');
       if (pollRef.current) clearInterval(pollRef.current);
+    } else {
+      sfx.wooshLight();
     }
   }, [isOpen]);
 
@@ -159,7 +169,7 @@ const IllustrationModal = ({
 
               <div className="flex gap-3">
                 <button
-                  onClick={onClose}
+                  onClick={() => { sfx.click(); onClose?.(); }}
                   className="flex-1 py-3 rounded-xl bg-white/5 text-white/50 hover:bg-white/10 transition text-sm"
                 >
                   다음에
@@ -233,7 +243,7 @@ const IllustrationModal = ({
               animate={{ scale: 1 }}
             >
               <button
-                onClick={onClose}
+                onClick={() => { sfx.click(); onClose?.(); }}
                 className="absolute top-4 right-4 z-20 w-10 h-10 rounded-full bg-black/50 backdrop-blur-md flex items-center justify-center text-white/70 hover:text-white transition"
               >
                 <X size={20} />
@@ -275,7 +285,7 @@ const IllustrationModal = ({
               <h3 className="text-white font-bold mb-2">생성 실패</h3>
               <p className="text-white/50 text-sm mb-4">{errorMsg}</p>
               <button
-                onClick={onClose}
+                onClick={() => { sfx.click(); onClose?.(); }}
                 className="px-6 py-2.5 rounded-xl bg-white/10 text-white/70 text-sm hover:bg-white/20 transition"
               >
                 닫기

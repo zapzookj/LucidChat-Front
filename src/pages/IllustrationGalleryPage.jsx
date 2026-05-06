@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Download, X, Image, Filter, Sparkles } from 'lucide-react';
 import api from '../api/axios';
+import { sfx } from '../utils/sfx';
 
 /**
  * [Phase 5.5-Illust] 일러스트 갤러리 페이지
@@ -122,7 +123,7 @@ const IllustrationGalleryPage = ({ isOpen, onClose, characters = [] }) => {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.05 }}
-                  onClick={() => setViewerImage(illust)}
+                  onClick={() => { sfx.click(); setViewerImage(illust); }}
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
@@ -164,11 +165,11 @@ const IllustrationGalleryPage = ({ isOpen, onClose, characters = [] }) => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setViewerImage(null)}
+              onClick={() => { sfx.click(); setViewerImage(null); }}
             >
               <button
                 className="absolute top-5 right-5 z-10 w-10 h-10 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center text-white/70 hover:text-white"
-                onClick={() => setViewerImage(null)}
+                onClick={() => { sfx.click(); setViewerImage(null); }}
               >
                 <X size={20} />
               </button>

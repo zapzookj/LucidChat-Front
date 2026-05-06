@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Heart, Sparkles, MessageSquare, Calendar, Star, Clock, Activity } from "lucide-react";
+import { sfx } from "../utils/sfx";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4] EndingCredits — 시네마틱 엔딩 크레딧
@@ -191,6 +192,14 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange, characterName = 
     setPhaseRevealed(false);
   }, [phase]);
 
+  useEffect(() => {
+    sfx.wooshDeep();
+  }, []);
+
+  useEffect(() => {
+    if (phase === PHASES.TITLE_CARD) sfx.boom();
+  }, [phase]);
+
   // ── 자동 진행 타이머 ──
 
   // Phase 1: Fade In → Epilogue
@@ -324,6 +333,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange, characterName = 
 
     // ─── FIN: 닫기 ───
     if (phase === PHASES.FIN) {
+      sfx.click();
       onComplete?.();
       return;
     }

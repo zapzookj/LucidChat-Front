@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Heart, EyeOff, Brain, X, Info, Lock } from "lucide-react";
+import { sfx } from "../utils/sfx";
 
 // ═══════════════════════════════════════════════════════════════════
 //  [Phase 5.5-Fix] Biometric Status Panel — 화려한 리뉴얼
@@ -256,6 +257,7 @@ const BiometricStatusPanel = ({
   // 패널 외부 클릭 시 닫기
   useEffect(() => {
     if (!isOpen) return;
+    sfx.wooshLight();
     const handler = (e) => {
       if (panelRef.current && !panelRef.current.contains(e.target)) onClose();
     };
@@ -302,7 +304,7 @@ const BiometricStatusPanel = ({
                 <div className="px-5 pt-4 pb-3 border-b border-white/[0.04]">
                   <div className="flex items-center justify-between mb-3">
                     <SectionTitle sectionKey="heartbeat">Heartbeat</SectionTitle>
-                    <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/[0.06] transition text-white/25 hover:text-white/50">
+                    <button onClick={() => { sfx.click(); onClose?.(); }} className="p-1 rounded-lg hover:bg-white/[0.06] transition text-white/25 hover:text-white/50">
                       <X size={14} />
                     </button>
                   </div>

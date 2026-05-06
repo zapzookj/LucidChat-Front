@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Lock, User, ChevronDown, ChevronUp } from "lucide-react";
+import { assetUrl } from "../utils/assetUrl";
+import { sfx } from "../utils/sfx";
 
 /**
  * [Phase 5] 로그인 페이지 — 소셜 로그인 중심 재설계
@@ -101,7 +103,7 @@ const LoginPage = () => {
         {/* 로고 */}
         <div className="text-center mb-8">
           <img
-            src="/logo.png"
+            src={assetUrl("/logo.png")}
             alt="Lucid Chat"
             className="h-12 mx-auto mb-5 drop-shadow-lg object-contain"
             onError={(e) => { e.target.style.display = "none"; }}

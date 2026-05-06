@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
 import { Award, Lock, Sparkles, X, ChevronLeft } from "lucide-react";
 import api from "../api/axios";
+import { sfx } from "../utils/sfx";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4.4] AchievementGallery — 업적 수집 갤러리
@@ -35,6 +36,10 @@ const AchievementGallery = ({ onClose }) => {
   const [gallery, setGallery] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedAchievement, setSelectedAchievement] = useState(null);
+
+  useEffect(() => {
+    sfx.wooshLight();
+  }, []);
 
   useEffect(() => {
     const fetchGallery = async () => {
@@ -79,7 +84,7 @@ const AchievementGallery = ({ onClose }) => {
     return (
       <motion.button
         key={achievement.code}
-        onClick={() => !isLocked && setSelectedAchievement(achievement)}
+        onClick={() => { if (!isLocked) { sfx.click(); setSelectedAchievement(achievement); } }}
         className={`relative flex flex-col items-center gap-2 p-4 rounded-2xl border transition-all ${
           isLocked
             ? "bg-white/[0.02] border-white/5 cursor-default opacity-40 grayscale"
@@ -147,7 +152,7 @@ const AchievementGallery = ({ onClose }) => {
       {/* 헤더 */}
       <div className="flex items-center justify-between p-6 border-b border-white/10 bg-white/5">
         <div className="flex items-center gap-3">
-          <button onClick={onClose} className="p-1 rounded-full hover:bg-white/10 transition">
+          <button onClick={() => { sfx.click(); onClose?.(); }} className="p-1 rounded-full hover:bg-white/10 transition">
             <ChevronLeft size={20} className="text-white/70" />
           </button>
           <h2 className="text-lg font-bold text-amber-300 flex items-center gap-2">

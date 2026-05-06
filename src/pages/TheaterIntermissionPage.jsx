@@ -9,6 +9,7 @@ import {
   performIntermissionActivity,
   finishIntermission,
 } from "../api/TheaterGamePlayApi";
+import { sfx } from "../utils/sfx";
 
 /**
  * [Phase 5.5-Theater] 인터미션 페이지
@@ -88,6 +89,7 @@ export default function TheaterIntermissionPage() {
 
   // ─── 활동 수행 ───
   const handleActivity = async (activity, useExtraEnergy = false) => {
+    sfx.click();
     setPerformingActivity(activity);
     setRollPhase("rolling");
     setActivityResult(null);
@@ -100,6 +102,9 @@ export default function TheaterIntermissionPage() {
         activityId: activity.id,
         useExtraEnergy,
       });
+      if (result?.outcome === "FAIL") sfx.thud();
+      else if (result?.outcome === "SUCCESS") sfx.chime();
+      else if (result?.outcome === "CRIT") sfx.chime();
       setActivityResult(result);
       setRollPhase("revealed");
 
@@ -116,6 +121,7 @@ export default function TheaterIntermissionPage() {
       }, 2400);
     } catch (e) {
       console.error("[Theater] Activity failed:", e);
+      sfx.thud();
       setPerformingActivity(null);
       setRollPhase(null);
     }
@@ -123,12 +129,14 @@ export default function TheaterIntermissionPage() {
 
   // ─── 인터미션 종료 ───
   const handleFinish = async () => {
+    sfx.click();
     setFinishing(true);
     try {
       await finishIntermission(Number(roomId));
       navigate(`/theater/${roomId}`);
     } catch (e) {
       console.error("[Theater] Finish failed:", e);
+      sfx.thud();
       setFinishing(false);
     }
   };

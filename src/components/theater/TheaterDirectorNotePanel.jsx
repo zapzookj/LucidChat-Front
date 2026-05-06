@@ -10,6 +10,7 @@ import {
   updateDirectorNote,
   deleteDirectorNote,
 } from "../../api/TheaterFinalityApi";
+import { sfx } from "../../utils/sfx";
 
 /**
  * [Phase 5.5-Theater · Phase III] TheaterDirectorNotePanel
@@ -156,7 +157,10 @@ export default function TheaterDirectorNotePanel({ roomId, visible, onClose }) {
   }, [roomId]);
 
   useEffect(() => {
-    if (visible) loadNotes();
+    if (visible) {
+      sfx.wooshLight();
+      loadNotes();
+    }
   }, [visible, loadNotes]);
 
   // ESC 닫기
@@ -184,11 +188,13 @@ export default function TheaterDirectorNotePanel({ roomId, visible, onClose }) {
 
   // ─── 컴포저 ───
   const openComposerNew = () => {
+    sfx.click();
     setEditingNoteId(null);
     setComposerText("");
     setComposerOpen(true);
   };
   const openComposerEdit = (note) => {
+    sfx.click();
     setEditingNoteId(note.id);
     setComposerText(note.content || "");
     setComposerOpen(true);
@@ -222,6 +228,7 @@ export default function TheaterDirectorNotePanel({ roomId, visible, onClose }) {
   };
 
   const handleDelete = async (note) => {
+    sfx.click();
     const ok = window.confirm("이 메모를 삭제하시겠습니까?");
     if (!ok) return;
     try {
@@ -268,7 +275,7 @@ export default function TheaterDirectorNotePanel({ roomId, visible, onClose }) {
             <p className="text-xs text-white/30 mt-0.5">Director Notes · 이 극의 기록</p>
           </div>
           <button
-            onClick={onClose}
+            onClick={() => { sfx.click(); onClose?.(); }}
             aria-label="닫기"
             className="w-8 h-8 flex items-center justify-center rounded-full bg-white/5 text-white/45 hover:text-white hover:bg-white/10 transition-colors duration-200"
           >

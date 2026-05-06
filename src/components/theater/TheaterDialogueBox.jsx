@@ -4,6 +4,7 @@ import {
   ChevronLeft, ChevronRight, Play, Pause, BookOpen, SkipForward, Heart, Megaphone
 } from "lucide-react";
 import { sanitizeScene } from "../../utils/dialogueSanitizer";
+import { sfx } from "../../utils/sfx";
 
 /**
  * [Phase 5.5-Theater-Polish] Theater 전용 하단 Dialogue 박스
@@ -102,6 +103,7 @@ function useSequentialTypewriter(parts, speedMs) {
         return;
       }
       i++;
+      if (i % 5 === 0) sfx.typewriter();
       setDisplayed((d) => ({ ...d, [current.key]: current.text.slice(0, i) }));
       if (i >= current.text.length) {
         clearInterval(interval);
@@ -536,7 +538,7 @@ const BottomNav = ({
     onClick={(e) => e.stopPropagation()}
   >
     <button
-      onClick={(e) => { e.stopPropagation(); if (canGoPrev) onPrev?.(); }}
+      onClick={(e) => { e.stopPropagation(); if (canGoPrev) { sfx.pageTurn(); onPrev?.(); } }}
       disabled={!canGoPrev || loadingNext}
       aria-label="이전 씬"
       className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs transition-colors duration-200 ${
@@ -591,7 +593,7 @@ const BottomNav = ({
     )}
 
     <motion.button
-      onClick={(e) => { e.stopPropagation(); onNext?.(); }}
+      onClick={(e) => { e.stopPropagation(); if (allDone) sfx.pageTurn(); onNext?.(); }}
       disabled={!canGoNext || loadingNext}
       whileTap={canGoNext && !loadingNext ? { scale: 0.96 } : {}}
       whileHover={canGoNext && !loadingNext && allDone

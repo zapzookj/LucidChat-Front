@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Lock, Zap, Heart, Sparkles, ChevronRight } from "lucide-react";
+import { sfx } from "../../utils/sfx";
 
 /**
  * [Phase 5.5-Theater] 분기 선택 모달
@@ -74,6 +75,14 @@ export default function TheaterBranchModal({
   const [hoveredIdx, setHoveredIdx] = useState(null);
   const [confirming, setConfirming] = useState(false);
 
+  useEffect(() => {
+    if (!branchOptions) return;
+    const level = branchOptions.branchLevel;
+    if (level === "CLIMAX") sfx.boom();
+    else if (level === "MAJOR") sfx.boom(0.4);
+    else sfx.wooshLight();
+  }, [branchOptions?.branchLevel]);
+
   if (!branchOptions) return null;
 
   const theme = LEVEL_THEMES[branchOptions.branchLevel] || LEVEL_THEMES.MINOR;
@@ -84,7 +93,12 @@ export default function TheaterBranchModal({
   const useInline = inline && isMinor;
 
   const handleSelect = async (option) => {
-    if (!option.unlocked || confirming) return;
+    if (!option.unlocked) {
+      sfx.locked();
+      return;
+    }
+    if (confirming) return;
+    sfx.click();
     setConfirming(true);
     try {
       await onConfirm(option.index);

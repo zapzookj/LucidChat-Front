@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Lock, Unlock } from "lucide-react";
+import { sfx } from "../utils/sfx";
 
 // ═══════════════════════════════════════════════════════════════════
 //  [Phase 5.5-IT] InnerThoughtBubble
@@ -117,6 +118,7 @@ const InnerThoughtBubble = ({
 
     // 약간의 딜레이 후 콜백 호출
     setTimeout(() => {
+      sfx.sparkle();
       onUnlock?.();
     }, 300);
   }, [isUnlocking, unlocked, showParticles, onUnlock]);

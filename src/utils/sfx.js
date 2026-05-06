@@ -17,16 +17,16 @@ import { assetUrl } from "./assetUrl";
 const LIBRARY = {
   L1:  { src: "/sounds/sfx_button_click.wav",  defaultVolume: 0.30 }, // 클릭 (보유)
   L2:  { src: "/sounds/sfx_button_hover.ogg",  defaultVolume: 0.15 }, // 호버 (보유)
-  L3:  { src: "/sounds/sfx_locked.wav",        defaultVolume: 0.30 }, // disabled/locked
-  L4:  { src: "/sounds/sfx_chime.wav",         defaultVolume: 0.40 }, // 긍정 + 호감도 +
-  L5:  { src: "/sounds/sfx_thud.wav",          defaultVolume: 0.40 }, // 부정 + warning
-  L8:  { src: "/sounds/sfx_woosh_light.wav",   defaultVolume: 0.30 }, // 가벼운 woosh
-  L9:  { src: "/sounds/sfx_page_turn.wav",     defaultVolume: 0.25 }, // 페이지 턴
-  L10: { src: "/sounds/sfx_woosh_deep.ogg",    defaultVolume: 0.40 }, // 깊은 woosh + drone
-  L11: { src: "/sounds/sfx_boom.wav",          defaultVolume: 0.50 }, // 시네마틱 boom
-  L12: { src: "/sounds/sfx_sparkle.wav",       defaultVolume: 0.40 }, // sparkle
-  L13: { src: "/sounds/sfx_typewriter.wav",    defaultVolume: 0.08 }, // 타자기
-  L14: { src: "/sounds/sfx_card_fanout.wav",   defaultVolume: 0.35 }, // 카드 fan-out
+  L3:  { src: "/sounds/sfx_locked.mp3",        defaultVolume: 0.30 }, // disabled/locked
+  L4:  { src: "/sounds/sfx_chime.mp3",         defaultVolume: 0.40 }, // 긍정 + 호감도 +
+  L5:  { src: "/sounds/sfx_thud.mp3",          defaultVolume: 0.40 }, // 부정 + warning
+  L8:  { src: "/sounds/sfx_woosh_light.mp3",   defaultVolume: 0.30 }, // 가벼운 woosh
+  L9:  { src: "/sounds/sfx_page_turn.mp3",     defaultVolume: 0.25 }, // 페이지 턴
+  L10: { src: "/sounds/sfx_woosh_deep.mp3",    defaultVolume: 0.40 }, // 깊은 woosh + drone
+  L11: { src: "/sounds/sfx_boom.mp3",          defaultVolume: 0.50 }, // 시네마틱 boom
+  L12: { src: "/sounds/sfx_sparkle.mp3",       defaultVolume: 0.40 }, // sparkle
+  L13: { src: "/sounds/sfx_typewriter.mp3",    defaultVolume: 0.08 }, // 타자기
+  L14: { src: "/sounds/sfx_card_fanout.mp3",   defaultVolume: 0.35 }, // 카드 fan-out
 };
 
 // ── 인스턴스 캐시 + 마스터 상태 ──

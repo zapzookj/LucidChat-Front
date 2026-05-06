@@ -210,10 +210,18 @@ const ChatPage = () => {
   const logsEndRef = useRef(null);
 
   // ================= Helper Functions =================
-  const showToast = (message, type = 'success') => {
+  const showToast = useCallback((message, type = "info") => {
       setToast({ message, type });
       setTimeout(() => setToast(null), 3000);
-  };
+      // [Phase 6 SFX]
+      switch (type) {
+        case "success": sfx.chime(); break;
+        case "error":   sfx.thud();  break;
+        case "warning": sfx.thud();  break;     // L5 통합
+        case "info":    sfx.chime(0.2); break;  // 작게
+        default: break;
+      }
+  }, []);
 
   const openConfirm = (message, onConfirm, type = 'danger') => {
       setConfirmModal({ message, onConfirm, type });
@@ -757,6 +765,12 @@ const ChatPage = () => {
       setIsBgmPlaying(true);
     }
   }, [introStep, isLoading]);
+
+  useEffect(() => {
+    if (introStep === 'door') {
+      sfx.wooshDeep();  // ⬅️ 깊은 진입 woosh
+    }
+  }, [introStep]);
 
   useEffect(() => {
     localStorage.setItem("bgmVolume", String(bgmVolume));
@@ -2378,6 +2392,7 @@ const ChatPage = () => {
         <button
           onClick={() => {
             setStoreInitialTab("energy");
+            sfx.click();
             setShowStore(true);
           }}
           className="p-3 rounded-full bg-black/40 backdrop-blur-md text-amber-400/70 hover:text-amber-300 hover:bg-black/60 transition border border-white/10 shadow-lg"
@@ -2929,7 +2944,7 @@ const ChatPage = () => {
                         {roomInfo?.secretModeActive ? <Unlock size={20}/> : <Settings size={20} className="text-indigo-400"/>}
                         {roomInfo?.secretModeActive ? "Secret Settings" : "Settings"}
                     </h2>
-                    <button onClick={() => setShowSettings(false)} className="p-2 rounded-full hover:bg-white/10 transition">
+                    <button onClick={() => { sfx.click(); setShowSettings(false); }} className="p-2 rounded-full hover:bg-white/10 transition">
                         <X size={24} className="text-white/70" />
                     </button>
                 </div>
@@ -3194,7 +3209,7 @@ const ChatPage = () => {
                 <MessageSquare size={20} className="text-pink-500"/>
                 지난 대화 기록
               </h2>
-              <button onClick={() => setShowHistory(false)} className="p-2 rounded-full hover:bg-white/10 transition">
+              <button onClick={() => { sfx.click(); setShowHistory(false); }} className="p-2 rounded-full hover:bg-white/10 transition">
                 <X size={24} className="text-white/70" />
               </button>
             </div>

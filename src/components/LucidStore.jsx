@@ -5,6 +5,7 @@ import {
   Coffee, CakeSlice, Wine, Moon, Key, Shield, Star, ArrowRight, ChevronRight
 } from "lucide-react";
 import api from "../api/axios";
+import { sfx } from "../utils/sfx";
 
 /**
  * Lucid Store — 루시드 부띠끄
@@ -133,12 +134,18 @@ const LucidStore = ({
 
   useEffect(() => {
     if (isOpen) {
+      sfx.wooshLight();
       setActiveTab(initialTab);
       setStatus("idle");
       setErrorMsg("");
       if (currentCharacterId) setSelectedCharId(currentCharacterId);
     }
   }, [isOpen, initialTab, currentCharacterId]);
+
+  useEffect(() => {
+    if (status === 'error') sfx.thud();
+    else if (status === 'success') sfx.chime();
+  }, [status]);
 
   /* ── Payment Flow ── */
   const handlePurchase = useCallback(async (product) => {
@@ -254,7 +261,7 @@ const LucidStore = ({
                 <span className="text-[10px] text-white/30">에너지</span>
               </div>
               <button
-                onClick={onClose}
+                onClick={() => { sfx.click(); onClose?.(); }}
                 className="w-8 h-8 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-white/40 hover:text-white transition"
               >
                 <X size={16} />
@@ -271,7 +278,7 @@ const LucidStore = ({
                 return (
                   <button
                     key={tab.key}
-                    onClick={() => { setActiveTab(tab.key); setStatus("idle"); }}
+                    onClick={() => { sfx.click(); setActiveTab(tab.key); setStatus("idle"); }}
                     className={`relative flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                       isActive ? "text-white" : "text-white/40 hover:text-white/60"
                     }`}
@@ -422,7 +429,7 @@ const LucidStore = ({
 
                   const CardContent = (
                     <button
-                      onClick={() => handlePurchase(p)}
+                      onClick={() => { sfx.click(); handlePurchase(p); }}
                       className={`relative w-full h-full text-left p-5 flex flex-col justify-between ${
                         p.badge ? "rounded-2xl" : `rounded-2xl border ${c.border} ${c.hoverBorder} bg-gradient-to-b ${c.bg} shadow-lg ${c.glow}`
                       } transition-all duration-300 group hover:-translate-y-1`}
@@ -483,7 +490,7 @@ const LucidStore = ({
                       {characters.map((ch) => (
                         <button
                           key={ch.id}
-                          onClick={() => setSelectedCharId(ch.id)}
+                          onClick={() => { sfx.click(); setSelectedCharId(ch.id); }}
                           className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl border transition-all ${
                             selectedCharId === ch.id
                               ? "border-purple-500/60 bg-purple-500/10 text-white"
@@ -507,7 +514,7 @@ const LucidStore = ({
                 {/* Adult verification status banner */}
                 {!userInfo?.isAdultVerified ? (
                   <button
-                    onClick={() => onRequestAdultVerify?.()}
+                    onClick={() => { sfx.click(); onRequestAdultVerify?.(); }}
                     className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-red-500/5 border border-red-500/15 hover:bg-red-500/10 hover:border-red-500/25 transition-all group"
                   >
                     <Shield size={16} className="text-red-400 flex-shrink-0" />
@@ -533,6 +540,7 @@ const LucidStore = ({
                       <button
                         key={p.type}
                         onClick={() => {
+                          sfx.click();
                           if (!isVerified) {
                             onRequestAdultVerify?.();
                           } else {
@@ -602,6 +610,7 @@ const LucidStore = ({
                     <button
                       onClick={() => {
                         if (isCurrentTier) return;
+                        sfx.click();
                         if (needsAdult) { onRequestAdultVerify?.(); return; }
                         handlePurchase(p);
                       }}

@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { motion } from "framer-motion";
+import { sfx } from "../../utils/sfx";
 
 /**
  * [Phase 5.5-Theater-Polish] 시네마틱 로딩 오버레이
@@ -18,6 +20,10 @@ const TheaterCinematicLoader = ({
   variant = "reel",
   fullscreen = true,
 }) => {
+  useEffect(() => {
+    sfx.wooshDeep();
+  }, []);
+
   if (!visible) return null;
 
   return (

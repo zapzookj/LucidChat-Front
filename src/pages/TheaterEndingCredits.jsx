@@ -5,6 +5,7 @@ import {
   Crown, Heart, Star, Home, Film, Clock, Sparkles, Share2
 } from "lucide-react";
 import { triggerTheaterEnding } from "../api/TheaterFinalityApi";
+import { sfx } from "../utils/sfx";
 
 /**
  * [Phase 5.5-Theater] 엔딩 크레딧 페이지
@@ -87,6 +88,7 @@ export default function TheaterEndingCredits() {
   const [sceneIndex, setSceneIndex] = useState(0);
 
   useEffect(() => {
+    sfx.wooshDeep();
     let alive = true;
     (async () => {
       try {
@@ -121,6 +123,7 @@ export default function TheaterEndingCredits() {
   // ─── 단계 자동 전환 ───
   useEffect(() => {
     if (phase === PHASES.TITLE) {
+      sfx.boom();
       const t = setTimeout(() => setPhase(PHASES.SUMMARY), 3500);
       return () => clearTimeout(t);
     }
@@ -347,7 +350,7 @@ export default function TheaterEndingCredits() {
               {ending.title}
             </h2>
             <motion.button
-              onClick={() => navigate("/")}
+              onClick={() => { sfx.click(); navigate("/"); }}
               whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.03 }}
               className="flex items-center gap-2 px-6 py-3 rounded-full bg-white/10 border border-white/20 text-white font-bold backdrop-blur-md hover:bg-white/15 transition-colors"
             >

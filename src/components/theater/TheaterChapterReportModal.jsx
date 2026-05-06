@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Heart, Crown, Sparkles, ChevronRight, Zap, Film, Star, TrendingUp
 } from "lucide-react";
+import { sfx } from "../../utils/sfx";
 
 /**
  * [Phase 5.5-Theater] Chapter 종료 리포트 모달
@@ -32,6 +33,10 @@ export default function TheaterChapterReportModal({
   actTotalChapters = 5,     // [v2] 이 Act의 총 Chapter 수 (미정이면 5 기본)
 }) {
   const [phase, setPhase] = useState(PHASES.INTRO);
+
+  useEffect(() => {
+    sfx.boom();
+  }, []);
 
   // 연출 시퀀스
   useEffect(() => {

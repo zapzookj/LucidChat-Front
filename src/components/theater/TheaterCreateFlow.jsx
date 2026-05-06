@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { createTheaterSession } from "../../api/TheaterLobbyApi";
 import { useAuth } from "../../context/AuthContext";
+import { sfx } from "../../utils/sfx";
 
 /**
  * [Phase 5.5-Theater] Theater 세션 생성 플로우
@@ -180,6 +181,7 @@ export default function TheaterCreateFlow({
 
   // ─── 성격 태그 토글 ───
   const togglePersonalityTag = (tag) => {
+    sfx.click();
     setForm((f) => {
       const tags = f.personalityTags.includes(tag)
         ? f.personalityTags.filter((t) => t !== tag)
@@ -251,6 +253,7 @@ export default function TheaterCreateFlow({
     setError(null);
     try {
       const room = await createTheaterSession(payload);
+      sfx.chime();
       // 세션 생성 성공 → Theater 페이지로 이동
       navigate(`/theater/${room.roomId}`);
     } catch (e) {
@@ -267,6 +270,7 @@ export default function TheaterCreateFlow({
         return;
       }
       console.error("[Theater] Create failed:", e);
+      sfx.thud();
       setError(e?.response?.data?.message || "세션 생성에 실패했습니다.");
       setSubmitting(false);
     }
@@ -274,6 +278,7 @@ export default function TheaterCreateFlow({
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
+    sfx.click();
     const payload = {
       worldId: world.id,
       heroineIds: selectedHeroineIds,
@@ -312,10 +317,10 @@ export default function TheaterCreateFlow({
   const goNext = () => {
     if (step === 1 && !canProceedStep1) return;
     if (step === 2 && !canProceedStep2) return;
-    if (step < 4) setStep((s) => s + 1);
+    if (step < 4) { sfx.click(); setStep((s) => s + 1); }
     else handleSubmit();
   };
-  const goPrev = () => { if (step > 1) setStep((s) => s - 1); };
+  const goPrev = () => { if (step > 1) { sfx.click(); setStep((s) => s - 1); } };
 
   if (!world) return null;
 

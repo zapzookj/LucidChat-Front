@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Rocket, Zap, Crown, Lock } from "lucide-react";
 import api from "../api/axios";
+import { sfx } from "../utils/sfx";
 
 /**
  * BoostToggle — 에너지 부스트 모드 토글
@@ -28,6 +29,9 @@ const BoostToggle = ({ boostMode, isSubscriber, onToggle, onOpenStore, compact =
       return;
     }
 
+    if (newValue) sfx.sparkle(0.3);
+    else sfx.click();
+
     setShowConfirm(false);
     setIsAnimating(true);
 
@@ -42,6 +46,7 @@ const BoostToggle = ({ boostMode, isSubscriber, onToggle, onOpenStore, compact =
   };
 
   const confirmBoost = () => {
+    sfx.sparkle(0.3);
     setShowConfirm(false);
     setIsAnimating(true);
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { sfx } from '../utils/sfx';
 
 /**
  * [Phase 5.5-Illust] 장소 전환 연출 컴포넌트
@@ -44,6 +45,7 @@ const LocationTransition = ({
   useEffect(() => {
     if (active && phase === 'idle') {
       setPhase('blackout');
+      sfx.wooshDeep();
       startTimeRef.current = Date.now();
       setDisplayedText('');
       setResolvedBgUrl(backgroundUrl || null);
@@ -93,6 +95,7 @@ const LocationTransition = ({
 
       if (hasBackground && minTimeMet) {
         setPhase('fadein');
+        sfx.chime();
         setTimeout(() => {
           onTransitionComplete?.(resolvedBgUrl);
           setPhase('idle');
@@ -103,6 +106,7 @@ const LocationTransition = ({
       // 배경 없이 10초 이상 → 폴백 (배경 없이 전환)
       if (elapsed >= 15000) {
         setPhase('fadein');
+        sfx.chime();
         setTimeout(() => {
           onTransitionComplete?.(null);
           setPhase('idle');

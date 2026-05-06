@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Eye, MessageSquare, Sparkles, ChevronRight } from "lucide-react";
+import { sfx } from "../utils/sfx";
 
 /**
  * [Phase 5.5-Director] 디렉터 인터루드 컴포넌트
@@ -46,6 +47,7 @@ const DirectorInterlude = ({
   // ── directive 변경 시 상태 리셋 ──
   useEffect(() => {
     if (directive) {
+      sfx.wooshLight();
       setPhase("narration");
       setTypedText("");
       setTypeComplete(false);
@@ -68,6 +70,7 @@ const DirectorInterlude = ({
     const timer = setInterval(() => {
       if (i < narrationText.length) {
         setTypedText(narrationText.substring(0, i + 1));
+        if (i % 4 === 0) sfx.typewriter();
         i++;
       } else {
         setTypeComplete(true);

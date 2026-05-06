@@ -2,6 +2,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Send, Heart, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity, MessageSquare, Eye, Clock, EyeIcon, Gem } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { sanitizeScene } from "../utils/dialogueSanitizer";
+import { sfx } from "../utils/sfx";
 
 /**
  * [Phase 5.5-Fix] DialogueBox
@@ -357,9 +358,23 @@ const DialogueBox = ({
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!input.trim() || isTyping || hasNextScene) return;
+    sfx.click();
     onSend(input);
     setInput("");
   };
+
+  const prevAffectionRef = useRef(affection);
+  useEffect(() => {
+    if (typeof affection !== "number") return;
+    const prev = prevAffectionRef.current;
+    if (typeof prev !== "number") {
+      prevAffectionRef.current = affection;
+      return;
+    }
+    if (affection > prev) sfx.affection();
+    else if (affection < prev) sfx.thud();
+    prevAffectionRef.current = affection;
+  }, [affection]);
 
   // ━━━ 클릭 핸들러 (원본 100% 동일) ━━━
   const handleBoxClick = () => {
@@ -369,6 +384,7 @@ const DialogueBox = ({
       setDisplayedText(scene.dialogue);
       setIsTextFullyDisplayed(true);
     } else if (hasNextScene || isEventScene) {
+      sfx.pageTurn();
       onNextScene();
     }
   };
@@ -842,7 +858,7 @@ const DialogueBox = ({
                   </div>
  
                   {noEnergy || lowEnergy ? (
-                    <motion.button type="button" onClick={() => onOpenStore?.("energy")}
+                    <motion.button type="button" onClick={() => { sfx.click(); onOpenStore?.("energy"); }}
                       className="bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white px-4 py-3.5 rounded-xl transition shadow-lg flex items-center gap-2 font-medium text-sm whitespace-nowrap"
                       whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
                       <ShoppingBag size={18} /><span className="hidden sm:inline">충전하기</span>

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Lock, Unlock, Shield, Sparkles, Crown, Key, Moon, ArrowRight, X } from "lucide-react";
 import api from "../api/axios";
 import AdultVerificationModal from "./AdultVerificationModal";
+import { sfx } from "../utils/sfx";
 
 /**
  * SecretModeFlow — 시크릿 모드 해금 상태머신
@@ -41,8 +42,13 @@ const SecretModeFlow = ({
       setAccessStatus(null);
       return;
     }
+    sfx.wooshLight();
     startFlow();
   }, [isOpen]);
+
+  useEffect(() => {
+    if (step === "granted") sfx.sparkle();
+  }, [step]);
 
   const startFlow = useCallback(async () => {
     // Step 1: Adult check
@@ -85,6 +91,7 @@ const SecretModeFlow = ({
   }, [characterId]);
 
   const handleOpenStore = () => {
+    sfx.click();
     onClose();
     onOpenStore?.("secret");
   };
@@ -166,7 +173,7 @@ const SecretModeFlow = ({
                     </button>
 
                     <button
-                      onClick={() => { onClose(); onOpenStore?.("pass"); }}
+                      onClick={() => { sfx.click(); onClose(); onOpenStore?.("pass"); }}
                       className="w-full flex items-center justify-between p-4 rounded-xl bg-white/[0.03] border border-white/10 hover:bg-white/[0.06] transition group"
                     >
                       <div className="flex items-center gap-3">
@@ -181,7 +188,7 @@ const SecretModeFlow = ({
                   </div>
 
                   <button
-                    onClick={onClose}
+                    onClick={() => { sfx.click(); onClose?.(); }}
                     className="mt-5 text-white/30 text-xs hover:text-white/50 transition"
                   >
                     나중에 하기

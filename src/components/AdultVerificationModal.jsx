@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from '../api/axios';
+import { sfx } from '../utils/sfx';
 
 /**
  * Phase 5: Adult Verification Modal (NICE API)
@@ -15,6 +16,10 @@ import axios from '../api/axios';
 const AdultVerificationModal = ({ isOpen, onClose, onVerified }) => {
   const [step, setStep] = useState('intro'); // intro | loading | success | error
   const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (isOpen) sfx.wooshLight();
+  }, [isOpen]);
 
   const startVerification = useCallback(async () => {
     setStep('loading');
@@ -73,13 +78,17 @@ const AdultVerificationModal = ({ isOpen, onClose, onVerified }) => {
             });
 
             if (result.data.success) {
+              sfx.chime();
               setStep('success');
               setTimeout(() => {
                 onVerified && onVerified();
                 onClose();
               }, 1500);
+            } else {
+              sfx.thud();
             }
           } catch (err) {
+            sfx.thud();
             setStep('error');
             setErrorMsg(err.response?.data?.message || 'Verification failed');
           }
@@ -100,6 +109,7 @@ const AdultVerificationModal = ({ isOpen, onClose, onVerified }) => {
       }, 1000);
 
     } catch (err) {
+      sfx.thud();
       setStep('error');
       setErrorMsg(err.response?.data?.message || 'Failed to start verification');
     }
@@ -143,13 +153,13 @@ const AdultVerificationModal = ({ isOpen, onClose, onVerified }) => {
               </p>
               <div className="flex gap-3">
                 <button
-                  onClick={onClose}
+                  onClick={() => { sfx.click(); onClose?.(); }}
                   className="flex-1 py-2.5 rounded-xl bg-white/10 text-white/70 hover:bg-white/20 transition"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={startVerification}
+                  onClick={() => { sfx.click(); startVerification(); }}
                   className="flex-1 py-2.5 rounded-xl bg-purple-600 text-white font-medium hover:bg-purple-500 transition"
                 >
                   Verify Now
@@ -182,11 +192,11 @@ const AdultVerificationModal = ({ isOpen, onClose, onVerified }) => {
                 <p className="text-white/60 text-sm mt-2">{errorMsg}</p>
               </div>
               <div className="flex gap-3 mt-4">
-                <button onClick={onClose}
+                <button onClick={() => { sfx.click(); onClose?.(); }}
                   className="flex-1 py-2.5 rounded-xl bg-white/10 text-white/70 hover:bg-white/20 transition">
                   Close
                 </button>
-                <button onClick={() => setStep('intro')}
+                <button onClick={() => { sfx.click(); setStep('intro'); }}
                   className="flex-1 py-2.5 rounded-xl bg-purple-600 text-white hover:bg-purple-500 transition">
                   Retry
                 </button>

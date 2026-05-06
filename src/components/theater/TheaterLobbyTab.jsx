@@ -6,6 +6,8 @@ import {
   Play, Plus, Users, BookOpen
 } from "lucide-react";
 import { fetchWorlds, fetchMyTheaterSessions } from "../../api/TheaterLobbyApi";
+import { assetUrl } from "../../utils/assetUrl";  // ⬅️ 경로 주의 (../../ )
+import { sfx } from "../../utils/sfx";
 
 /**
  * [Phase 5.5-Theater] Theater 탭
@@ -95,7 +97,7 @@ const WorldCard = ({ world, onClick }) => {
             {world.heroines.slice(0, 3).map((h) => {
               // [Polish-v2] thumbnailUrl이 없으면 characterSlug 기반 폴백
               const imgUrl = h.thumbnailUrl
-                || (h.characterSlug ? `/characters/${h.characterSlug}/thumb.jpg` : null);
+                || (h.characterSlug ? assetUrl(`/characters/${h.characterSlug}/thumb.jpg`) : null);
               return (
                 <div
                   key={h.id}
@@ -124,7 +126,7 @@ const SessionCard = ({ session, onResume }) => {
 
   // [Polish-v2] 리드 히로인 이미지 URL 해결
   const leadImgUrl = session.leadHeroineThumbnailUrl
-    || (session.leadHeroineSlug ? `/characters/${session.leadHeroineSlug}/thumb.jpg` : null);
+    || (session.leadHeroineSlug ? assetUrl(`/characters/${session.leadHeroineSlug}/thumb.jpg`) : null);
 
   return (
     <motion.div

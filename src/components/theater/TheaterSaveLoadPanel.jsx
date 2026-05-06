@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Save, Download, Zap, Clock, BookOpen } from "lucide-react";
 import { fetchSaveSlots, saveSlot, loadSlot } from "../../api/TheaterFinalityApi";
+import { sfx } from "../../utils/sfx";
 
 /**
  * [Phase 5.5-Theater] 세이브/로드 패널 — 모달 형태
@@ -28,6 +29,10 @@ export default function TheaterSaveLoadPanel({
   const [workingSlot, setWorkingSlot] = useState(null);
 
   useEffect(() => {
+    sfx.wooshLight();
+  }, []);
+
+  useEffect(() => {
     let alive = true;
     (async () => {
       try {
@@ -46,10 +51,12 @@ export default function TheaterSaveLoadPanel({
     setWorkingSlot(slotNumber);
     try {
       await saveSlot(roomId, { slotNumber, label: null });
+      sfx.chime();
       const fresh = await fetchSaveSlots(roomId);
       setSlots(fresh);
     } catch (e) {
       console.error("[Theater] Save failed:", e);
+      sfx.thud();
     } finally {
       setWorkingSlot(null);
     }
@@ -59,11 +66,14 @@ export default function TheaterSaveLoadPanel({
     if (!window.confirm("현재 진행을 덮어쓰고 이 슬롯으로 로드하시겠습니까?")) return;
     setWorkingSlot(slotNumber);
     try {
+      sfx.wooshDeep();
       const result = await loadSlot(roomId, slotNumber);
+      sfx.chime();
       if (onLoaded) onLoaded(result);
       onClose();
     } catch (e) {
       console.error("[Theater] Load failed:", e);
+      sfx.thud();
     } finally {
       setWorkingSlot(null);
     }
@@ -112,7 +122,7 @@ export default function TheaterSaveLoadPanel({
               return (
                 <button
                   key={v}
-                  onClick={() => setMode(v)}
+                  onClick={() => { sfx.click(); setMode(v); }}
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide transition-colors ${
                     active
                       ? v === "save"
@@ -129,7 +139,7 @@ export default function TheaterSaveLoadPanel({
           </div>
 
           <button
-            onClick={onClose}
+            onClick={() => { sfx.click(); onClose?.(); }}
             aria-label="닫기"
             className="p-2 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors flex-shrink-0"
           >

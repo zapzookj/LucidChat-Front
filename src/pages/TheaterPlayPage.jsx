@@ -26,6 +26,7 @@ import {
 } from "../api/TheaterGamePlayApi";
 import useTheaterStream from "../hooks/useTheaterStream";
 import api from "../api/axios";
+import { sfx } from "../utils/sfx";
 
 /**
  * [Phase 5.5-Theater-Polish] TheaterPlayPage v2 — 비주얼 노벨 완성판
@@ -548,7 +549,7 @@ export default function TheaterPlayPage() {
         {/* ─── 좌측: 뒤로 버튼 + 세계관·Act 배지 ─── */}
         <div className="flex items-center gap-2 pointer-events-auto">
           <button
-            onClick={(e) => { e.stopPropagation(); navigate("/"); }}
+            onClick={(e) => { e.stopPropagation(); sfx.click(); navigate("/"); }}
             aria-label="로비로"
             className="p-2 rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-white/70 hover:text-white hover:border-violet-300/30 hover:bg-black/70 transition-colors duration-200"
           >
@@ -589,7 +590,7 @@ export default function TheaterPlayPage() {
             - 첫 5초 간 onboarding 라벨 자동 노출, 이후엔 hover로만 펼쳐짐
           */}
           <HudPillButton
-            onClick={(e) => { e.stopPropagation(); setDiaryOpen(true); }}
+            onClick={(e) => { e.stopPropagation(); sfx.wooshLight(); setDiaryOpen(true); }}
             aria-label="이야기 다이어리"
             title="이야기 다이어리"
             label="다이어리"
@@ -598,7 +599,7 @@ export default function TheaterPlayPage() {
             icon={<BookOpen size={14} />}
           />
           <HudPillButton
-            onClick={(e) => { e.stopPropagation(); setSaveLoadOpen(true); }}
+            onClick={(e) => { e.stopPropagation(); sfx.wooshLight(); setSaveLoadOpen(true); }}
             aria-label="세이브 / 로드"
             title="세이브 / 로드"
             label="저장 · 불러오기"
@@ -699,7 +700,7 @@ export default function TheaterPlayPage() {
               }
               canGoNext={!loadingNext && !chapterEnding}
               loadingNext={loadingNext || chapterEnding}
-              onOpenHistory={() => setHistoryOpen(true)}
+              onOpenHistory={() => { sfx.wooshLight(); setHistoryOpen(true); }}
               sceneIndexInBatch={currentSceneIndex}
               sceneCountInBatch={currentBatch?.scenes?.length || 1}
               leadHeroineName={leadHeroine?.name}
@@ -711,7 +712,7 @@ export default function TheaterPlayPage() {
                 && branchModalData.options?.branchLevel === "MINOR"
               }
               // [Polish · P2 #5] 감독 명령 버튼을 DialogueBox로 위임
-              onOpenCommand={() => setCommandOpen(true)}
+              onOpenCommand={() => { sfx.wooshLight(); setCommandOpen(true); }}
               commandPulseActive={showCommandPulse}
             />
           </motion.div>

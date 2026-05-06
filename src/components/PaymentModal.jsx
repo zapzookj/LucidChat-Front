@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from '../api/axios';
+import { sfx } from '../utils/sfx';
 
 /**
  * Phase 5: Payment Modal (Energy Shop + Packages)
@@ -31,6 +32,14 @@ const PaymentModal = ({ isOpen, onClose, onPaymentComplete, userEnergy }) => {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [status, setStatus] = useState('idle'); // idle | processing | success | error
   const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (isOpen) sfx.wooshLight();
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (status === 'error') sfx.thud();
+  }, [status]);
 
   const handlePurchase = useCallback(async (product) => {
     setSelectedProduct(product);
@@ -125,7 +134,7 @@ const PaymentModal = ({ isOpen, onClose, onPaymentComplete, userEnergy }) => {
           {/* Header */}
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold text-white">Energy Shop</h2>
-            <button onClick={onClose} className="text-white/50 hover:text-white text-2xl">&times;</button>
+            <button onClick={() => { sfx.click(); onClose?.(); }} className="text-white/50 hover:text-white text-2xl">&times;</button>
           </div>
 
           {/* Current Energy */}
@@ -184,7 +193,7 @@ const PaymentModal = ({ isOpen, onClose, onPaymentComplete, userEnergy }) => {
                   className="bg-white/5 rounded-xl p-4 flex items-center justify-between hover:bg-white/10 transition cursor-pointer"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => handlePurchase(product)}
+                  onClick={() => { sfx.click(); handlePurchase(product); }}
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-2xl">{product.emoji}</span>

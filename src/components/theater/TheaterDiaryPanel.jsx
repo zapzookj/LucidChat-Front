@@ -5,6 +5,7 @@ import {
   Loader2, ChevronDown, ChevronRight, RefreshCw,
 } from "lucide-react";
 import { fetchDirectorNotes } from "../../api/TheaterFinalityApi";
+import { sfx } from "../../utils/sfx";
 
 /**
  * [Phase 5.5 UX Polish · R3] TheaterDiaryPanel
@@ -128,6 +129,7 @@ export default function TheaterDiaryPanel({
 
   useEffect(() => {
     if (visible) {
+      sfx.wooshLight();
       load();
     }
   }, [visible, load]);
@@ -254,7 +256,7 @@ export default function TheaterDiaryPanel({
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             </button>
             <button
-              onClick={onClose}
+              onClick={() => { sfx.click(); onClose?.(); }}
               aria-label="닫기"
               className="w-8 h-8 flex items-center justify-center rounded-full bg-white/5 text-white/45 hover:text-white hover:bg-white/10 transition-colors"
             >

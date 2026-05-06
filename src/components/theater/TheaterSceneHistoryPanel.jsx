@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, BookOpen, ChevronDown, ChevronUp } from "lucide-react";
 import api from "../../api/axios";
+import { sfx } from "../../utils/sfx";
 
 /**
  * [Phase 5.5-Theater-Polish] 대화 기록 패널
@@ -30,6 +31,10 @@ export default function TheaterSceneHistoryPanel({
   const [scenes, setScenes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (visible) sfx.wooshLight();
+  }, [visible]);
 
   // 선택된 Act/Chapter 변경 시 데이터 로드
   useEffect(() => {
@@ -84,7 +89,7 @@ export default function TheaterSceneHistoryPanel({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={() => { sfx.click(); onClose?.(); }}
             aria-label="닫기"
             className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
           >

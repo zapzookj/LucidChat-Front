@@ -14,6 +14,8 @@ import {
 } from "../api/TheaterLobbyApi";
 import TheaterCreateFlow from "../components/theater/TheaterCreateFlow";
 import LucidStore from "../components/LucidStore";
+import { assetUrl } from "../utils/assetUrl";
+import { sfx } from "../utils/sfx";
 
 /**
  * [Phase 5.5-Theater-Polish · Phase I] TheaterPortalPage
@@ -110,7 +112,7 @@ const WorldCard = ({ world, onClick, index }) => (
           {world.heroines.slice(0, 3).map((h) => {
             const imgUrl =
               h.thumbnailUrl ||
-              (h.characterSlug ? `/characters/${h.characterSlug}/thumb.jpg` : null);
+                (h.characterSlug ? assetUrl(`/characters/${h.characterSlug}/thumb.jpg`) : null);
             return (
               <div
                 key={h.id}
@@ -138,7 +140,7 @@ const SessionCard = ({ session, onResume, index }) => {
 
   const leadImgUrl =
     session.leadHeroineThumbnailUrl ||
-    (session.leadHeroineSlug ? `/characters/${session.leadHeroineSlug}/thumb.jpg` : null);
+    (session.leadHeroineSlug ? assetUrl(`/characters/${session.leadHeroineSlug}/thumb.jpg`) : null);
 
   return (
     <motion.div
