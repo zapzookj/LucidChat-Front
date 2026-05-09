@@ -546,63 +546,20 @@ const ChatPage = () => {
   const awayAutoAdvanceTimer = useRef(null); // 호환성 유지 (참조만 남김)
 
   /**
-   * [v3] 투명 디렉터 자동 체크 — directive 발견 시 투명하게 자동 처리
+   * [Phase 6 도그푸딩 #1] 자동 인터루드 폐기 — no-op.
    *
-   * Bug #3 해결: ref 기반 가드 (stale closure 방지)
-   * 투명 디렉터: directive 발견 → handleTransparentDirective로 자동 처리
-   *   (유저에게 오버레이/버튼 없이 나레이션 삽입 + 카드 표시 + 자동 응답)
+   * 백엔드 ChatStreamService에서 자동 디렉터 트리거가 제거되어
+   * peekDirectorDirective는 *수동 호출 직후*를 제외하면 항상 비어 있다.
+   * 따라서 이 폴링 자체가 무의미. 호출처는 보존하여 미래 부활 시 복원 비용 최소화.
+   *
+   * 안전망: 이전에 등록된 타이머가 있으면 cleanup만 수행.
    */
   const scheduleDirectorAutoCheck = useCallback(() => {
     if (directorAutoCheckTimer.current) {
       clearTimeout(directorAutoCheckTimer.current);
       directorAutoCheckTimer.current = null;
     }
-
-    if (!isStoryMode) return;
-
-    const INITIAL_DELAY = 6000;
-    const RETRY_DELAY = 5000;
-    const MAX_RETRIES = 4;       // 총 5회 시도 (6 + 5*4 = 26초 커버)
-
-    const attemptCheck = async (retryCount) => {
-      // [Bug Fix #3] ref에서 최신 값 읽기 — stale closure 방지
-      // 씬 활성 또는 pendingAction 대기 중: 리트라이 예산 소모하지 않음
-      if (sceneActiveRef.current || pendingDirectorActionRef.current !== null) {
-        directorAutoCheckTimer.current = setTimeout(
-          () => attemptCheck(retryCount), RETRY_DELAY);
-        return;
-      }
-
-      if (eventActiveRef.current || awaitingFinalResultRef.current
-          || isTypingRef.current || directorAutoProcessingRef.current) {
-        if (retryCount < MAX_RETRIES) {
-          directorAutoCheckTimer.current = setTimeout(
-            () => attemptCheck(retryCount + 1), RETRY_DELAY);
-        }
-        return;
-      }
-
-      try {
-        const directive = await peekDirectorDirective(roomId);
-        if (directive && directive.decision !== "PASS") {
-          console.log("[Director] Auto-check: Directive found →", directive.decision);
-          // [v3] 투명하게 자동 처리 — 오버레이 없음
-          handleTransparentDirective(directive);
-          return;
-        }
-      } catch (err) {
-        console.warn("[Director] Auto-check failed:", err);
-      }
-
-      if (retryCount < MAX_RETRIES) {
-        directorAutoCheckTimer.current = setTimeout(
-          () => attemptCheck(retryCount + 1), RETRY_DELAY);
-      }
-    };
-
-    directorAutoCheckTimer.current = setTimeout(() => attemptCheck(0), INITIAL_DELAY);
-
-  }, [roomId, isStoryMode]); // state 의존성 제거 → ref로 대체
+  }, [roomId, isStoryMode]);
 
   // ━━━ [Phase 5.5-Fix] 3-Layer 통합 헬퍼 함수 ━━━
 
