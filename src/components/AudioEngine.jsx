@@ -275,6 +275,10 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
   }, [location, time]);
 
   // ── L3: SFX (장소 전환 시 1회 재생) ──
+  // [Phase6/Tier4 / H-27] SFX Audio 인스턴스 누수 차단.
+  //   기존: new Audio(src) → play 후 ref 잃어버림 → ended에도 인스턴스가 메모리에 남음.
+  //   개선: sfxRefsArray로 추적 + ended/error 시 src='' + ref 정리 + unmount cleanup.
+  const sfxRefsArray = useRef([]);
   useEffect(() => {
     if (!location || location === prevLocationRef.current) return;
     prevLocationRef.current = location;
@@ -284,7 +288,16 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
 
     const sfx = new Audio(sfxSrc);
     sfx.volume = mutedRef.current ? 0 : masterRef.current * SFX_VOLUME_RATIO;
-    sfx.play().catch(() => {});
+
+    const cleanup = () => {
+      try { sfx.src = ''; } catch { /* ignore */ }
+      sfxRefsArray.current = sfxRefsArray.current.filter(a => a !== sfx);
+    };
+    sfx.addEventListener('ended', cleanup, { once: true });
+    sfx.addEventListener('error', cleanup, { once: true });
+    sfxRefsArray.current.push(sfx);
+
+    sfx.play().catch(() => cleanup());
   }, [location]);
 
   // ── Cleanup ──
@@ -296,6 +309,11 @@ const AudioEngine = ({ bgmMode, location, time, masterVolume = 0.5, isMuted = fa
       }
       ambienceRefs.current.forEach(a => { a.pause(); });
       ambienceRefs.current = [];
+      // [Phase6/Tier4 / H-27] SFX 인스턴스 일괄 정리
+      sfxRefsArray.current.forEach(a => {
+        try { a.pause(); a.src = ''; } catch { /* ignore */ }
+      });
+      sfxRefsArray.current = [];
     };
   }, []);
 

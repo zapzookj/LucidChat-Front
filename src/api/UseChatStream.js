@@ -219,48 +219,55 @@ async function _ssePost(url, body, callbacks, abortController) {
     }
 
     // ── SSE 스트림 파싱 ──
+    // [Phase6/Tier4 / H-25] reader try-finally cleanup. 컴포넌트 unmount/abort/예외 등으로
+    //   while 루프를 빠져나갈 때 reader.cancel()로 underlying 스트림을 명시 해제 →
+    //   브라우저의 HTTP 커넥션 + ReadableStream 자원 누수 차단.
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const events = buffer.split('\n\n');
-      buffer = events.pop();
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split('\n\n');
+        buffer = events.pop();
 
-      for (const eventBlock of events) {
-        if (!eventBlock.trim()) continue;
-        const parsed = parseSseEvent(eventBlock);
-        if (!parsed) continue;
+        for (const eventBlock of events) {
+          if (!eventBlock.trim()) continue;
+          const parsed = parseSseEvent(eventBlock);
+          if (!parsed) continue;
 
-        switch (parsed.event) {
-          case 'event_meta':
-            try {
-                const meta = JSON.parse(parsed.data);
-                callbacks.onEventMeta?.(meta);
-            } catch (e) {
-                console.warn('[SSE] event_meta parse error:', e);
-            }
-            break;
-          case 'first_scene':
-            try { callbacks.onFirstScene?.(JSON.parse(parsed.data)); }
-            catch (e) { console.warn('[SSE] first_scene parse error:', e); }
-            break;
-          case 'final_result':
-            try { callbacks.onFinalResult?.(JSON.parse(parsed.data)); }
-            catch (e) { console.warn('[SSE] final_result parse error:', e); }
-            break;
-          case 'error':
-            try { callbacks.onError?.(JSON.parse(parsed.data)); }
-            catch (e) { callbacks.onError?.({ errorCode: 'PARSE_ERROR', message: parsed.data }); }
-            break;
-          default:
-            break;
+          switch (parsed.event) {
+            case 'event_meta':
+              try {
+                  const meta = JSON.parse(parsed.data);
+                  callbacks.onEventMeta?.(meta);
+              } catch (e) {
+                  console.warn('[SSE] event_meta parse error:', e);
+              }
+              break;
+            case 'first_scene':
+              try { callbacks.onFirstScene?.(JSON.parse(parsed.data)); }
+              catch (e) { console.warn('[SSE] first_scene parse error:', e); }
+              break;
+            case 'final_result':
+              try { callbacks.onFinalResult?.(JSON.parse(parsed.data)); }
+              catch (e) { console.warn('[SSE] final_result parse error:', e); }
+              break;
+            case 'error':
+              try { callbacks.onError?.(JSON.parse(parsed.data)); }
+              catch (e) { callbacks.onError?.({ errorCode: 'PARSE_ERROR', message: parsed.data }); }
+              break;
+            default:
+              break;
+          }
         }
       }
+    } finally {
+      try { await reader.cancel(); } catch { /* ignore — already closed */ }
     }
 
     // 마지막 버퍼 처리

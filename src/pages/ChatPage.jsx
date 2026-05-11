@@ -195,6 +195,16 @@ const ChatPage = () => {
   const [directorAutoProcessing, setDirectorAutoProcessing] = useState(false); // 자동 응답 처리 중
   const directorAutoCheckTimer = useRef(null);
 
+  // [Phase6/Tier4 / H-26] SSE 호출용 AbortController. unmount/재호출 시 진행 중인 SSE를
+  //   강제 중단해서 reader/네트워크 자원 누수를 차단. UseChatStream의 모든 SSE 함수는
+  //   네 번째 인자로 abortController를 받는다 — 호출처에서 전달 시 fetch에 signal 연결.
+  const sseAbortRef = useRef(null);
+  useEffect(() => {
+    return () => {
+      try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
+    };
+  }, []);
+
   // [UX Fix] 나레이션 → 유저 클릭 대기 → 다음 플로우 진행
   const pendingDirectorActionRef = useRef(null);
 
@@ -1309,7 +1319,11 @@ const ChatPage = () => {
   try {
     const messagePayload = text || "...";
     setAwaitingFinalResult(true);
- 
+
+    // [Phase6/Tier4 / H-26] 새 메시지 전송 시 이전 SSE 호출 중단 → reader 누수 차단.
+    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
+    sseAbortRef.current = new AbortController();
+
     await sendMessageStream(roomId, messagePayload, {
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       //  🚀 first_scene: ~1.5초 후 도착
@@ -1573,10 +1587,15 @@ const ChatPage = () => {
           showToast("오류가 발생했습니다.", "error");
         }
       },
-    });
- 
+    }, sseAbortRef.current);
+
   } catch (err) {
     // sendMessageStream 자체의 예외 (거의 발생하지 않음)
+    // [Phase6/Tier4 / H-26] unmount/재호출에 의한 AbortError는 정상 — 토스트 표시 안 함
+    if (err?.name === 'AbortError') {
+      console.log("[SSE] aborted (unmount or new request)");
+      return;
+    }
     console.error("Unexpected SSE error:", err);
     setIsTyping(false);
     showToast("오류가 발생했습니다.", "error");
