@@ -6,8 +6,8 @@
  *   - sendTimeSkipStream(): 시간 넘기기 SSE
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1' // 백엔드 주소
-// const BASE_URL = 'http://localhost:8080/api/v1';
+// const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1' // 백엔드 주소
+const BASE_URL = 'http://localhost:8080/api/v1';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  1. 일반 채팅 메시지 (기존)
@@ -303,23 +303,33 @@ function parseSseEvent(block) {
   return { event, data: dataLines.join('\n') };
 }
 
+// [Phase6/Tier3 / H-24] SSE 흐름의 refresh도 single-flight.
+//   여러 SSE 호출이 동시에 401을 받아도 한 번의 /auth/refresh 호출로 합쳐진다.
+//   axios.js의 refreshOnce와는 별도 트랙(fetch 기반)이지만 동일 패턴.
+let _sseRefreshPromise = null;
+
 async function tryRefreshToken() {
-  try {
-    const res = await fetch(`${BASE_URL}/auth/refresh`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) return false;
-    const data = await res.json();
-    if (data.accessToken) {
-      localStorage.setItem('accessToken', data.accessToken);
-      return true;
-    }
-    return false;
-  } catch {
-    return false;
+  if (!_sseRefreshPromise) {
+    _sseRefreshPromise = (async () => {
+      try {
+        const res = await fetch(`${BASE_URL}/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!res.ok) return false;
+        const data = await res.json();
+        if (data.accessToken) {
+          localStorage.setItem('accessToken', data.accessToken);
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      }
+    })().finally(() => { _sseRefreshPromise = null; });
   }
+  return _sseRefreshPromise;
 }
 
 export default sendMessageStream;
