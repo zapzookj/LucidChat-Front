@@ -1019,7 +1019,8 @@ const ChatPage = () => {
                   "연화": "연화가 흥미롭다는 눈빛으로 당신을 바라봅니다.",
                   "아이리": "아이리가 숙여 인사하며 부드럽게 미소짓는다.",
                   "백루나": "루나가 머뭇거리며 말합니다.",
-                  "서태리": "태리가 귀찮다는 듯이 인사합니다."
+                  "서태리": "태리가 귀찮다는 듯이 인사합니다.",
+                  "로제타": "로제타가 먹잇감을 발견한 눈빛으로 당신을 쳐다봅니다."
               };
               queue.push({
                   dialogue: greetingLog.cleanContent,
@@ -1418,16 +1419,26 @@ const ChatPage = () => {
           setTimeout(() => setIllustrationAvailable(false), 30000);
         }
 
-        // ── [Phase 5.5-Illust] 장소 전환 처리 ──
+        // ── [Phase 5.5-Illust / Phase 6 hotfix] 장소 전환 처리 ──
         if (data.locationTransition && data.locationTransition.isNewLocation) {
           const lt = data.locationTransition;
-          setLocationTransition({
-            active: true,
-            locationName: lt.locationName,
-            backgroundUrl: lt.backgroundUrl || null,
-            cacheHash: lt.cacheHash,
-            isGenerating: lt.isGenerating,
-          });
+          if (lt.backgroundUrl) {
+            // 캐시 히트: 배경만 즉시 교체, 전환 오버레이는 띄우지 않음.
+            //   (canonical_key가 같아 의미상 같은 장소인 경우 백엔드가 이미
+            //    locationTransition을 생략하지만, 캐시 히트 일반에 대해서도
+            //    경로 A와 동일하게 "오버레이 없이 배경만 교체" 정책 적용.)
+            setDynamicBackgroundUrl(lt.backgroundUrl);
+            setLocationTransition(null);
+          } else if (lt.isGenerating) {
+            // 캐시 미스(최초 생성): 1.3초 내외라 전면 오버레이 대신
+            //   가벼운 전환 컴포넌트만 띄우고 폴링으로 완성 감지 (기존 흐름 유지).
+            setLocationTransition({
+              active: true,
+              locationName: lt.locationName,
+              cacheHash: lt.cacheHash,
+              isGenerating: true,
+            });
+          }
         }
 
         // ── [Phase 5.5-Sep] 이벤트/주제 종료: 스토리 모드 전용 ──

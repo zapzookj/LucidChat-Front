@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { sfx } from '../utils/sfx';
+import api from '../api/axios';
 
 /**
  * [Phase 5.5-Illust] 장소 전환 연출 컴포넌트
@@ -124,6 +125,49 @@ const LocationTransition = ({
       return () => clearInterval(interval);
     }
   }, [phase, resolvedBgUrl, onTransitionComplete]);
+
+  // ━━━ 배경 생성 폴링 (캐시 미스 시) ━━━
+  // 백엔드는 캐시 미스면 비동기로 배경을 생성·캐싱하지만 완성을 푸시하지 않는다.
+  // cacheHash로 /illustrations/background를 폴링하여 완성되면 resolvedBgUrl을 채운다.
+  // (resolvedBgUrl이 채워지면 위의 waiting useEffect의 checkReady가 전환을 마무리한다.)
+  useEffect(() => {
+    // 이미 URL이 있거나, 생성 중이 아니거나, 폴링 키가 없으면 폴링 불필요
+    if (resolvedBgUrl || !isGenerating || !cacheHash) return;
+    if (phase === 'idle' || phase === 'fadein') return;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const res = await api.get('/illustrations/background', {
+          params: { cacheHash },
+        });
+        if (cancelled) return;
+        if (res?.data?.ready && res.data.url) {
+          setResolvedBgUrl(res.data.url);
+          if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+        }
+      } catch (e) {
+        // 네트워크 일시 오류는 무시하고 다음 tick에 재시도
+        // (waiting useEffect의 15초 폴백이 최종 안전망)
+      }
+    };
+
+    // 즉시 1회 + 1초 간격 폴링
+    poll();
+    pollRef.current = setInterval(poll, 1000);
+
+    return () => {
+      cancelled = true;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [isGenerating, cacheHash, resolvedBgUrl, phase]);
 
   const cleanup = () => {
     if (pollRef.current) clearInterval(pollRef.current);

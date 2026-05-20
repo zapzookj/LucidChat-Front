@@ -118,7 +118,6 @@ const InnerThoughtBubble = ({
 
     // 약간의 딜레이 후 콜백 호출
     setTimeout(() => {
-      sfx.sparkle();
       onUnlock?.();
     }, 300);
   }, [isUnlocking, unlocked, showParticles, onUnlock]);
