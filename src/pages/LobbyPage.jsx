@@ -15,6 +15,9 @@ import LucidStore from "../components/LucidStore";
 import TheaterDoorway from "../components/lobby/TheaterDoorway";
 import TheaterCreateFlow from "../components/theater/TheaterCreateFlow";
 import { fetchMyTheaterSessions } from "../api/TheaterLobbyApi";
+// [Story V2] World 탐험 진입점
+import StoryV2LobbyView from "../components/story-v2/StoryV2LobbyView";
+import StoryCreateFlow from "../components/story-v2/StoryCreateFlow";
 import { assetUrl } from "../utils/assetUrl";
 import { playSfx } from "../utils/sfx";
 
@@ -589,6 +592,10 @@ const LobbyPage = () => {
   const [createFlowState, setCreateFlowState] = useState(null);
   // shape: { world: {...}, initialHeroineIds: [Long] } | null
 
+  // [Story V2] V2 CreateFlow 진입 상태 — Theater와 별개 트랙
+  const [storyV2CreateFlow, setStoryV2CreateFlow] = useState(null);
+  // shape: { worldId: string } | null
+
   // [BETA] 베타 테스터 이스터에그 — 로고 5회 클릭
   const betaClickRef = useRef(0);
   const betaTimerRef = useRef(null);
@@ -906,6 +913,7 @@ const LobbyPage = () => {
             <div className="flex flex-col items-center gap-5 sm:gap-7 flex-shrink-0">
               {[
                 { label: "새로운 만남", sub: "New Encounter", action: () => setView("characters") },
+                { label: "이야기의 문턱", sub: "Story Worlds", action: () => setView("worlds") },
                 { label: "기억의 끈", sub: "Continue", action: () => { fetchRoomsAll(); setView("continue"); }, disabled: mergedRooms.length === 0 },
                 { label: "수집품", sub: "Archives", action: () => setShowAchievements(true) },
               ].map((item, i) => (
@@ -1035,6 +1043,32 @@ const LobbyPage = () => {
           />
         )}
       </AnimatePresence>
+
+      {/* [Story V2] World 카드 그리드 뷰 */}
+      <AnimatePresence>
+        {view === "worlds" && (
+          <StoryV2LobbyView
+            onBack={() => setView("hub")}
+            onEnterCreate={(worldId) => setStoryV2CreateFlow({ worldId })}
+            onContinue={(roomId) => navigate(`/v2/chat/${roomId}`)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* [Story V2] CreateFlow 모달 */}
+      <AnimatePresence>
+        {storyV2CreateFlow && (
+          <StoryCreateFlow
+            worldId={storyV2CreateFlow.worldId}
+            onCancel={() => setStoryV2CreateFlow(null)}
+            onComplete={(roomId) => {
+              setStoryV2CreateFlow(null);
+              navigate(`/v2/chat/${roomId}`);
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       <AnimatePresence>{showAchievements && <AchievementGallery onClose={() => setShowAchievements(false)} />}</AnimatePresence>
 
       {/* [Phase I] 캐릭터 카드 → Theater 모드 선택 시 진입하는 CreateFlow */}

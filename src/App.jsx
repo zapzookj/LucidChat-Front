@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import ChatPage from "./pages/ChatPage";
+import ChatPageV2 from "./pages/ChatPageV2";
 import LoginPage from "./pages/LoginPage";
 import LobbyPage from "./pages/LobbyPage";
 import TheaterPortalPage from "./pages/TheaterPortalPage";
@@ -97,6 +98,15 @@ function App() {
             element={
               <ProtectedRoute>
                 <ChatPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* [Story V2] V2 디렉터 시점 World 탐험 */}
+          <Route
+            path="/v2/chat/:roomId"
+            element={
+              <ProtectedRoute>
+                <ChatPageV2 />
               </ProtectedRoute>
             }
           />
