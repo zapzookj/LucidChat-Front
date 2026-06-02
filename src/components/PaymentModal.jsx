@@ -12,6 +12,11 @@ import { sfx } from '../utils/sfx';
  * 3. PortOne SDK payment popup
  * 4. POST /api/v1/payments/confirm -> server-side verification
  * 5. Success -> energy charged / package activated
+ *
+ * [Phase 7-V2 / Chunk C-3] `initialTab` prop 추가 (additive):
+ *   - V1 caller는 미전달 → 'energy' 기본 (기존 동작 유지)
+ *   - V2 caller (ChatPageV2의 secret-store 진입)는 'packages' 전달 → 시크릿 상품 즉시 노출
+ *   - isOpen 변경 시 마다 initialTab 값으로 재동기화 — 매번 깔끔한 시작 보장
  */
 
 const PRODUCTS = {
@@ -27,15 +32,19 @@ const PRODUCTS = {
   ],
 };
 
-const PaymentModal = ({ isOpen, onClose, onPaymentComplete, userEnergy }) => {
-  const [tab, setTab] = useState('energy');
+const PaymentModal = ({ isOpen, onClose, onPaymentComplete, userEnergy, initialTab = 'energy' }) => {
+  const [tab, setTab] = useState(initialTab);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [status, setStatus] = useState('idle'); // idle | processing | success | error
   const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
-    if (isOpen) sfx.wooshLight();
-  }, [isOpen]);
+    if (isOpen) {
+      sfx.wooshLight();
+      // [Chunk C-3] 매번 열릴 때 initialTab으로 재동기화
+      setTab(initialTab);
+    }
+  }, [isOpen, initialTab]);
 
   useEffect(() => {
     if (status === 'error') sfx.thud();

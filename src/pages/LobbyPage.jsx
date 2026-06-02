@@ -18,6 +18,8 @@ import { fetchMyTheaterSessions } from "../api/TheaterLobbyApi";
 // [Story V2] World 탐험 진입점
 import StoryV2LobbyView from "../components/story-v2/StoryV2LobbyView";
 import StoryCreateFlow from "../components/story-v2/StoryCreateFlow";
+// [Chunk D] V2 방 전용 카드 — 기억의 끈 패널에서 V1과 시각 차별화
+import StoryV2RoomCard from "../components/story-v2/StoryV2RoomCard";
 import { assetUrl } from "../utils/assetUrl";
 import { playSfx } from "../utils/sfx";
 
@@ -503,6 +505,12 @@ const ContinuePanel = ({ rooms, onSelect, onClose }) => {
                 session={entry}
                 onSelect={(id) => onSelect(id, "THEATER")}
               />
+            ) : entry.type === "STORY_V2" ? (
+              <StoryV2RoomCard
+                key={`V2-${entry.roomId}`}
+                room={entry}
+                onSelect={(id) => onSelect(id, "STORY_V2")}
+              />
             ) : (
               <DialogueRoomCard
                 key={`D-${entry.roomId}`}
@@ -662,9 +670,16 @@ const LobbyPage = () => {
     await Promise.all([fetchRooms(), fetchTheaterSessions()]);
   };
 
-  // [Phase I] Dialogue rooms + Theater sessions 통합 — type 필드 부여 후 시간 정렬
+  // [Phase I / Chunk D] Dialogue rooms + Theater sessions 통합 — type 필드 부여 후 시간 정렬
+  //   [Chunk D] V2 STORY 방 분기 추가:
+  //     - chatMode === "STORY" AND characterId === null 인 방은 V2 — type: "STORY_V2"
+  //     - 그 외 dialogue 방 (V1 Sandbox / V1 STORY 잔재) — type: "DIALOGUE"
+  //     - 향후 RoomSummaryResponse.worldId 노출 시 worldId !== null 체크로 일원화 가능
   const mergedRooms = useMemo(() => {
-    const dialogueEntries = (rooms || []).map((r) => ({ ...r, type: "DIALOGUE" }));
+    const dialogueEntries = (rooms || []).map((r) => {
+      const isV2Story = r.chatMode === "STORY" && r.characterId == null;
+      return { ...r, type: isV2Story ? "STORY_V2" : "DIALOGUE" };
+    });
     const theaterEntries = (theaterSessions || []).map((s) => ({ ...s, type: "THEATER" }));
     const all = [...dialogueEntries, ...theaterEntries];
     all.sort((a, b) => {
@@ -746,12 +761,19 @@ const LobbyPage = () => {
     }
   };
 
-  // [Phase I] 통합 Continue: type에 따라 라우팅 분기
+  // [Phase I / Chunk D] 통합 Continue: type에 따라 라우팅 분기
+  //   THEATER   → /theater/{roomId}
+  //   STORY_V2  → /v2/chat/{roomId}   ← Chunk D 신규
+  //   DIALOGUE  → /chat/{roomId}      (V1 sandbox/story)
   const handleContinue = (roomId, type = "DIALOGUE") => {
     fadeBgmOut();
     setEntering(true);
     if (type === "THEATER") {
       setTimeout(() => navigate(`/theater/${roomId}`), 800);
+    } else if (type === "STORY_V2") {
+      // [Chunk D] V2 방은 V1 ChatPage가 거부하므로 반드시 /v2/chat/ 경로 사용
+      localStorage.setItem("roomId", roomId);
+      setTimeout(() => navigate(`/v2/chat/${roomId}`), 800);
     } else {
       localStorage.setItem("roomId", roomId);
       setTimeout(() => navigate(`/chat/${roomId}`), 800);

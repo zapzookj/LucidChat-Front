@@ -399,7 +399,10 @@ const DialogueBox = ({
   const showThoughtTabs = isStoryMode && thoughtUnlocked && innerThought;
 
   // [Phase 5.5-Sep] 이벤트/시간넘기기: 스토리 모드 전용
-  const canRequestDirector = isStoryMode && topicConcluded && !isDirectorOngoing
+  // [Phase 7-V2 Pivot] !!onRequestDirector 가드 추가 — onRequestDirector 콜백이 없으면
+  //   Sparkles "다음 씬" 버튼 자동 비노출. V1 호출 (callback 있음) → 동작 불변.
+  //   V2 호출 (callback undefined — V2는 별도 StoryV2ActionBar 사용) → 버튼 비노출.
+  const canRequestDirector = !!onRequestDirector && isStoryMode && topicConcluded && !isDirectorOngoing
                              && !awaitingFinalResult && !isTyping && energy >= 1;
 
   // [Fix #1] 에너지 분리 계산

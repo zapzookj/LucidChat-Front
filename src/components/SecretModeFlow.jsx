@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Lock, Unlock, Shield, Sparkles, Crown, Key, Moon, ArrowRight, X } from "lucide-react";
+import { Lock, Unlock, Crown, Moon, ArrowRight } from "lucide-react";
 import api from "../api/axios";
 import AdultVerificationModal from "./AdultVerificationModal";
 import { sfx } from "../utils/sfx";
@@ -14,6 +14,11 @@ import { sfx } from "../utils/sfx";
  * 3. NEED_PURCHASE  → 상점 유도
  * 4. GRANTED        → 시크릿 모드 활성화
  *
+ * [Phase 7-V2 BM 피벗]
+ *   - 시크릿 모드 BM이 user-global로 통합 — 캐릭터별 해금 폐기.
+ *   - characterId prop은 V1 호환을 위해 *받아만 두고 무시*. UI 텍스트도 user-wide 톤.
+ *   - API 호출: GET /users/secret-status (쿼리 파라미터 없음, user-global 응답).
+ *
  * [Usage]
  * <SecretModeFlow
  *   isOpen={showSecretFlow}
@@ -21,7 +26,7 @@ import { sfx } from "../utils/sfx";
  *   onGranted={() => { toggleSecretMode(); }}
  *   onOpenStore={(tab) => { setStoreTab(tab); setShowStore(true); }}
  *   userInfo={userInfo}
- *   characterId={currentCharId}
+ *   characterId={currentCharId}  // V1 호환용 — V2에선 생략 가능. 무시됨.
  * />
  */
 const SecretModeFlow = ({
@@ -30,7 +35,7 @@ const SecretModeFlow = ({
   onGranted,
   onOpenStore,
   userInfo,
-  characterId,
+  characterId, // eslint-disable-line no-unused-vars  -- V1 호환용, 무시됨
 }) => {
   const [step, setStep] = useState("idle"); // idle | check_adult | check_access | need_purchase | granted
   const [showVerifyModal, setShowVerifyModal] = useState(false);
@@ -44,6 +49,7 @@ const SecretModeFlow = ({
     }
     sfx.wooshLight();
     startFlow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   useEffect(() => {
@@ -58,14 +64,17 @@ const SecretModeFlow = ({
       return;
     }
 
-    // Step 2: Access check
+    // Step 2: Access check (user-global)
     setStep("check_access");
     await checkAccess();
-  }, [userInfo, characterId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userInfo]);
 
   const checkAccess = async () => {
     try {
-      const { data } = await api.get(`/users/secret-status?characterId=${characterId}`);
+      // [Phase 7-V2 BM 피벗] characterId 쿼리 제거 — user-global 응답.
+      // 백엔드 GET /users/secret-status는 characterId를 받아도 무시한다.
+      const { data } = await api.get("/users/secret-status");
       setAccessStatus(data);
 
       if (data.canAccess) {
@@ -88,7 +97,8 @@ const SecretModeFlow = ({
     // 인증 성공 → 접근 권한 체크로 자동 진행
     setStep("check_access");
     await checkAccess();
-  }, [characterId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleOpenStore = () => {
     sfx.click();
@@ -151,9 +161,10 @@ const SecretModeFlow = ({
                   </div>
 
                   <h3 className="text-lg font-bold text-white mb-2">시크릿 모드 해금 필요</h3>
+                  {/* [BM 피벗] 텍스트 톤도 user-global로 정리 — 캐릭터별 → 모든 캐릭터 한 번에 */}
                   <p className="text-white/50 text-sm mb-6 leading-relaxed">
-                    시크릿 모드를 이용하려면<br />
-                    해금권을 구매해야 합니다.
+                    시크릿 모드는 한 번 해금하면<br />
+                    모든 캐릭터에 적용됩니다.
                   </p>
 
                   <div className="space-y-3">
@@ -180,7 +191,7 @@ const SecretModeFlow = ({
                         <Crown size={18} className="text-rose-400" />
                         <div className="text-left">
                           <p className="text-white text-sm font-medium">미드나잇 패스 구독</p>
-                          <p className="text-white/30 text-[11px]">모든 캐릭터 시크릿 상시 개방</p>
+                          <p className="text-white/30 text-[11px]">시크릿 모드 상시 개방 + 무제한 에너지</p>
                         </div>
                       </div>
                       <ArrowRight size={16} className="text-white/30 group-hover:text-white/60 transition" />
