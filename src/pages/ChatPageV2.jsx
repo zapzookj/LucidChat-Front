@@ -41,7 +41,7 @@ import {
   markNotificationRead,
   resetStoryV2,
 } from "../api/StoryV2Api";
-import { sendV2Message, sendV2Action } from "../api/useStoryV2Stream";
+import { sendV2Message, sendV2Action } from "../api/UseStoryV2Stream";
 import StoryV2TopIndicator from "../components/story-v2/StoryV2TopIndicator";
 import StoryV2NotificationToast from "../components/story-v2/StoryV2NotificationToast";
 import StoryV2HeroineSelector from "../components/story-v2/StoryV2HeroineSelector";
