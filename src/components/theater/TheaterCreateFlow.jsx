@@ -117,6 +117,7 @@ export default function TheaterCreateFlow({
   onClose,
   initialHeroineIds = [],
   onOpenStore = null,
+  skipHeroineSelection = false,
 }) {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -138,7 +139,9 @@ export default function TheaterCreateFlow({
     return { total: 0, perStat: 0, label: null };
   }, [user]);
 
-  const [step, setStep] = useState(1);
+  // [Phase 7-V2 Pivot] 통합 로비에서 히로인 선택 완료 → step 2(아바타)부터 시작
+  const MIN_STEP = skipHeroineSelection ? 2 : 1;
+  const [step, setStep] = useState(skipHeroineSelection ? 2 : 1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -320,7 +323,10 @@ export default function TheaterCreateFlow({
     if (step < 4) { sfx.click(); setStep((s) => s + 1); }
     else handleSubmit();
   };
-  const goPrev = () => { if (step > 1) { sfx.click(); setStep((s) => s - 1); } };
+  const goPrev = () => {
+    if (step > MIN_STEP) { sfx.click(); setStep((s) => s - 1); }
+    else { sfx.click(); onClose?.(); }  // [Phase 7-V2 Pivot] 하한에서 뒤로 → 통합 로비 복귀
+  };
 
   if (!world) return null;
 

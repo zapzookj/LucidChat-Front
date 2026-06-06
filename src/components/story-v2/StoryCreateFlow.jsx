@@ -25,20 +25,25 @@ import {
  *   기존 방이 있으면 overwriteExisting=false로 1차 요청 → 409 응답 →
  *   confirm 모달 → overwriteExisting=true로 재호출
  */
-export default function StoryCreateFlow({ worldId, onCancel, onComplete }) {
-  const [step, setStep] = useState(1);
+export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetHeroineIds = null }) {
+  // [Phase 7-V2 Pivot] presetHeroineIds 전달 시 (통합 로비에서 히로인 선택 완료) → step 3(페르소나)부터 시작
+  const hasPreset = Array.isArray(presetHeroineIds) && presetHeroineIds.length > 0;
+  const MIN_STEP = hasPreset ? 3 : 1;   // 뒤로가기 하한
+  const [step, setStep] = useState(hasPreset ? 3 : 1);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [context, setContext] = useState(null);
 
-  // step 2: 히로인 선택
-  const [selectedHeroineIds, setSelectedHeroineIds] = useState([]);
+  // step 2: 히로인 선택 (preset 있으면 초기값으로 주입)
+  const [selectedHeroineIds, setSelectedHeroineIds] = useState(hasPreset ? presetHeroineIds : []);
 
   // step 3: 페르소나
   const [personaMode, setPersonaMode] = useState("preset"); // "preset" | "free"
   const [selectedPresetKey, setSelectedPresetKey] = useState(null);
   const [freePersonaText, setFreePersonaText] = useState("");
+  // [Phase 7-V2 Pivot] 닉네임 — 페르소나 단계에서 함께 확정
+  const [nickname, setNickname] = useState("");
 
   // step 4: 시작 장소
   const [selectedLocationKey, setSelectedLocationKey] = useState(null);
@@ -70,9 +75,11 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete }) {
   // step 진행 조건
   const canProceedStep2 = selectedHeroineIds.length >= 1 && selectedHeroineIds.length <= 3;
   const canProceedStep3 = useMemo(() => {
+    // [Phase 7-V2 Pivot] 닉네임 필수
+    if (!nickname.trim()) return false;
     if (personaMode === "preset") return !!selectedPresetKey;
     return freePersonaText.trim().length > 0;
-  }, [personaMode, selectedPresetKey, freePersonaText]);
+  }, [personaMode, selectedPresetKey, freePersonaText, nickname]);
   const canProceedStep4 = !!selectedLocationKey;
 
   const goNext = () => {
@@ -91,9 +98,13 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete }) {
   };
 
   const goPrev = () => {
-    if (step > 1) {
+    if (step > MIN_STEP) {
       sfx.click();
       setStep((s) => s - 1);
+    } else {
+      // [Phase 7-V2 Pivot] 하한에서 뒤로 → 상위 플로우(통합 로비)로 복귀
+      sfx.click();
+      onCancel?.();
     }
   };
 
@@ -121,6 +132,7 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete }) {
       worldId,
       heroineIds: selectedHeroineIds,
       startLocationKey: selectedLocationKey,
+      nickname: nickname.trim(),   // [Phase 7-V2 Pivot] 닉네임 전달
       personaText: personaMode === "free" ? freePersonaText.trim() : null,
       selectedPersonaPresetKey: personaMode === "preset" ? selectedPresetKey : null,
       overwriteExisting,
@@ -243,6 +255,8 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete }) {
                   setSelectedPresetKey={setSelectedPresetKey}
                   freePersonaText={freePersonaText}
                   setFreePersonaText={setFreePersonaText}
+                  nickname={nickname}
+                  setNickname={setNickname}
                 />
               )}
               {step === 4 && (
@@ -397,6 +411,8 @@ function Step3Persona({
   setSelectedPresetKey,
   freePersonaText,
   setFreePersonaText,
+  nickname,
+  setNickname,
 }) {
   return (
     <motion.div
@@ -409,28 +425,56 @@ function Step3Persona({
       </h2>
       <p className="text-sm text-stone-400 mb-4">이 세계에서 너는 누구인가</p>
 
-      {/* 탭 */}
-      <div className="flex gap-2 mb-4">
-        <button
-          onClick={() => setPersonaMode("preset")}
-          className={`flex-1 py-2 rounded text-sm font-medium transition ${
-            personaMode === "preset"
-              ? "bg-amber-500 text-black"
-              : "bg-stone-800 text-stone-400 hover:bg-stone-700"
-          }`}
-        >
-          사전 정의
-        </button>
-        <button
-          onClick={() => setPersonaMode("free")}
-          className={`flex-1 py-2 rounded text-sm font-medium transition ${
-            personaMode === "free"
-              ? "bg-amber-500 text-black"
-              : "bg-stone-800 text-stone-400 hover:bg-stone-700"
-          }`}
-        >
-          자유 입력 {!hasFreeUnlock && "🔒"}
-        </button>
+      {/* [Phase 7-V2 Pivot] 닉네임 입력 — 페르소나와 함께 확정 */}
+      <div className="mb-5">
+        <label className="block text-xs text-stone-400 mb-1.5">닉네임 <span className="text-amber-400">*</span></label>
+        <div className="relative">
+          <input
+            type="text"
+            value={nickname}
+            maxLength={20}
+            onChange={(e) => { if (e.target.value.length <= 20) setNickname(e.target.value); }}
+            placeholder="이 세계에서 불릴 이름"
+            className={`w-full bg-stone-800 text-white rounded px-4 py-2.5 pr-12 focus:outline-none focus:ring-2 transition
+              ${nickname.trim() ? 'focus:ring-amber-400' : 'ring-1 ring-rose-500/40 focus:ring-rose-500/60'}`}
+          />
+          {nickname.length > 0 && (
+            <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium
+              ${nickname.length >= 20 ? 'text-rose-400' : 'text-stone-500'}`}>
+              {nickname.length}/20
+            </span>
+          )}
+        </div>
+        {!nickname.trim() && (
+          <p className="text-[11px] text-rose-400/70 mt-1">닉네임을 입력해야 진행할 수 있습니다.</p>
+        )}
+      </div>
+
+      {/* 페르소나 탭 */}
+      <div className="border-t border-stone-700/50 pt-4">
+        <label className="block text-xs text-stone-400 mb-2">페르소나</label>
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={() => setPersonaMode("preset")}
+            className={`flex-1 py-2 rounded text-sm font-medium transition ${
+              personaMode === "preset"
+                ? "bg-amber-500 text-black"
+                : "bg-stone-800 text-stone-400 hover:bg-stone-700"
+            }`}
+          >
+            사전 정의
+          </button>
+          <button
+            onClick={() => setPersonaMode("free")}
+            className={`flex-1 py-2 rounded text-sm font-medium transition ${
+              personaMode === "free"
+                ? "bg-amber-500 text-black"
+                : "bg-stone-800 text-stone-400 hover:bg-stone-700"
+            }`}
+          >
+            자유 입력 {!hasFreeUnlock && "🔒"}
+          </button>
+        </div>
       </div>
 
       {personaMode === "preset" && (

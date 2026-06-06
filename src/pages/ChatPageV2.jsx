@@ -45,8 +45,6 @@ import { sendV2Message, sendV2Action } from "../api/useStoryV2Stream";
 import StoryV2TopIndicator from "../components/story-v2/StoryV2TopIndicator";
 import StoryV2NotificationToast from "../components/story-v2/StoryV2NotificationToast";
 import StoryV2HeroineSelector from "../components/story-v2/StoryV2HeroineSelector";
-import StoryV2ActionBar from "../components/story-v2/StoryV2ActionBar";
-import StoryV2DialogueOptions from "../components/story-v2/StoryV2DialogueOptions";
 import StoryV2LocationMoveModal from "../components/story-v2/StoryV2LocationMoveModal";
 import StoryV2ResetModal from "../components/story-v2/StoryV2ResetModal";
 import StoryV2EndingCredits from "../components/story-v2/StoryV2EndingCredits";
@@ -302,6 +300,29 @@ const ChatPage = () => {
       isCurrentSpeaker: h.characterId === currentSpeakerCharacterId,
     }));
   }, [v2Room?.heroines, currentSpeakerCharacterId]);
+
+  // [Phase 7-V2 Pivot Fix] CharacterDisplay에 표시할 *현재 화자*의 슬러그.
+  //   우선순위: 현재 씬 화자(이름) → heroines 매칭 slug → currentSpeakerHeroine slug → 첫 히로인 slug
+  //   (V1 CharacterDisplay는 characterSlug 없으면 'airi'로 폴백하므로, 반드시 화자 slug를 넘겨야 함)
+  const v2DisplaySlug = useMemo(() => {
+    if (!isV2) return roomInfo?.characterSlug;
+    const heroines = v2Room?.heroines || [];
+    const speakerName = currentScene?.speaker || currentSpeaker;
+    if (speakerName) {
+      const matched = heroines.find((h) => h.name === speakerName);
+      if (matched?.slug) return matched.slug;
+    }
+    if (currentSpeakerHeroine?.slug) return currentSpeakerHeroine.slug;
+    return heroines[0]?.slug || roomInfo?.characterSlug || null;
+  }, [isV2, v2Room?.heroines, currentScene?.speaker, currentSpeaker, currentSpeakerHeroine, roomInfo?.characterSlug]);
+
+  // [Phase 7-V2 Pivot Fix] 현재 화자 히로인의 표시 이름 (CharacterDisplay/패널용)
+  const v2DisplayName = useMemo(() => {
+    if (!isV2) return roomInfo?.characterName;
+    const speakerName = currentScene?.speaker || currentSpeaker;
+    if (speakerName) return speakerName;
+    return currentSpeakerHeroine?.name || v2Room?.heroines?.[0]?.name || roomInfo?.characterName;
+  }, [isV2, currentScene?.speaker, currentSpeaker, currentSpeakerHeroine, v2Room?.heroines, roomInfo?.characterName]);
 
   // ================= Helper Functions =================
   const showToast = useCallback((message, type = "info") => {
@@ -2854,10 +2875,10 @@ const ChatPage = () => {
         <CharacterDisplay
           emotion={displayedEmotion}
           outfit={currentOutfit}
-          characterSlug={roomInfo?.characterSlug}
+          characterSlug={isV2 ? v2DisplaySlug : roomInfo?.characterSlug}
           defaultOutfit={roomInfo?.defaultOutfit}
-          npcSpeaker={npcSpeaker}
-          isNpcActive={currentSpeaker !== null && currentSpeaker !== roomInfo?.characterName}
+          npcSpeaker={isV2 ? null : npcSpeaker}
+          isNpcActive={isV2 ? false : (currentSpeaker !== null && currentSpeaker !== roomInfo?.characterName)}
         />
 
         {/* [Phase 5.5-IT] 속마음 말풍선 — CharacterDisplay 위에 오버레이 */}
@@ -2877,7 +2898,7 @@ const ChatPage = () => {
         bpm={currentBpm}
         dynamicRelationTag={dynamicRelationTag}
         characterThought={characterThought}
-        characterName={roomInfo?.characterName || "캐릭터"}
+        characterName={isV2 ? (currentSpeakerHeroine?.name || v2DisplayName) : (roomInfo?.characterName || "캐릭터")}
         statusLevel={roomInfo?.statusLevel || "STRANGER"}
         isSecretMode={roomInfo?.secretModeActive}
         chatMode={roomInfo?.chatMode}
@@ -2991,7 +3012,7 @@ const ChatPage = () => {
         energy={energy}
         onNextScene={handleNextScene}
         hasNextScene={sceneQueue.length > 0}
-        nickname={userInfo.nickname}
+        nickname={isV2 ? (v2Room?.userNickname || userInfo.nickname) : userInfo.nickname}
         onTriggerEvent={isV2 ? undefined : handleTriggerEvent}
         boostMode={boostMode}
         isSubscriber={isSubscriber}
@@ -3014,44 +3035,26 @@ const ChatPage = () => {
         awaitingFinalResult={awaitingFinalResult}
         freeEnergy={freeEnergy}
         paidEnergy={paidEnergy}
-        // [Phase 7-V2 Pivot] V2는 onRequestDirector 미전달 — V1 패치된 `!!onRequestDirector` 가드로
-        //   Sparkles 버튼 자동 비노출. V2의 "다음 씬" 기능은 StoryV2ActionBar로 외부 노출.
+        // [Phase 7-V2 Pivot] V2 통합 props — DialogueBox 내부에 디렉터 제안 + 액션바 노출
         onRequestDirector={isV2 ? undefined : handleRequestDirector}
         directorLoading={isV2 ? false : directorLoading}
+        storyV2Mode={isV2}
+        dialogueOptions={isV2 ? dialogueOptions : []}
+        onSelectDialogueOption={(opt) => {
+          setDialogueOptions([]);
+          void handleSendMessageV2(opt);
+        }}
+        showStoryActions={isV2 && topicConcluded}
+        onStoryAction={(type) => {
+          if (type === "MOVE") {
+            setShowV2LocationModal(true);
+          } else {
+            void handleSendActionV2(type);
+          }
+        }}
       />
 
-      {/* ━━━ [Phase 7-V2 Pivot] V2 DialogueOptions — DialogueBox 입력창 *위* ━━━ */}
-      {isV2 && (
-        <div className="absolute bottom-[140px] sm:bottom-[120px] left-0 right-0 z-25 pointer-events-none">
-          <div className="pointer-events-auto">
-            <StoryV2DialogueOptions
-              options={dialogueOptions}
-              isStreaming={isTyping || awaitingFinalResult}
-              onSelect={(opt) => {
-                // 클릭 즉시 송신 — V1 DialogueBox의 input state를 외부에서 직접 채울 수 없으므로
-                // 추천 텍스트를 그대로 전송. 사용자가 편집을 원하면 직접 타이핑.
-                setDialogueOptions([]);
-                void handleSendMessageV2(opt);
-              }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* ━━━ [Phase 7-V2 Pivot] V2 ActionBar — DialogueBox 입력창 *아래* (topicConcluded 조건) ━━━ */}
-      {isV2 && (
-        <div className="absolute bottom-0 left-0 right-0 z-25 pointer-events-none pb-1">
-          <div className="pointer-events-auto">
-            <StoryV2ActionBar
-              topicConcluded={topicConcluded}
-              isStreaming={isTyping || awaitingFinalResult}
-              onNextScene={() => handleSendActionV2("NEXT_SCENE")}
-              onTimeAdvance={() => handleSendActionV2("TIME_ADVANCE")}
-              onMoveClick={() => setShowV2LocationModal(true)}
-            />
-          </div>
-        </div>
-      )}
+      {/* [Phase 7-V2 Pivot] dialogue_options + 액션바는 DialogueBox 내부로 통합됨 — 외부 중복 컴포넌트 제거 */}
 
       {/* ================= Event Selection Modal (3-Branch) ================= */}
       <AnimatePresence>
@@ -3547,7 +3550,7 @@ const ChatPage = () => {
                                 {/* [Phase 7-V2 Pivot] V2는 CreateFlow에서 확정 → read-only 표시 */}
                                 {isV2 ? (
                                   <div className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-4 py-3 text-white/80 flex items-center justify-between">
-                                    <span>{userInfo.nickname || "(이름 없음)"}</span>
+                                    <span>{(v2Room?.userNickname || userInfo.nickname) || "(이름 없음)"}</span>
                                     <span className="text-[10px] text-amber-300/60 uppercase tracking-wider">스토리 진행 중 · 잠김</span>
                                   </div>
                                 ) : (

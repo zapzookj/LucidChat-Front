@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Heart, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity, MessageSquare, Eye, Clock, EyeIcon, Gem } from "lucide-react";
+import { Send, Heart, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity, MessageSquare, Eye, Clock, EyeIcon, Gem, MessageCircle, ChevronUp, FastForward, MapPin } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { sanitizeScene } from "../utils/dialogueSanitizer";
 import { sfx } from "../utils/sfx";
@@ -259,10 +259,18 @@ const DialogueBox = ({
   // ── [Phase 5.5-Director] 디렉터 통합 ──
   onRequestDirector,      // 유저 수동 디렉터 호출 핸들러
   directorLoading = false, // 디렉터 요청 로딩 중
+  // ── [Phase 7-V2 Pivot] V2 전용 (additive — 미전달 시 V1 동작 100% 보존) ──
+  storyV2Mode = false,            // V2 모드 활성 — V2 통합 UI 노출 게이트
+  dialogueOptions = [],           // V2 디렉터 제안 선택지 (버튼 토글로 노출)
+  onSelectDialogueOption,         // 선택지 클릭 → (option: string) => void
+  showStoryActions = false,       // V2 액션바 노출 (topicConcluded 연동)
+  onStoryAction,                  // 액션 클릭 → (type: "NEXT_SCENE"|"TIME_ADVANCE"|"MOVE") => void
 }) => {
   const [input, setInput] = useState("");
   const [displayedText, setDisplayedText] = useState("");
   const [isTextFullyDisplayed, setIsTextFullyDisplayed] = useState(false);
+  // [Phase 7-V2 Pivot] 디렉터 제안 패널 펼침 상태 (기본 닫힘 — 버튼으로 토글)
+  const [showOptionsPanel, setShowOptionsPanel] = useState(false);
 
   // [Polish · P1 #2] 표시 직전 dialogue/narration prefix 방어 sanitize.
   //   백엔드는 이제 깨끗이 정리하지만 과거 MongoDB에 저장된 chatLog 중 prefix가 묻은
@@ -766,7 +774,87 @@ const DialogueBox = ({
           {/* ═══ 입력 영역 ═══ */}
           {activeTab === "dialogue" && !hasNextScene && !isEventScene && !awaitingFinalResult && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 relative z-10">
- 
+
+              {/* ━━━ [Phase 7-V2 Pivot] 디렉터 제안 패널 + 액션 바 (입력 form 위 통합) ━━━ */}
+              {storyV2Mode && (
+                <div className="mb-3">
+                  {/* 디렉터 제안 펼침 패널 — 토글 버튼으로 노출/숨김 */}
+                  <AnimatePresence>
+                    {showOptionsPanel && dialogueOptions.length > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden mb-2"
+                      >
+                        <div className="flex flex-col gap-1.5 pb-1">
+                          {dialogueOptions.map((opt, i) => (
+                            <motion.button
+                              key={`${opt}-${i}`}
+                              type="button"
+                              initial={{ opacity: 0, x: -8 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ delay: i * 0.05 }}
+                              onClick={() => {
+                                sfx.click();
+                                setShowOptionsPanel(false);
+                                onSelectDialogueOption?.(opt);
+                              }}
+                              className="group relative w-full text-left pl-8 pr-9 py-2.5 bg-gradient-to-r from-amber-500/12 to-amber-500/5 hover:from-amber-500/22 hover:to-amber-500/10 border border-amber-400/30 hover:border-amber-400/55 rounded-lg transition-all duration-200"
+                            >
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] text-amber-300/45 font-mono">{i + 1}</span>
+                              <span className="text-sm text-amber-100 leading-snug">{opt}</span>
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-300/55 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200">→</span>
+                            </motion.button>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* 버튼 행: [디렉터의 제안 토글] + [다음 씬 / 시간 진전 / 장소 이동] */}
+                  {(dialogueOptions.length > 0 || showStoryActions) && (
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* 디렉터 제안 토글 — dialogueOptions 있을 때만 */}
+                      {dialogueOptions.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => { sfx.click(); setShowOptionsPanel((v) => !v); }}
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition
+                            ${showOptionsPanel
+                              ? 'bg-amber-500/25 border-amber-400/55 text-amber-100'
+                              : 'bg-amber-500/10 border-amber-400/30 text-amber-300 hover:bg-amber-500/20'}`}
+                        >
+                          <MessageCircle size={13} />
+                          디렉터의 제안
+                          <span className="text-amber-300/50">({dialogueOptions.length})</span>
+                          <ChevronUp size={13} className={`transition-transform ${showOptionsPanel ? '' : 'rotate-180'}`} />
+                        </button>
+                      )}
+
+                      {/* 액션 바 — topicConcluded(showStoryActions) 시 */}
+                      {showStoryActions && (
+                        <>
+                          <button type="button" onClick={() => { sfx.click(); onStoryAction?.("NEXT_SCENE"); }}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-white/80 hover:bg-white/10 hover:border-white/20 text-xs font-medium transition">
+                            <FastForward size={13} /> 다음 씬
+                          </button>
+                          <button type="button" onClick={() => { sfx.click(); onStoryAction?.("TIME_ADVANCE"); }}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-white/80 hover:bg-white/10 hover:border-white/20 text-xs font-medium transition">
+                            <Clock size={13} /> 시간 진전
+                          </button>
+                          <button type="button" onClick={() => { sfx.click(); onStoryAction?.("MOVE"); }}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-white/80 hover:bg-white/10 hover:border-white/20 text-xs font-medium transition">
+                            <MapPin size={13} /> 장소 이동
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* [v3] 투명 디렉터: 이벤트 중에도 일반 입력 폼만 표시 */}
               {/* AWAY 이벤트: 유저가 채팅을 입력하면 자연스럽게 개입 */}
                 <form onSubmit={handleSubmit} className="flex gap-3">

@@ -14,12 +14,11 @@ import LucidStore from "../components/LucidStore";
 // [Phase 5.5-Theater-Polish · Phase I] 통합 진입점
 import TheaterDoorway from "../components/lobby/TheaterDoorway";
 import TheaterCreateFlow from "../components/theater/TheaterCreateFlow";
-import { fetchMyTheaterSessions } from "../api/TheaterLobbyApi";
+import { fetchMyTheaterSessions, fetchWorld as fetchTheaterWorld } from "../api/TheaterLobbyApi";
 // [Story V2] World 탐험 진입점
 import StoryV2LobbyView from "../components/story-v2/StoryV2LobbyView";
 import StoryCreateFlow from "../components/story-v2/StoryCreateFlow";
-// [Chunk D] V2 방 전용 카드 — 기억의 끈 패널에서 V1과 시각 차별화
-import StoryV2RoomCard from "../components/story-v2/StoryV2RoomCard";
+import LobbyNewEncounterFlow from "../components/lobby/LobbyNewEncounterFlow";
 import { assetUrl } from "../utils/assetUrl";
 import { playSfx } from "../utils/sfx";
 
@@ -315,7 +314,7 @@ const DialogueRoomCard = ({ room, onSelect }) => {
 
   return (
     <motion.div
-      onClick={() => { playSfx(`/sounds/sfx_button_click.wav`, 0.3); onSelect(room.roomId); }}
+      onClick={() => { playSfx(`/sounds/sfx_button_click.wav`, 0.3); onSelect(room.roomId, room.chatMode); }}
       onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.12)}
       className="relative group p-4 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.06] hover:border-white/10 cursor-pointer transition-colors duration-200"
       whileHover={{ scale: 1.01, transition: { type: "spring", stiffness: 400, damping: 25 } }}
@@ -505,17 +504,11 @@ const ContinuePanel = ({ rooms, onSelect, onClose }) => {
                 session={entry}
                 onSelect={(id) => onSelect(id, "THEATER")}
               />
-            ) : entry.type === "STORY_V2" ? (
-              <StoryV2RoomCard
-                key={`V2-${entry.roomId}`}
-                room={entry}
-                onSelect={(id) => onSelect(id, "STORY_V2")}
-              />
             ) : (
               <DialogueRoomCard
                 key={`D-${entry.roomId}`}
                 room={entry}
-                onSelect={(id) => onSelect(id, "DIALOGUE")}
+                onSelect={(id, chatMode) => onSelect(id, "DIALOGUE", chatMode)}
               />
             )
           )}
@@ -670,16 +663,9 @@ const LobbyPage = () => {
     await Promise.all([fetchRooms(), fetchTheaterSessions()]);
   };
 
-  // [Phase I / Chunk D] Dialogue rooms + Theater sessions 통합 — type 필드 부여 후 시간 정렬
-  //   [Chunk D] V2 STORY 방 분기 추가:
-  //     - chatMode === "STORY" AND characterId === null 인 방은 V2 — type: "STORY_V2"
-  //     - 그 외 dialogue 방 (V1 Sandbox / V1 STORY 잔재) — type: "DIALOGUE"
-  //     - 향후 RoomSummaryResponse.worldId 노출 시 worldId !== null 체크로 일원화 가능
+  // [Phase I] Dialogue rooms + Theater sessions 통합 — type 필드 부여 후 시간 정렬
   const mergedRooms = useMemo(() => {
-    const dialogueEntries = (rooms || []).map((r) => {
-      const isV2Story = r.chatMode === "STORY" && r.characterId == null;
-      return { ...r, type: isV2Story ? "STORY_V2" : "DIALOGUE" };
-    });
+    const dialogueEntries = (rooms || []).map((r) => ({ ...r, type: "DIALOGUE" }));
     const theaterEntries = (theaterSessions || []).map((s) => ({ ...s, type: "THEATER" }));
     const all = [...dialogueEntries, ...theaterEntries];
     all.sort((a, b) => {
@@ -761,22 +747,38 @@ const LobbyPage = () => {
     }
   };
 
-  // [Phase I / Chunk D] 통합 Continue: type에 따라 라우팅 분기
-  //   THEATER   → /theater/{roomId}
-  //   STORY_V2  → /v2/chat/{roomId}   ← Chunk D 신규
-  //   DIALOGUE  → /chat/{roomId}      (V1 sandbox/story)
-  const handleContinue = (roomId, type = "DIALOGUE") => {
+  // [Phase I] 통합 Continue: type에 따라 라우팅 분기
+  const handleContinue = (roomId, typeOrChatMode = "DIALOGUE", chatMode = null) => {
     fadeBgmOut();
     setEntering(true);
-    if (type === "THEATER") {
+    // [Phase 7-V2 Pivot Fix] 라우팅 분기:
+    //   - THEATER 세션 → /theater/:id
+    //   - V2 STORY 방 (chatMode === "STORY") → /v2/chat/:id  (V1 ChatPage가 아닌 ChatPageV2)
+    //   - 그 외 (SANDBOX) → /chat/:id
+    // 호출 시그니처 두 가지 지원: handleContinue(id, "THEATER") | handleContinue(id, "DIALOGUE", chatMode)
+    if (typeOrChatMode === "THEATER") {
       setTimeout(() => navigate(`/theater/${roomId}`), 800);
-    } else if (type === "STORY_V2") {
-      // [Chunk D] V2 방은 V1 ChatPage가 거부하므로 반드시 /v2/chat/ 경로 사용
-      localStorage.setItem("roomId", roomId);
-      setTimeout(() => navigate(`/v2/chat/${roomId}`), 800);
-    } else {
-      localStorage.setItem("roomId", roomId);
-      setTimeout(() => navigate(`/chat/${roomId}`), 800);
+      return;
+    }
+    const isStoryV2 = chatMode === "STORY";
+    localStorage.setItem("roomId", roomId);
+    setTimeout(() => navigate(isStoryV2 ? `/v2/chat/${roomId}` : `/chat/${roomId}`), 800);
+  };
+
+  // [Phase 7-V2 Pivot] 통합 플로우 → 극장 핸드오프.
+  //   worldId + 선택된 히로인을 받아 극장 World 디테일을 fetch한 뒤
+  //   TheaterCreateFlow를 히로인 단계 건너뛰고(아바타 단계부터) 오픈.
+  const handleTheaterHandoff = async (worldId, heroineIds) => {
+    try {
+      const world = await fetchTheaterWorld(worldId);
+      setCreateFlowState({
+        world,
+        initialHeroineIds: heroineIds,
+        skipHeroineSelection: true,
+      });
+    } catch (e) {
+      console.error("[Lobby] theater world fetch failed", e);
+      alert("극장 정보를 불러오지 못했습니다.");
     }
   };
 
@@ -909,7 +911,7 @@ const LobbyPage = () => {
         {view === "hub" && (
           <motion.div
             key="hub"
-            className="relative z-10 flex flex-col items-center h-[calc(100%-80px)] overflow-y-auto custom-scrollbar pt-4 sm:pt-6 pb-8"
+            className="relative z-10 flex flex-col items-center justify-center h-[calc(100%-80px)] overflow-y-auto custom-scrollbar py-8"
             initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.5 }}
           >
@@ -931,11 +933,10 @@ const LobbyPage = () => {
               <p className="text-white/25 text-xs sm:text-sm tracking-[0.3em] uppercase text-center hidden">Lucid Station</p>
             </motion.div>
 
-            {/* [Fix #2] 3-way 미니멀 메뉴 + [Phase I] mergedRooms 기준으로 disabled */}
+            {/* [Phase 7-V2 Pivot] 진입점 단일화 — '새로운 만남' 하나로 모드/세계관/캐릭터 통합 */}
             <div className="flex flex-col items-center gap-5 sm:gap-7 flex-shrink-0">
               {[
-                { label: "새로운 만남", sub: "New Encounter", action: () => setView("characters") },
-                { label: "이야기의 문턱", sub: "Story Worlds", action: () => setView("worlds") },
+                { label: "새로운 만남", sub: "New Encounter", action: () => setView("encounter") },
                 { label: "기억의 끈", sub: "Continue", action: () => { fetchRoomsAll(); setView("continue"); }, disabled: mergedRooms.length === 0 },
                 { label: "수집품", sub: "Archives", action: () => setShowAchievements(true) },
               ].map((item, i) => (
@@ -971,28 +972,29 @@ const LobbyPage = () => {
               ))}
             </div>
 
-            {/* [Phase I] 메뉴 ↔ Doorway 사이 구분선 */}
-            <motion.div
-              className="my-7 sm:my-8 w-40 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent flex-shrink-0"
-              initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ delay: 0.55, duration: 0.9 }}
-            />
-
-            {/* [Phase I] 시네마틱 극장 입구 — Hub의 일부로 자연스럽게 박힌 프롭 */}
-            <motion.div
-              className="flex-shrink-0 mb-6"
-              initial={{ opacity: 0, y: 24 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.7, duration: 0.7, ease: "easeOut" }}
-            >
-              <TheaterDoorway
-                onEnter={handleEnterTheaterPortal}
-                sessionCount={theaterSessions.length}
-              />
-            </motion.div>
+            {/* [Phase 7-V2 Pivot] 극장 입구 Doorway 제거 — '새로운 만남' 통합 플로우로 진입.
+                기존 극장 세션 '이어하기'는 '기억의 끈'에서 노출됨. */}
           </motion.div>
         )}
 
-        {/* ═══ 캐릭터 선택 화면 ═══ */}
+        {/* ═══ [Phase 7-V2 Pivot] 통합 새로운 만남 플로우 ═══ */}
+        {view === "encounter" && (
+          <LobbyNewEncounterFlow
+            onBack={() => setView("hub")}
+            onEnterChat={(roomId) => {
+              setEntering(true);
+              setTimeout(() => navigate(`/chat/${roomId}`), 600);
+            }}
+            onHandoffStory={({ worldId, heroineIds }) => {
+              setStoryV2CreateFlow({ worldId, presetHeroineIds: heroineIds });
+            }}
+            onHandoffTheater={({ worldId, heroineIds }) => {
+              void handleTheaterHandoff(worldId, heroineIds);
+            }}
+          />
+        )}
+
+        {/* ═══ 캐릭터 선택 화면 (레거시 — encounter 플로우로 대체, 직접 진입 없음) ═══ */}
         {view === "characters" && (
           <motion.div key="characters" className="relative z-10 flex flex-col h-[calc(100%-80px)]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.4 }}>
             <div className="px-6 py-2">
@@ -1082,7 +1084,8 @@ const LobbyPage = () => {
         {storyV2CreateFlow && (
           <StoryCreateFlow
             worldId={storyV2CreateFlow.worldId}
-            onCancel={() => setStoryV2CreateFlow(null)}
+            presetHeroineIds={storyV2CreateFlow.presetHeroineIds || null}
+            onCancel={() => { setStoryV2CreateFlow(null); setView("encounter"); }}
             onComplete={(roomId) => {
               setStoryV2CreateFlow(null);
               navigate(`/v2/chat/${roomId}`);
@@ -1099,7 +1102,8 @@ const LobbyPage = () => {
           <TheaterCreateFlow
             world={createFlowState.world}
             initialHeroineIds={createFlowState.initialHeroineIds || []}
-            onClose={() => setCreateFlowState(null)}
+            skipHeroineSelection={createFlowState.skipHeroineSelection || false}
+            onClose={() => { setCreateFlowState(null); if (createFlowState.skipHeroineSelection) setView("encounter"); }}
             // [Phase III · B-4] 무료 유저 Step 4 업셀
             onOpenStore={() => {
               setStoreInitialTab("subscription");
