@@ -1,4 +1,4 @@
-import { getStoryV2StreamUrl } from "./StoryV2Api";
+import { getStoryV2StreamUrl, getStoryV2OpeningStreamUrl } from "./StoryV2Api";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL;
 // const BASE_URL = 'http://localhost:8080/api/v1';
@@ -53,6 +53,19 @@ export async function sendV2Action(roomId, actionType, actionPayload, callbacks,
     actionType,
     actionPayload,
   }, callbacks, abortController);
+}
+
+/**
+ * [E-3 C-1] 오프닝 스트림 — 방 첫 진입 시 자동 1회 호출.
+ * 유저 입력 없이 디렉터가 도입 장면을 생성해 first_scene/final_result로 스트리밍한다.
+ * body는 비어 있다(엔드포인트가 무시). 백엔드가 멱등(이미 로그 존재 시 빈 완료)이라 중복 발사에 안전.
+ *
+ * @param {number} roomId
+ * @param {object} callbacks  {onFirstScene, onFinalResult, onError}
+ * @param {AbortController} abortController
+ */
+export async function sendV2Opening(roomId, callbacks, abortController) {
+  return _ssePostV2(getStoryV2OpeningStreamUrl(roomId), {}, callbacks, abortController);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

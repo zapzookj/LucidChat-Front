@@ -136,3 +136,8 @@ export async function markNotificationRead(roomId, notificationId) {
 export function getStoryV2StreamUrl(roomId) {
   return `/v2/story/rooms/${roomId}/messages/stream`;
 }
+
+/** [E-3 C-1] 오프닝 SSE 엔드포인트 경로 — 방 첫 진입 시 디렉터가 도입 장면을 자동 생성. */
+export function getStoryV2OpeningStreamUrl(roomId) {
+  return `/v2/story/rooms/${roomId}/opening/stream`;
+}

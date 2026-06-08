@@ -217,6 +217,30 @@ const BPM_RANGES = [
 //  DialogueBox 메인 컴포넌트
 // ═══════════════════════════════════════════════════════════════
 
+// [Bug1-UX] 시스템 나레이션(터미널 이벤트 씬) 직후 "당신의 차례" 행동 유도 큐.
+//  시스템이 상황을 제시한 뒤 유저가 자유 입력/제안/행동으로 응답하도록, 명확하고 절제된 시각적 비트를 만든다.
+function SystemTurnCue() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: "easeOut" }}
+      className="mb-3 flex items-center gap-3 select-none"
+    >
+      <span className="h-px flex-1 bg-gradient-to-r from-transparent to-indigo-300/30" />
+      <span className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-indigo-200/80 whitespace-nowrap">
+        <motion.span
+          className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-300"
+          animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
+          transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+        />
+        당신의 차례 · 어떻게 하시겠어요?
+      </span>
+      <span className="h-px flex-1 bg-gradient-to-l from-transparent to-indigo-300/30" />
+    </motion.div>
+  );
+}
+
 const DialogueBox = ({
   characterName,
   scene: rawScene,
@@ -391,7 +415,7 @@ const DialogueBox = ({
     if (scene?.dialogue && !isTextFullyDisplayed) {
       setDisplayedText(scene.dialogue);
       setIsTextFullyDisplayed(true);
-    } else if (hasNextScene || isEventScene) {
+    } else if (hasNextScene || (isEventScene && !storyV2Mode)) {
       sfx.pageTurn();
       onNextScene();
     }
@@ -772,8 +796,10 @@ const DialogueBox = ({
           </AnimatePresence>
 
           {/* ═══ 입력 영역 ═══ */}
-          {activeTab === "dialogue" && !hasNextScene && !isEventScene && !awaitingFinalResult && (
+          {activeTab === "dialogue" && !hasNextScene && !awaitingFinalResult && (!isEventScene || storyV2Mode) && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-4 relative z-10">
+
+              {storyV2Mode && isEventScene && <SystemTurnCue />}
 
               {/* ━━━ [Phase 7-V2 Pivot] 디렉터 제안 패널 + 액션 바 (입력 form 위 통합) ━━━ */}
               {storyV2Mode && (
