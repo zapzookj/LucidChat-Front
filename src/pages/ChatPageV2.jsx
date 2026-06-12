@@ -1318,7 +1318,11 @@ const ChatPage = () => {
                   "아이리": "아이리가 숙여 인사하며 부드럽게 미소짓는다.",
                   "백루나": "루나가 머뭇거리며 말합니다.",
                   "서태리": "태리가 귀찮다는 듯이 인사합니다.",
-                  "로제타": "로제타가 먹잇감을 발견한 눈빛으로 당신을 쳐다봅니다."
+                  "로제타": "로제타가 먹잇감을 발견한 눈빛으로 당신을 쳐다봅니다.",
+                  "에델": "에델이 무심한 얼굴로 말을 건넵니다.",
+                  "시에라": "시에라가 졸린 듯한 표정으로 미소를 지으며 말을 건넵니다.",
+                  "강채린": "채린이 반가운 듯 밝게 웃으며 다가와 말을 건넵니다.",
+                  "류설아": "당당한 표정으로 당신을 바라보며 말을 건넵니다."
               };
               queue.push({
                   dialogue: greetingLog.cleanContent,
@@ -1768,7 +1772,7 @@ const ChatPage = () => {
 
         // 메시지 히스토리 갱신
         if (scenes && scenes.length > 0) {
-          const entries = scenes.map((s) => {
+          const entries = scenes.map((s, i) => {
             const isSystem = isSystemSpeaker(s.speaker, heroinesSnapshot);
             const content = [];
             if (s.narration) content.push(`*${s.narration}*`);
@@ -1883,7 +1887,7 @@ const ChatPage = () => {
                 hasInnerThought: resHasThought, assistantLogId: resLogId } = data || {};
 
         if (scenes && scenes.length > 0) {
-          const entries = scenes.map((s) => {
+          const entries = scenes.map((s, i) => {
             const isSystem = isSystemSpeaker(s.speaker, heroinesSnapshot);
             const content = [];
             if (s.narration) content.push(`*${s.narration}*`);
