@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Heart, Mic } from "lucide-react";
+import { X, Heart, ChevronRight } from "lucide-react";
 import { sfx } from "../../utils/sfx";
+import { getHeroinePaletteByCharacterId } from "../../utils/characterColor";
 
 /**
  * [Story V2] 히로인 셀렉터 — BiometricStatusPanel을 띄우기 *전* 단계.
@@ -22,7 +23,7 @@ import { sfx } from "../../utils/sfx";
  * @param {boolean}  props.isOpen
  * @param {function} props.onClose
  * @param {Array}    props.heroines               — V2 ChatRoom.heroines (HeroineStateResponse)
- * @param {number|null} props.currentSpeakerCharacterId
+ * @param {number|null} props.currentSpeakerCharacterId — [UX2] 화자 강조 제거로 미사용 (호출부 호환 위해 수신만)
  * @param {function} props.onSelect               — (heroine) => void; BiometricStatusPanel 전환
  */
 export default function StoryV2HeroineSelector({
@@ -61,7 +62,9 @@ export default function StoryV2HeroineSelector({
           {/* 히로인 카드 리스트 */}
           <div className="flex-1 overflow-y-auto p-5 space-y-3 custom-scrollbar">
             {(heroines || []).map((h, i) => {
-              const isCurrentSpeaker = h.characterId === currentSpeakerCharacterId;
+              // [UX2] 화자 강조 제거 + 시네마틱 카드 — 캐릭터 컬러 악센트 / 풀하이트 초상 / 호감 게이지
+              const palette = getHeroinePaletteByCharacterId(h.characterId, heroines);
+              const affection = Math.max(0, Math.min(100, h.statAffection ?? 0));
               return (
                 <motion.button
                   key={h.characterId}
@@ -69,52 +72,58 @@ export default function StoryV2HeroineSelector({
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.05 }}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={`relative w-full p-4 rounded-xl border text-left transition ${
-                    isCurrentSpeaker
-                      ? "bg-rose-500/15 border-rose-400/50 ring-1 ring-rose-400/30"
-                      : "bg-white/5 hover:bg-white/10 border-white/10"
-                  }`}
+                  whileHover={{ scale: 1.015 }}
+                  whileTap={{ scale: 0.985 }}
+                  className={`group relative w-full rounded-2xl border text-left overflow-hidden transition ${palette.bubble} hover:border-white/30`}
                 >
-                  {/* 현재 화자 뱃지 */}
-                  {isCurrentSpeaker && (
-                    <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded-full bg-rose-400 text-black text-[9px] font-bold flex items-center gap-0.5">
-                      <Mic size={9} /> 화자
-                    </span>
-                  )}
-
-                  <div className="flex items-center gap-4">
-                    {/* 프로필 이미지 */}
-                    <div
-                      className={`w-16 h-16 rounded-full overflow-hidden flex-shrink-0 bg-white/10 ${
-                        isCurrentSpeaker ? "ring-2 ring-rose-300" : ""
-                      }`}
-                    >
+                  <div className="flex items-stretch">
+                    {/* 풀하이트 초상 — 우측으로 페이드되며 텍스트 영역과 융합 */}
+                    <div className="relative w-24 self-stretch flex-shrink-0 overflow-hidden bg-black/30">
                       {h.profileImageUrl ? (
-                        <img src={h.profileImageUrl} alt={h.name} className="w-full h-full object-cover" />
+                        <img
+                          src={h.profileImageUrl}
+                          alt={h.name}
+                          className="absolute inset-0 w-full h-full object-cover object-top transition-transform duration-500 group-hover:scale-110"
+                        />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-white/30 text-2xl">
-                          ?
-                        </div>
+                        <div className="absolute inset-0 flex items-center justify-center text-white/20 text-3xl">?</div>
                       )}
+                      <div className="absolute inset-0 bg-gradient-to-r from-transparent via-transparent to-black/60" />
                     </div>
 
                     {/* 정보 */}
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-white text-base truncate">{h.name}</div>
-                      {h.dynamicRelationTag && (
-                        <div className="text-xs text-rose-200/70 italic mt-0.5 truncate">
-                          ─ {h.dynamicRelationTag} ─
-                        </div>
-                      )}
-                      <div className="flex items-center gap-3 mt-2 text-[11px] text-white/50">
-                        <span>호감 {h.statAffection}</span>
-                        <span>·</span>
-                        <span>친밀 {h.statIntimacy}</span>
-                        <span>·</span>
-                        <span className="text-rose-300/70 tabular-nums">♥ {h.currentBpm}</span>
+                    <div className="flex-1 min-w-0 px-4 py-3.5 flex flex-col justify-center gap-1.5">
+                      <div className="flex items-baseline gap-2 min-w-0">
+                        <span className={`font-bold text-lg text-white tracking-wide truncate`}>{h.name}</span>
+                        <span className="text-rose-300/60 text-[11px] tabular-nums flex-shrink-0">♥ {h.currentBpm}</span>
                       </div>
+
+                      {h.dynamicRelationTag && (
+                        <span className={`self-start px-2 py-0.5 rounded-full border border-white/15 bg-black/25 text-[10px] italic ${palette.accent} truncate max-w-full`}>
+                          {h.dynamicRelationTag}
+                        </span>
+                      )}
+
+                      {/* 호감 게이지 */}
+                      <div className="mt-0.5">
+                        <div className="flex justify-between text-[10px] text-white/40 mb-1">
+                          <span>호감 {affection}</span>
+                          <span>친밀 {h.statIntimacy}</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-black/40 overflow-hidden">
+                          <motion.div
+                            className={`h-full rounded-full bg-gradient-to-r from-rose-500/70 to-rose-300`}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${affection}%` }}
+                            transition={{ duration: 0.7, ease: "easeOut", delay: 0.15 + i * 0.05 }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 진입 어포던스 */}
+                    <div className="flex items-center pr-3 text-white/25 group-hover:text-white/60 transition">
+                      <ChevronRight size={18} />
                     </div>
                   </div>
                 </motion.button>

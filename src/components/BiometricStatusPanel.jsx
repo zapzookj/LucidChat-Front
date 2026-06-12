@@ -236,7 +236,8 @@ const BiometricStatusPanel = ({
   const panelRef = useRef(null);
   const [hoveredStat, setHoveredStat] = useState(null);
   const theme = RELATION_THEME[statusLevel] || RELATION_THEME.STRANGER;
-  const isStoryMode = chatMode === "STORY";  // [Feature #2]
+  // [이관] 속마음 V1 자산 SANDBOX 활성 — ChatModePolicy.supportsInnerThought와 정렬
+  const isStoryMode = chatMode === "STORY" || chatMode === "SANDBOX";  // [Feature #2]
 
   const safeStats = {
     intimacy: stats?.intimacy ?? 0, affection: stats?.affection ?? 0,

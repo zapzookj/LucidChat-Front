@@ -43,10 +43,19 @@ const SHARED_BGM = Object.fromEntries(
  * 나머지 BGM mode는 공유 자산 (텐션 BGM은 World 무관 보편적).
  */
 function resolveBgmSrc(bgmMode, characterSlug, worldId) {
-  if (bgmMode === "DAILY") {
+  // [BGM 정책] V2 Daily 이원화 — 세계관별 2종:
+  //   DAILY_CALM   → /sounds/worlds/{worldId}/bgm_daily_calm.mp3   (잔잔·조용)
+  //   DAILY_BRIGHT → /sounds/worlds/{worldId}/bgm_daily_bright.mp3 (밝음·활기)
+  //   DAILY(레거시)는 기존 파일(bgm_daily.mp3) 그대로 — 새 에셋 업로드 전 과도기에도 현행 유지.
+  if (bgmMode === "DAILY_CALM" || bgmMode === "DAILY_BRIGHT" || bgmMode === "DAILY") {
     if (worldId) {
-      return assetUrl(`/sounds/worlds/${String(worldId).toLowerCase()}/bgm_daily.mp3`);
+      if (bgmMode === "DAILY") {
+        return assetUrl(`/sounds/worlds/${String(worldId).toLowerCase()}/bgm_daily.mp3`);
+      }
+      const variant = bgmMode === "DAILY_BRIGHT" ? "bright" : "calm";
+      return assetUrl(`/sounds/worlds/${String(worldId).toLowerCase()}/bgm_daily_${variant}.mp3`);
     }
+    // V1 (characterSlug): 기존 단일 daily 유지 — CALM/BRIGHT가 와도 daily로 폴백 (V1 회귀 0)
     const slug = characterSlug || "airi";
     return assetUrl(`/sounds/characters/${slug}/bgm_daily.mp3`);
   }

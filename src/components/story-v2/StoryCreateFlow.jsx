@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ArrowLeft, ArrowRight, Check, Sparkles, MapPin, Users, User as UserIcon } from "lucide-react";
+import { X, ArrowLeft, ArrowRight, Check, Sparkles, Users, User as UserIcon } from "lucide-react";
 import { sfx } from "../../utils/sfx";
 import {
   fetchCreateContext,
@@ -8,13 +8,12 @@ import {
 } from "../../api/StoryV2Api";
 
 /**
- * [Story V2] CreateFlow — 4 step
+ * [Story V2] CreateFlow — 3 step (시작 장소는 LLM이 오프닝에서 자율 확정)
  *
  * step 1: World 확인 (선택한 World의 전체 시놉시스)
  * step 2: 히로인 선택 (1~3명)
  * step 3: 페르소나 (사전 정의 또는 자유 입력)
- * step 4: 시작 장소
- * → submit: createStoryV2Room
+  * → submit: createStoryV2Room
  *
  * Props:
  *   worldId    — 진입한 World ID
@@ -45,8 +44,7 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
   // [Phase 7-V2 Pivot] 닉네임 — 페르소나 단계에서 함께 확정
   const [nickname, setNickname] = useState("");
 
-  // step 4: 시작 장소
-  const [selectedLocationKey, setSelectedLocationKey] = useState(null);
+  // [UX1] step 4(시작 장소) 제거 — 세계관+페르소나를 종합해 LLM이 오프닝에서 자연스럽게 확정.
 
   // 409 conflict 처리
   const [conflictPayload, setConflictPayload] = useState(null);
@@ -58,9 +56,6 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
     fetchCreateContext(worldId)
       .then((ctx) => {
         setContext(ctx);
-        if (ctx.startLocations?.length > 0) {
-          setSelectedLocationKey(ctx.startLocations[0].locationKey);
-        }
         if (ctx.personaPresets?.length > 0) {
           setSelectedPresetKey(ctx.personaPresets[0].presetKey);
         }
@@ -80,7 +75,6 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
     if (personaMode === "preset") return !!selectedPresetKey;
     return freePersonaText.trim().length > 0;
   }, [personaMode, selectedPresetKey, freePersonaText, nickname]);
-  const canProceedStep4 = !!selectedLocationKey;
 
   const goNext = () => {
     if (step === 1) {
@@ -90,9 +84,6 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
       sfx.click();
       setStep(3);
     } else if (step === 3 && canProceedStep3) {
-      sfx.click();
-      setStep(4);
-    } else if (step === 4 && canProceedStep4) {
       void submitCreate(false);
     }
   };
@@ -131,7 +122,7 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
     const payload = {
       worldId,
       heroineIds: selectedHeroineIds,
-      startLocationKey: selectedLocationKey,
+      // [UX1] startLocationKey 미전송 — 백엔드 기본(첫 selectable) 시작, 오프닝 LLM이 location_change로 확정
       nickname: nickname.trim(),   // [Phase 7-V2 Pivot] 닉네임 전달
       personaText: personaMode === "free" ? freePersonaText.trim() : null,
       selectedPersonaPresetKey: personaMode === "preset" ? selectedPresetKey : null,
@@ -204,7 +195,7 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
           {/* 헤더 — Step Indicator */}
           <div className="px-6 pt-6 pb-4 border-b border-stone-700/50 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              {[1, 2, 3, 4].map((n) => (
+              {[1, 2, 3].map((n) => (
                 <div key={n} className="flex items-center gap-2">
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
@@ -259,14 +250,6 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
                   setNickname={setNickname}
                 />
               )}
-              {step === 4 && (
-                <Step4StartLocation
-                  key="s4"
-                  locations={context.startLocations}
-                  selected={selectedLocationKey}
-                  onSelect={setSelectedLocationKey}
-                />
-              )}
             </AnimatePresence>
           </div>
 
@@ -287,13 +270,12 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
               disabled={
                 submitting ||
                 (step === 2 && !canProceedStep2) ||
-                (step === 3 && !canProceedStep3) ||
-                (step === 4 && !canProceedStep4)
+                (step === 3 && !canProceedStep3)
               }
               className="flex items-center gap-2 px-6 py-2 bg-amber-500 hover:bg-amber-400 text-black font-medium rounded disabled:opacity-30 transition"
             >
-              {step === 4 ? (submitting ? "생성 중..." : "시작") : "다음"}
-              {step < 4 && <ArrowRight size={18} />}
+              {step === 3 ? (submitting ? "생성 중..." : "시작") : "다음"}
+              {step < 3 && <ArrowRight size={18} />}
             </button>
           </div>
         </motion.div>
@@ -515,44 +497,6 @@ function Step3Persona({
           )}
         </div>
       )}
-    </motion.div>
-  );
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  Step 4 — 시작 장소
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-function Step4StartLocation({ locations, selected, onSelect }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-    >
-      <h2 className="text-xl font-bold text-amber-200 mb-1 flex items-center gap-2">
-        <MapPin size={20} /> 시작 장소
-      </h2>
-      <p className="text-sm text-stone-400 mb-4">첫 씬이 펼쳐질 곳을 선택하세요</p>
-      <div className="space-y-2">
-        {locations.map((l) => (
-          <button
-            key={l.locationKey}
-            onClick={() => onSelect(l.locationKey)}
-            className={`block w-full text-left p-3 rounded border-2 transition ${
-              selected === l.locationKey
-                ? "border-amber-400 bg-stone-800"
-                : "border-transparent bg-stone-800/50 hover:bg-stone-800"
-            }`}
-          >
-            <div className="font-medium text-white">{l.displayName}</div>
-            <div className="text-xs text-stone-500 mt-0.5">{l.locationKey}</div>
-            {l.description && (
-              <div className="text-sm text-stone-400 mt-1">{l.description}</div>
-            )}
-          </button>
-        ))}
-      </div>
     </motion.div>
   );
 }

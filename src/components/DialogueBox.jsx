@@ -329,7 +329,8 @@ const DialogueBox = ({
   const isDirectorOngoing = eventStatus === "ONGOING";
 
   // [Phase 5.5-Sep] 모드별 기능 플래그
-  const isStoryMode = chatMode === "STORY";
+  // [Q2-Fix] 디렉터/이벤트/속마음 V1 자산 SANDBOX 이관 — ChatModePolicy(supportsDirectorMode 등)와 정렬.
+  const isStoryMode = chatMode === "STORY" || chatMode === "SANDBOX";
 
   // [Phase 5.5-NPC] 현재 화자가 NPC인지 판별
   const isNpcSpeaking = speaker && speaker !== characterName;

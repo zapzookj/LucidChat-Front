@@ -41,7 +41,7 @@ import {
   markNotificationRead,
   resetStoryV2,
 } from "../api/StoryV2Api";
-import { sendV2Message, sendV2Action, sendV2Opening } from "../api/useStoryV2Stream";
+import { sendV2Message, sendV2Action, sendV2Opening } from "../api/UseStoryV2Stream";
 import StoryV2TopIndicator from "../components/story-v2/StoryV2TopIndicator";
 import StoryV2NotificationToast from "../components/story-v2/StoryV2NotificationToast";
 import StoryV2HeroineSelector from "../components/story-v2/StoryV2HeroineSelector";
@@ -206,6 +206,9 @@ const ChatPage = () => {
 
   // [Phase 5.5-Sep] 모드별 기능 플래그 (roomInfo 로드 후 갱신)
   const isStoryMode = roomInfo?.chatMode === "STORY";
+  // [Q2-Fix] V1 디렉터/이벤트/속마음 자산의 SANDBOX 이관 — 백엔드 ChatModePolicy와 정렬.
+  //   isStoryMode(STORY 전용)가 이관된 SANDBOX 기능까지 차단하던 게이트의 교체용.
+  const directorEligible = roomInfo?.chatMode === "STORY" || roomInfo?.chatMode === "SANDBOX";
 
   //   // ─── [Phase 5.5-Illust] 실시간 일러스트 시스템 ───
   const [showIllustModal, setShowIllustModal] = useState(false);
@@ -745,7 +748,12 @@ const ChatPage = () => {
    * ChatLogResponse (서버 로그) → 프론트 메시지 배열 확장.
    * scenesJson이 있으면 씬별 분리 복원, 없으면 기존 cleanContent 사용.
    */
-  const expandLogWithScenes = useCallback((log) => {
+  // [Bug-Restore] ctx로 분류 컨텍스트를 명시 전달 가능 — init처럼 state가 아직 stale한 시점에서
+  //   방금 fetch한 로컬 값을 직접 넘겨 결정적 분류를 보장한다. 미전달 시 기존 state 사용(다른 호출처 무영향).
+  const expandLogWithScenes = useCallback((log, ctx) => {
+    const ctxIsV2 = ctx ? !!ctx.isV2 : isV2;
+    const ctxHeroines = ctx ? (ctx.heroines || []) : (v2Room?.heroines || []);
+    const ctxCharacterName = ctx ? (ctx.characterName ?? null) : (roomInfo?.characterName ?? null);
     if (log.role === 'ASSISTANT' && log.scenesJson) {
       try {
         const scenes = JSON.parse(log.scenesJson);
@@ -761,12 +769,12 @@ const ChatPage = () => {
             innerThought: log.innerThought || null,
             emotionTag: scene.emotion || log.emotionTag,
           };
-          if (isV2) {
+          if (ctxIsV2) {
             // [E-1 A-2] V2: 시스템 씬 판정 — 백엔드 권위값(scene.isSystem) 우선, 없으면(레거시 로그) speaker 유무로 폴백.
             //   이름 매칭 휴리스틱(roomInfo.characterName 비교) 제거 — V2는 멀티 히로인이라 단일 이름 비교가 부정확.
             // [UX#3] 단일 분류기 — 라이브/히스토리와 동일 규칙(마커 "null"/공백 흡수). 복원이 결정적이 됨.
             const isSystem = isSystemSpeakerName(scene.speaker);
-            const heroNames = (v2Room?.heroines || []).map((h) => h.name);
+            const heroNames = ctxHeroines.map((h) => h.name);
             const isNpc = !isSystem && !heroNames.includes(scene.speaker);
             return {
               ...base,
@@ -779,12 +787,12 @@ const ChatPage = () => {
             };
           }
           // V1 (SANDBOX 폴백): 기존 동작 그대로 보존 — ChatPageV2가 비-V2 방을 폴백 렌더할 때.
-          const isNpc = scene.speaker && scene.speaker !== roomInfo?.characterName;
+          const isNpc = scene.speaker && scene.speaker !== ctxCharacterName;
           return {
             ...base,
             role: isNpc ? 'NPC' : 'ASSISTANT',
             cleanContent: content.join('\n'),
-            speaker: scene.speaker || roomInfo?.characterName || "캐릭터",
+            speaker: scene.speaker || ctxCharacterName || "캐릭터",
           };
         });
       } catch (e) {
@@ -1043,6 +1051,7 @@ const ChatPage = () => {
             characterSlug: firstHeroine.slug || null,
             defaultOutfit: firstHeroine.defaultOutfit || "MAID",
             chatMode: "STORY",
+            currentBgmMode: v2Detail.currentBgmMode || "DAILY_CALM",  // [Bug-BGM] V2 저장 모드 복원, 기본 calm
             statusLevel: firstHeroine.relationStatus || "STRANGER",
             secretModeActive: v2Detail.secretModeActive,
           });
@@ -1089,8 +1098,11 @@ const ChatPage = () => {
           const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=50`);
           const logs = (logsRes.data?.content || []).reverse();
           const expandedLogs = [];
+          // [Bug-Restore] 방금 fetch한 v2Detail을 ctx로 명시 전달 — useCallback 클로저의 stale
+          //   state(isV2=false, v2Room=null) 때문에 V1 분기로 추락하던 복원 분류 버그의 근본 수정.
+          const restoreCtx = { isV2: true, heroines: v2Detail.heroines || [], characterName: null };
           for (const log of logs) {
-            const expanded = expandLogWithScenes(log);
+            const expanded = expandLogWithScenes(log, restoreCtx);
             expandedLogs.push(...expanded);
           }
           setMessages(expandedLogs);
@@ -1111,8 +1123,30 @@ const ChatPage = () => {
                 emotion: lastLog.emotionTag || "NEUTRAL",
                 isEvent: lastIsSystem,
               });
+              // [Bug-Restore] 화자 상태도 라이브와 동일하게 복원 — 스프라이트/이름 표기 일치.
+              if (!lastIsSystem && lastLog.speaker) {
+                if (lastLog.role === 'NPC') { setNpcSpeaker(lastLog.speaker); setCurrentSpeaker(null); }
+                else { setCurrentSpeaker(lastLog.speaker); setNpcSpeaker(null); }
+              } else { setCurrentSpeaker(null); setNpcSpeaker(null); }
+            }
+            // [Bug-Restore] dialogue_options 복원 — 마지막 ASSISTANT 원본 로그의 dialogueOptionsJson.
+            const lastAssistantRaw = [...logs].reverse().find((l) => l.role === 'ASSISTANT');
+            // [Bug-Thought] 속마음 상태 복원 — 새고 후 말풍선/탭/해금 연속성
+            if (lastAssistantRaw) {
+              setHasInnerThought(!!lastAssistantRaw.hasInnerThought);
+              setThoughtUnlocked(!!lastAssistantRaw.thoughtUnlocked);
+              setCurrentInnerThought(lastAssistantRaw.thoughtUnlocked ? (lastAssistantRaw.innerThought || null) : null);
+              setCurrentAssistantLogId(lastAssistantRaw.logId || null);
+            }
+            if (lastAssistantRaw?.dialogueOptionsJson) {
+              try {
+                const opts = JSON.parse(lastAssistantRaw.dialogueOptionsJson);
+                if (Array.isArray(opts) && opts.length > 0) setDialogueOptions(opts);
+              } catch (_) { /* ignore malformed */ }
             }
           }
+          // [Bug-Restore] topicConcluded 복원 — V1 init에는 있던 복원이 V2 init에 누락돼 있었음.
+          if (v2Detail.topicConcluded !== undefined) setTopicConcluded(v2Detail.topicConcluded);
         } catch (e) { console.warn("[V2-Init] logs load failed", e); }
 
         // 알림
@@ -1128,7 +1162,7 @@ const ChatPage = () => {
         }
 
         // 인트로 스킵 — V2는 CreateFlow에서 처리
-        setIntroStep(null);
+        setIntroStep('none');  // [Bug-BGM] 'none' 통일 — BGM 자동시작 effect(introStep==='none')가 V2에서 영원히 불발하던 근본 수정
         setIsLoading(false);
         return;  // V1 init 건너뜀
 
@@ -1210,9 +1244,11 @@ const ChatPage = () => {
             const sortedLogs = logs.reverse();
 
             // [Phase 5.5-Fix] scenesJson 기반 씬별 분리 복원
+            // [Bug-Restore] V1도 동일하게 로컬 roomRes로 ctx 명시 — setRoomInfo 직후 stale 차단.
             const expandedLogs = [];
+            const restoreCtxV1 = { isV2: false, heroines: [], characterName: roomRes.data?.characterName ?? null };
             for (const log of sortedLogs) {
-              const expanded = expandLogWithScenes(log);
+              const expanded = expandLogWithScenes(log, restoreCtxV1);
               expandedLogs.push(...expanded);
             }
             setMessages(expandedLogs);
@@ -1282,11 +1318,7 @@ const ChatPage = () => {
                   "아이리": "아이리가 숙여 인사하며 부드럽게 미소짓는다.",
                   "백루나": "루나가 머뭇거리며 말합니다.",
                   "서태리": "태리가 귀찮다는 듯이 인사합니다.",
-                  "로제타": "로제타가 먹잇감을 발견한 눈빛으로 당신을 쳐다봅니다.",
-                  "에델": "에델이 무심한 얼굴로 말을 건넵니다.",
-                  "시에라": "시에라가 졸린 듯한 표정으로 미소를 지으며 말을 건넵니다.",
-                  "강채린": "채린이 반가운 듯 밝게 웃으며 다가와 말을 건넵니다.",
-                  "류설아": "당당한 표정으로 당신을 바라보며 말을 건넵니다."
+                  "로제타": "로제타가 먹잇감을 발견한 눈빛으로 당신을 쳐다봅니다."
               };
               queue.push({
                   dialogue: greetingLog.cleanContent,
@@ -1599,7 +1631,8 @@ const ChatPage = () => {
         if (!firstSceneReceived) setIsTyping(false);
         setAwaitingFinalResult(false);
 
-        const { scenes, dialogueOptions: opts, topicConcluded: tc, locationTransition: locTr } = data || {};
+        const { scenes, dialogueOptions: opts, topicConcluded: tc, locationTransition: locTr,
+                hasInnerThought: resHasThought, assistantLogId: resLogId } = data || {};
 
         // [Phase 7-V2 Pivot] V2 buildHistoryEntries — 시스템 화자는 SYSTEM, 매칭되는 히로인은 ASSISTANT
         if (scenes && scenes.length > 0) {
@@ -1608,11 +1641,15 @@ const ChatPage = () => {
             const content = [];
             if (s.narration) content.push(`*${s.narration}*`);
             if (s.dialogue) content.push(s.dialogue);
+            const isLast = i === scenes.length - 1;
             return {
               role: isSystem ? 'SYSTEM' : 'ASSISTANT',
               cleanContent: content.join('\n'),
               speaker: isSystem ? null : (s.speaker || null),
-              logId: null,
+              // [Bug-Thought] 마지막 씬에 logId+속마음 플래그 — 히스토리 해금 버튼/해금 반영(msg.logId 매칭) 복구
+              logId: isLast ? (resLogId || null) : null,
+              hasInnerThought: isLast ? !!resHasThought : false,
+              thoughtUnlocked: false,
             };
           });
           // 시스템 메시지는 dialogue 부분만 보이게 (V1 SYSTEM UI 호환)
@@ -1628,6 +1665,12 @@ const ChatPage = () => {
           setSceneQueue(queued);
         }
 
+        // [Bug-Thought] 속마음 라이브 상태 — e3에 있었으나 e1 누적 중 누락됐던 V2 수신 복원
+        setHasInnerThought(!!resHasThought);
+        setThoughtUnlocked(false);
+        setCurrentInnerThought(null);
+        setCurrentAssistantLogId(resLogId || null);
+
         // dialogue_options
         if (opts && opts.length > 0) setDialogueOptions(opts);
         else setDialogueOptions([]);
@@ -1641,6 +1684,7 @@ const ChatPage = () => {
         // V2 방 상태 재조회 — heroines 갱신
         void fetchStoryV2RoomDetail(roomId).then((freshRoom) => {
           // [정책:정적우선] 배경 소스 — 새 동적 장소(locTr)=동적 우선, 시드 장소 이동=정적 우선
+          if (freshRoom?.currentBgmMode) setCurrentBgmMode(freshRoom.currentBgmMode);  // [Bug-BGM] V2 모드 동기화 (scene.bgmMode는 V2에서 null)
           if (locTr) setBgPreferDynamic(true);
           else if (freshRoom?.currentUserLocationKey && freshRoom.currentUserLocationKey !== v2Room?.currentUserLocationKey) setBgPreferDynamic(false);
           setV2Room(freshRoom);
@@ -1719,7 +1763,8 @@ const ChatPage = () => {
       onFinalResult: (data) => {
         if (!firstSceneReceived) setIsTyping(false);
         setAwaitingFinalResult(false);
-        const { scenes, dialogueOptions: opts, topicConcluded: tc, locationTransition: locTr } = data || {};
+        const { scenes, dialogueOptions: opts, topicConcluded: tc, locationTransition: locTr,
+                hasInnerThought: resHasThought, assistantLogId: resLogId } = data || {};
 
         // 메시지 히스토리 갱신
         if (scenes && scenes.length > 0) {
@@ -1728,11 +1773,15 @@ const ChatPage = () => {
             const content = [];
             if (s.narration) content.push(`*${s.narration}*`);
             if (s.dialogue) content.push(s.dialogue);
+            const isLast = i === scenes.length - 1;
             return {
               role: isSystem ? 'SYSTEM' : 'ASSISTANT',
               cleanContent: content.join('\n'),
               speaker: isSystem ? null : (s.speaker || null),
-              logId: null,
+              // [Bug-Thought] 마지막 씬에 logId+속마음 플래그 — 히스토리 해금 버튼/해금 반영(msg.logId 매칭) 복구
+              logId: isLast ? (resLogId || null) : null,
+              hasInnerThought: isLast ? !!resHasThought : false,
+              thoughtUnlocked: false,
             };
           });
           setMessages(prev => [...prev, ...entries]);
@@ -1746,12 +1795,18 @@ const ChatPage = () => {
           }));
           setSceneQueue(queued);
         }
+        // [Bug-Thought] 속마음 라이브 상태 — V2 수신 복원
+        setHasInnerThought(!!resHasThought);
+        setThoughtUnlocked(false);
+        setCurrentInnerThought(null);
+        setCurrentAssistantLogId(resLogId || null);
         if (opts && opts.length > 0) setDialogueOptions(opts); else setDialogueOptions([]);
         if (tc !== undefined) setTopicConcluded(tc);
         if (locTr) setLocationTransition({ ...locTr, active: true });
 
         void fetchStoryV2RoomDetail(roomId).then((freshRoom) => {
           // [정책:정적우선] 배경 소스 — 새 동적 장소(locTr)=동적 우선, 시드 장소 이동=정적 우선
+          if (freshRoom?.currentBgmMode) setCurrentBgmMode(freshRoom.currentBgmMode);  // [Bug-BGM] V2 모드 동기화 (scene.bgmMode는 V2에서 null)
           if (locTr) setBgPreferDynamic(true);
           else if (freshRoom?.currentUserLocationKey && freshRoom.currentUserLocationKey !== v2Room?.currentUserLocationKey) setBgPreferDynamic(false);
           setV2Room(freshRoom);
@@ -1824,7 +1879,8 @@ const ChatPage = () => {
       onFinalResult: (data) => {
         if (!firstSceneReceived) setIsTyping(false);
         setAwaitingFinalResult(false);
-        const { scenes, dialogueOptions: opts, topicConcluded: tc, locationTransition: locTr } = data || {};
+        const { scenes, dialogueOptions: opts, topicConcluded: tc, locationTransition: locTr,
+                hasInnerThought: resHasThought, assistantLogId: resLogId } = data || {};
 
         if (scenes && scenes.length > 0) {
           const entries = scenes.map((s) => {
@@ -1832,11 +1888,15 @@ const ChatPage = () => {
             const content = [];
             if (s.narration) content.push(`*${s.narration}*`);
             if (s.dialogue) content.push(s.dialogue);
+            const isLast = i === scenes.length - 1;
             return {
               role: isSystem ? 'SYSTEM' : 'ASSISTANT',
               cleanContent: content.join('\n'),
               speaker: isSystem ? null : (s.speaker || null),
-              logId: null,
+              // [Bug-Thought] 마지막 씬에 logId+속마음 플래그 — 히스토리 해금 버튼/해금 반영(msg.logId 매칭) 복구
+              logId: isLast ? (resLogId || null) : null,
+              hasInnerThought: isLast ? !!resHasThought : false,
+              thoughtUnlocked: false,
             };
           });
           setMessages(prev => [...prev, ...entries]);
@@ -1848,11 +1908,19 @@ const ChatPage = () => {
           }));
           setSceneQueue(queued);
         }
+        // [Bug-Thought] 속마음 라이브 상태 — V2 수신 복원
+        setHasInnerThought(!!resHasThought);
+        setThoughtUnlocked(false);
+        setCurrentInnerThought(null);
+        setCurrentAssistantLogId(resLogId || null);
         if (opts && opts.length > 0) setDialogueOptions(opts); else setDialogueOptions([]);
         if (tc !== undefined) setTopicConcluded(tc);
         if (locTr) setLocationTransition({ ...locTr, active: true });
 
-        void fetchStoryV2RoomDetail(roomId).then(setV2Room).catch(() => {});
+        void fetchStoryV2RoomDetail(roomId).then((freshRoom) => {
+          if (freshRoom?.currentBgmMode) setCurrentBgmMode(freshRoom.currentBgmMode);  // [Bug-BGM]
+          setV2Room(freshRoom);
+        }).catch(() => {});
       },
       onError: (err) => {
         setIsTyping(false);
@@ -3193,15 +3261,15 @@ const ChatPage = () => {
         onOpenStatusPanel={isV2 ? () => setShowHeroineSelector(true) : () => setShowStatusPanel(true)}
         statChanges={latestStatChanges}
         // ── [Phase 5.5-Sep] 스토리 전용 props 모드 가드 ──
-        innerThought={isStoryMode ? currentInnerThought : null}
-        hasInnerThought={isStoryMode ? hasInnerThought : false}
-        thoughtUnlocked={isStoryMode ? thoughtUnlocked : false}
-        topicConcluded={isStoryMode ? topicConcluded : false}
-        eventStatus={isV2 ? null : (isStoryMode ? eventStatus : null)}
-        isObserverEvent={isV2 ? false : (isStoryMode ? isObserverEvent : false)}
-        onWatch={isV2 ? undefined : (isStoryMode ? handleDirectorWatch : undefined)}
-        onTimeSkip={isV2 ? undefined : (isStoryMode ? handleTimeSkip : undefined)}
-        speaker={isStoryMode ? currentSpeaker : null}
+        innerThought={directorEligible ? currentInnerThought : null}
+        hasInnerThought={directorEligible ? hasInnerThought : false}
+        thoughtUnlocked={directorEligible ? thoughtUnlocked : false}
+        topicConcluded={directorEligible ? topicConcluded : false}
+        eventStatus={isV2 ? null : (directorEligible ? eventStatus : null)}
+        isObserverEvent={isV2 ? false : (directorEligible ? isObserverEvent : false)}
+        onWatch={isV2 ? undefined : (directorEligible ? handleDirectorWatch : undefined)}
+        onTimeSkip={isV2 ? undefined : (directorEligible ? handleTimeSkip : undefined)}
+        speaker={directorEligible ? currentSpeaker : null}
         awaitingFinalResult={awaitingFinalResult}
         freeEnergy={freeEnergy}
         paidEnergy={paidEnergy}
