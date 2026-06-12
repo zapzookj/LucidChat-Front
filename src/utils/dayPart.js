@@ -47,3 +47,10 @@ export function dayPartAccentClass(dayPart) {
 export function dayPartToV1Time(dayPart) {
   return DAY_PART_TO_V1_TIME[dayPart] || "NIGHT";
 }
+
+// ── V2 → 정적 배경 시간대 (day/sunset/night) ──
+//  배경 파일명 접미사용. DAY_PART_TO_V1_TIME(DAY/SUNSET/NIGHT)을 소문자로 재사용.
+//  시간 비민감(실내) 배경은 _day.png 한 장만 두고, BackgroundDisplay가 _day로 폴백한다.
+export function dayPartToBgTime(dayPart) {
+  return (DAY_PART_TO_V1_TIME[dayPart] || "DAY").toLowerCase();
+}

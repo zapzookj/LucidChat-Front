@@ -415,7 +415,7 @@ const DialogueBox = ({
     if (scene?.dialogue && !isTextFullyDisplayed) {
       setDisplayedText(scene.dialogue);
       setIsTextFullyDisplayed(true);
-    } else if (hasNextScene || (isEventScene && !storyV2Mode)) {
+    } else if (hasNextScene || isEventScene) {
       sfx.pageTurn();
       onNextScene();
     }
@@ -711,14 +711,30 @@ const DialogueBox = ({
                 )}
 
                 {isTyping ? (
-                  <div className="flex gap-1.5 items-center justify-center h-full opacity-70 mt-2">
-                    <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                    <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                    <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce" />
-                    <span className="ml-2 text-sm text-indigo-200/50 font-light">
-                      {isDirectorOngoing ? "상황이 전개되고 있습니다..." : isEventScene ? "운명의 주사위를 굴리는 중..." : "생각 중..."}
-                    </span>
-                  </div>
+                  storyV2Mode && !isEventScene && !isDirectorOngoing ? (
+                    /* [UX] V2 디렉터 시점 — 캐릭터 비종속 시네마틱 로더 (장면을 그리는 중) */
+                    <div className="flex flex-col gap-2.5 items-center justify-center h-full mt-2">
+                      <div className="relative w-40 h-[3px] rounded-full overflow-hidden bg-white/10">
+                        <motion.div
+                          className="absolute inset-y-0 w-1/3 rounded-full bg-gradient-to-r from-transparent via-indigo-300/80 to-transparent"
+                          animate={{ x: ["-40%", "260%"] }}
+                          transition={{ duration: 1.4, ease: "easeInOut", repeat: Infinity }}
+                        />
+                      </div>
+                      <span className="text-sm text-indigo-200/60 font-serif italic tracking-wide">
+                        장면을 그리는 중…
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex gap-1.5 items-center justify-center h-full opacity-70 mt-2">
+                      <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                      <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                      <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce" />
+                      <span className="ml-2 text-sm text-indigo-200/50 font-light">
+                        {isDirectorOngoing ? "상황이 전개되고 있습니다..." : isEventScene ? "운명의 주사위를 굴리는 중..." : "생각 중..."}
+                      </span>
+                    </div>
+                  )
                 ) : (
                   <>
                     <span className={isEventScene ? "text-xl text-indigo-100 font-serif italic" : ""}>

@@ -203,6 +203,7 @@ const CharacterDisplay = ({
   const prevEmotionRef = useRef(emotion);
 
   const hasNpc = !!npcSpeaker;
+  const hasCharacter = !!characterSlug;   // [Bug-Sprite] 화자(히로인)가 있을 때만 메인 스프라이트 — 시스템 나레이션엔 미표시
   const isMainActive = !isNpcActive;
 
   useEffect(() => {
@@ -225,14 +226,27 @@ const CharacterDisplay = ({
   return (
     <div className="absolute inset-0 z-0 flex items-end justify-center pointer-events-none overflow-hidden">
 
+      {/* [Bug-Sprite] 무대 전체 페이드 — 화자(히로인) 등장/퇴장이 매끄럽게 */}
+      <AnimatePresence>
+      {(hasCharacter || hasNpc) && (
+      <motion.div
+        key="char-stage"
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        transition={{ duration: 0.45, ease: "easeOut" }}
+        className="absolute inset-0 flex items-end justify-center"
+      >
+
+      {(hasCharacter || hasNpc) && (
       <motion.div animate={{ opacity: hasNpc && isNpcActive ? 0.3 : 1 }} transition={{ duration: 0.5 }}>
         <GlowLayer config={config} />
       </motion.div>
+      )}
 
       {hasNpc ? (
         <div className="relative w-full h-full max-w-5xl flex items-end justify-center pb-20 md:pb-28">
 
           {/* [Fix-UI-3] 메인 캐릭터 — left 15% (기존 10%) */}
+          {hasCharacter && (
           <motion.div
             className="absolute bottom-20 md:bottom-28 flex items-end justify-center"
             animate={{
@@ -272,6 +286,7 @@ const CharacterDisplay = ({
               </motion.div>
             </motion.div>
           </motion.div>
+          )}
 
           {/* [Fix-UI-3] NPC 실루엣 */}
           <motion.div
@@ -295,7 +310,7 @@ const CharacterDisplay = ({
             transition={{ opacity: { duration: 3, repeat: Infinity, ease: "easeInOut" } }}
           />
         </div>
-      ) : (
+      ) : hasCharacter ? (
         /* 일반 모드 (기존) */
         <motion.div
           animate={{ y: [0, -8, 0], scaleY: [1, 1.004, 1], scaleX: [1, 1.001, 1] }}
@@ -321,9 +336,13 @@ const CharacterDisplay = ({
             </AnimatePresence>
           </motion.div>
         </motion.div>
-      )}
+      ) : null}
 
-      <EmotionParticles emotion={emotion} />
+      {(hasCharacter || hasNpc) && <EmotionParticles emotion={emotion} />}
+
+      </motion.div>
+      )}
+      </AnimatePresence>
     </div>
   );
 };

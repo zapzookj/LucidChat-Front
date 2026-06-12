@@ -62,6 +62,17 @@ import {
 import { assetUrl } from "../utils/assetUrl";
 import { sfx } from "../utils/sfx";
 
+// [UX#3] 화자 분류 단일 소스 — 라이브/히스토리/복원 모든 경로가 동일 규칙을 쓰도록.
+//  시스템 = 화자 null/공백 OR "null"/"system"/"narrator"/"시스템"/"내레이터" 마커 문자열.
+//  (LLM이 JSON null 대신 문자열 "null"을 내보내는 케이스까지 흡수 → NPC "null" 이름/실루엣 버그 차단)
+const SYSTEM_SPEAKER_MARKERS = new Set(["null", "none", "system", "narrator", "시스템", "내레이터", "나레이터"]);
+function isSystemSpeakerName(speaker) {
+  if (speaker == null) return true;
+  const s = String(speaker).trim();
+  if (s === "") return true;
+  return SYSTEM_SPEAKER_MARKERS.has(s.toLowerCase());
+}
+
 const ChatPage = () => {
   const { user, logout, refreshUser } = useAuth();
   const { roomId } = useParams();
@@ -96,6 +107,7 @@ const ChatPage = () => {
 
   // 인트로 시퀀스 상태 ('none' | 'door' | 'greeting')
   const [introStep, setIntroStep] = useState('none');
+  const [openingReady, setOpeningReady] = useState(false); // [UX] V2 오프닝 첫 씬 도착 여부 (인트로 영상 스킵 게이트)
   const [isLoading, setIsLoading] = useState(true); // 깜빡임 방지용
   
   // [UI 상태]
@@ -203,6 +215,7 @@ const ChatPage = () => {
   const [locationTransition, setLocationTransition] = useState(null);
   // { active: true, locationName: "해변", backgroundUrl: "...", cacheHash: "...", isGenerating: true }
   const [dynamicBackgroundUrl, setDynamicBackgroundUrl] = useState(null); // AI 생성 배경 S3 URL (enum 해상도 오버라이드)
+  const [bgPreferDynamic, setBgPreferDynamic] = useState(false); // [정책:정적우선] 즉석(invented) 장소=동적우선, 시드 장소=정적우선
 
   // ─── [Phase 5.5-Illust] 일러스트 갤러리 ───
   const [showIllustGallery, setShowIllustGallery] = useState(false);
@@ -307,7 +320,7 @@ const ChatPage = () => {
       const h = v2Room.heroines.find((x) => x.name === currentSpeaker);
       if (h?.defaultOutfit) return h.defaultOutfit;
     }
-    return v2Room.heroines[0]?.defaultOutfit || null;
+    return null; // [Bug-Sprite] 화자 없음(시스템 씬) → 복장 없음 (스프라이트 미표시와 정합)
   }, [isV2, v2Room?.heroines, currentSpeaker, currentScene?.outfit]);
 
   // V2 일러스트용 히로인 매핑
@@ -685,16 +698,19 @@ const ChatPage = () => {
    */
   const buildHistoryEntries = useCallback((scenes, resLogId, resHasThought) => {
     if (!scenes || scenes.length === 0) return [];
+    const heroNames = isV2 ? (v2Room?.heroines || []).map((h) => h.name) : (roomInfo?.characterName ? [roomInfo.characterName] : []);
     return scenes.map((s, i) => {
-      const speakerName = s.speaker || roomInfo?.characterName || "캐릭터";
-      const isNpc = s.speaker && s.speaker !== roomInfo?.characterName;
+      // [UX#3] 단일 분류기 — 시스템/NPC/히로인
+      const sys = isSystemSpeakerName(s.speaker);
+      const isHero = !sys && heroNames.includes(s.speaker);
+      const isNpc = !sys && !isHero;
       const content = [];
       if (s.narration) content.push(`*${s.narration}*`);
       if (s.dialogue) content.push(s.dialogue);
       return {
-        role: isNpc ? 'NPC' : 'ASSISTANT',
-        cleanContent: content.join('\n'),
-        speaker: speakerName,
+        role: sys ? 'SYSTEM' : (isNpc ? 'NPC' : 'ASSISTANT'),
+        cleanContent: sys ? (s.narration || '') : content.join('\n'),
+        speaker: sys ? null : (s.speaker || null),
         logId: (i === scenes.length - 1) ? (resLogId || null) : null,
         parentLogId: resLogId || null,  // [Bug Fix #1] 모든 씬에 원본 logId 공유 — 일괄 삭제용
         hasInnerThought: (i === scenes.length - 1) ? !!resHasThought : false,
@@ -702,7 +718,7 @@ const ChatPage = () => {
         innerThought: null,
       };
     });
-  }, [roomInfo]);
+  }, [roomInfo, isV2, v2Room]);
 
   /**
    * 씬 배열에서 NPC speaker 감지 → 상태 업데이트.
@@ -710,11 +726,11 @@ const ChatPage = () => {
    */
   const detectNpc = useCallback((scenes) => {
     if (!scenes || scenes.length === 0) return;
-    const npcScene = scenes.find(s => s.speaker && s.speaker !== roomInfo?.characterName);
-    if (npcScene) {
-      setNpcSpeaker(npcScene.speaker);
-    }
-  }, [roomInfo]);
+    const heroNames = isV2 ? (v2Room?.heroines || []).map((h) => h.name) : (roomInfo?.characterName ? [roomInfo.characterName] : []);
+    // [UX#3] 진짜 NPC(비시스템·비히로인)만 — 시스템("null"/공백) 화자를 NPC로 오인하지 않음
+    const npcScene = scenes.find((s) => !isSystemSpeakerName(s.speaker) && !heroNames.includes(s.speaker));
+    if (npcScene) setNpcSpeaker(npcScene.speaker);
+  }, [roomInfo, isV2, v2Room]);
 
   /**
    * NPC/speaker 상태 완전 초기화.
@@ -748,14 +764,14 @@ const ChatPage = () => {
           if (isV2) {
             // [E-1 A-2] V2: 시스템 씬 판정 — 백엔드 권위값(scene.isSystem) 우선, 없으면(레거시 로그) speaker 유무로 폴백.
             //   이름 매칭 휴리스틱(roomInfo.characterName 비교) 제거 — V2는 멀티 히로인이라 단일 이름 비교가 부정확.
-            const isSystem =
-              scene.isSystem === true ? true
-              : scene.isSystem === false ? false
-              : !scene.speaker;
+            // [UX#3] 단일 분류기 — 라이브/히스토리와 동일 규칙(마커 "null"/공백 흡수). 복원이 결정적이 됨.
+            const isSystem = isSystemSpeakerName(scene.speaker);
+            const heroNames = (v2Room?.heroines || []).map((h) => h.name);
+            const isNpc = !isSystem && !heroNames.includes(scene.speaker);
             return {
               ...base,
-              // 시스템 씬 → SYSTEM role(인디고 pill, 이름 비노출). 라이브 onFinalResult와 동일 규칙.
-              role: isSystem ? 'SYSTEM' : 'ASSISTANT',
+              // 시스템 씬 → SYSTEM role(인디고 pill, 이름 비노출). NPC는 NPC role. 라이브와 동일 규칙.
+              role: isSystem ? 'SYSTEM' : (isNpc ? 'NPC' : 'ASSISTANT'),
               // SYSTEM은 나레이션만 → 깔끔히. 일반 씬은 기존 포맷(*나레이션*\n대사).
               cleanContent: isSystem ? (scene.narration || '') : content.join('\n'),
               // 시스템 씬은 speaker=null 보존 → 가짜 이름("캐릭터"/"null") 노출 불가능.
@@ -777,7 +793,7 @@ const ChatPage = () => {
       }
     }
     return [log];
-  }, [isV2, roomInfo]);
+  }, [isV2, roomInfo, v2Room]);
 
   // [Issue #1 Fix] sceneActiveRef — 대기 중인 씬 큐 추적
   useEffect(() => {
@@ -1306,30 +1322,26 @@ const ChatPage = () => {
     if (!currentScene) return;
     // [D-3] NPC 판별 — V2는 *세션 히로인 명단* 기준(멀티 히로인 각자 초상), V1은 단일 캐릭터 기준
     const sceneSpeaker = currentScene.speaker;
-    const isSessionHeroine = sceneSpeaker
-        ? (isV2
-            ? !!v2Room?.heroines?.some((h) => h.name === sceneSpeaker)
-            : sceneSpeaker === roomInfo?.characterName)
-        : false;
-    const isNpcScene = !!sceneSpeaker && !isSessionHeroine;
+    // [UX#3] 단일 분류기 — 시스템(마커/공백)/히로인/NPC 3분류 (모든 경로 동일 규칙)
+    const sysScene = isSystemSpeakerName(sceneSpeaker);
+    const isSessionHeroine = !sysScene && (isV2
+        ? !!v2Room?.heroines?.some((h) => h.name === sceneSpeaker)
+        : sceneSpeaker === roomInfo?.characterName);
+    const isNpcScene = !sysScene && !isSessionHeroine;
     // [Fix-UI-2] NPC 씬이면 캐릭터 감정을 변경하지 않음
     // (캐릭터 이미지가 NPC 감정에 맞춰 바뀌는 버그 방지)
     if (currentScene.emotion && !isNpcScene) {
       setDisplayedEmotion(currentScene.emotion);
     }
     // [Phase 5.5-NPC] 화자 추적
-    if (sceneSpeaker) {
-      setCurrentSpeaker(sceneSpeaker);
-      // [D-3] 세션 히로인은 NPC 아님 — 자기 초상으로 표시. 진짜 비-히로인만 NPC 실루엣.
-      if (isNpcScene) setNpcSpeaker(sceneSpeaker);
-      else setNpcSpeaker(null);
-    } else {
+    if (sysScene) {
+      // [UX#3] 시스템 나레이션 — 화자/스프라이트/NPC 모두 비움(보라색 UI는 scene.isEvent가 담당)
       setCurrentSpeaker(null);
-      // [Phase 5.5-Fix] speaker가 null이고 이벤트가 비활성이면 NPC 상태도 초기화
-      // (이벤트 종료 후 일반 대화 복귀 시 CharacterDisplay 원상복구)
-      if (!eventActive) {
-        setNpcSpeaker(null);
-      }
+      if (!eventActive) setNpcSpeaker(null);
+    } else {
+      // 히로인은 자기 초상, 진짜 비-히로인(NPC)만 실루엣
+      setCurrentSpeaker(sceneSpeaker);
+      setNpcSpeaker(isNpcScene ? sceneSpeaker : null);
     }
     // null이 아닌 값만 업데이트 (null = 이전 상태 유지)
     // 프론트 가드: 서버에서 제공한 허용 목록에 포함된 값만 적용
@@ -1545,7 +1557,7 @@ const ChatPage = () => {
     const isSystemSpeaker = (speakerName, heroines) => {
       // [D-4] 화자 3축: system = 화자 null/blank일 때만. NPC·히로인(이름 있음)은 named로 취급
       //   (NPC 초상 실루엣/이름 표시는 D-3의 name-matching이 담당).
-      return !speakerName || !speakerName.trim();
+      return isSystemSpeakerName(speakerName);
     };
 
     // 낙관적 UI 업데이트
@@ -1628,6 +1640,9 @@ const ChatPage = () => {
 
         // V2 방 상태 재조회 — heroines 갱신
         void fetchStoryV2RoomDetail(roomId).then((freshRoom) => {
+          // [정책:정적우선] 배경 소스 — 새 동적 장소(locTr)=동적 우선, 시드 장소 이동=정적 우선
+          if (locTr) setBgPreferDynamic(true);
+          else if (freshRoom?.currentUserLocationKey && freshRoom.currentUserLocationKey !== v2Room?.currentUserLocationKey) setBgPreferDynamic(false);
           setV2Room(freshRoom);
           if (freshRoom.endingReached && !showV2EndingCredits) {
             const delay = (scenes?.length || 1) * 2500 + 1500;
@@ -1670,7 +1685,7 @@ const ChatPage = () => {
     const isSystemSpeaker = (speakerName, heroines) => {
       // [D-4] 화자 3축: system = 화자 null/blank일 때만. NPC·히로인(이름 있음)은 named로 취급
       //   (NPC 초상 실루엣/이름 표시는 D-3의 name-matching이 담당).
-      return !speakerName || !speakerName.trim();
+      return isSystemSpeakerName(speakerName);
     };
 
     setIsTyping(true);
@@ -1736,6 +1751,9 @@ const ChatPage = () => {
         if (locTr) setLocationTransition({ ...locTr, active: true });
 
         void fetchStoryV2RoomDetail(roomId).then((freshRoom) => {
+          // [정책:정적우선] 배경 소스 — 새 동적 장소(locTr)=동적 우선, 시드 장소 이동=정적 우선
+          if (locTr) setBgPreferDynamic(true);
+          else if (freshRoom?.currentUserLocationKey && freshRoom.currentUserLocationKey !== v2Room?.currentUserLocationKey) setBgPreferDynamic(false);
           setV2Room(freshRoom);
           if (freshRoom.endingReached && !showV2EndingCredits) {
             const delay = (scenes?.length || 1) * 2500 + 1500;
@@ -1768,7 +1786,7 @@ const ChatPage = () => {
     const isSystemSpeaker = (speakerName, heroines) => {
       // [D-4] 화자 3축: system = 화자 null/blank일 때만. NPC·히로인(이름 있음)은 named로 취급
       //   (NPC 초상 실루엣/이름 표시는 D-3의 name-matching이 담당).
-      return !speakerName || !speakerName.trim();
+      return isSystemSpeakerName(speakerName);
     };
     const heroinesSnapshot = heroinesSnapshotArg || v2Room?.heroines || [];
 
@@ -1786,6 +1804,7 @@ const ChatPage = () => {
     await sendV2Opening(roomId, {
       onFirstScene: (scene) => {
         firstSceneReceived = true;
+        setOpeningReady(true);   // [UX] 오프닝 첫 씬 도착 → 인트로 영상 스킵 버튼 활성
         setIsTyping(false);
         const isSystem = isSystemSpeaker(scene.speaker, heroinesSnapshot);
         setCurrentScene({
@@ -1847,7 +1866,7 @@ const ChatPage = () => {
   }, [roomId, v2Room?.heroines]);
 
   // roomId 변경 시 오프닝 가드 리셋 (같은 컴포넌트 인스턴스가 다른 방으로 전환되는 경우)
-  useEffect(() => { openingFiredRef.current = false; }, [roomId]);
+  useEffect(() => { openingFiredRef.current = false; setOpeningReady(false); }, [roomId]);
 
   // 빈 방 진입 감지 → 오프닝 1회 자동 발사 (init이 messages를 비우고 v2Room을 채운 뒤)
   useEffect(() => {
@@ -1856,6 +1875,7 @@ const ChatPage = () => {
     if (!v2Room) return;                 // heroines 로드 완료 후
     if (messages.length > 0) return;     // 이미 대화/오프닝 존재
     if (v2Room.endingReached) return;    // 엔딩 도달 방은 오프닝 생략
+    setIntroStep('door');                // [UX] 시네마틱 인트로 영상 — 영상 재생과 오프닝 생성을 병렬로
     fireOpeningV2(v2Room.heroines);
   }, [isV2, isLoading, messages.length, v2Room, fireOpeningV2]);
 
@@ -2953,6 +2973,9 @@ const ChatPage = () => {
         characterSlug={isV2 ? null : roomInfo?.characterSlug}
         dynamicBackgroundUrl={dynamicBackgroundUrl}
         worldId={isV2 ? v2Room?.worldId : null}
+        locationKey={isV2 ? v2Room?.currentUserLocationKey : null}
+        dayPart={isV2 ? v2Room?.currentDayPart : null}
+        preferDynamic={isV2 ? bgPreferDynamic : false}
         enableKenBurns={isV2}
       />
 
@@ -2994,12 +3017,23 @@ const ChatPage = () => {
                       className="w-full h-full object-cover"
                     >
                       <source 
-                        src={assetUrl(`/videos/characters/${roomInfo?.characterSlug || "airi"}/intro.mp4`)}  
+                        src={assetUrl(isV2
+                          ? `/videos/worlds/${String(v2Room?.worldId || "").toLowerCase()}/intro.mp4`
+                          : `/videos/characters/${roomInfo?.characterSlug || "airi"}/intro.mp4`)}  
                         type="video/mp4" 
                       />
                     </video>
-                  <div className="absolute bottom-10 w-full text-center animate-pulse">
-                      <span className="text-white/30 text-xs tracking-widest cursor-pointer">CLICK TO SKIP</span>
+                  <div className="absolute bottom-10 w-full flex justify-center">
+                      {openingReady ? (
+                        <button
+                          onClick={handleIntroVideoEnd}
+                          className="px-5 py-2 rounded-full bg-white/15 backdrop-blur-sm border border-white/25 text-white/90 text-sm tracking-wide hover:bg-white/25 transition-colors"
+                        >
+                          스킵 ▶
+                        </button>
+                      ) : (
+                        <span className="text-white/30 text-xs tracking-widest animate-pulse cursor-pointer">CLICK TO SKIP</span>
+                      )}
                   </div>
               </motion.div>
           )}
@@ -3011,7 +3045,7 @@ const ChatPage = () => {
         <CharacterDisplay
           emotion={displayedEmotion}
           outfit={(isV2 && v2SceneSpeakerOutfit) || currentOutfit}
-          characterSlug={(isV2 && v2SceneSpeakerSlug) || roomInfo?.characterSlug}
+          characterSlug={isV2 ? v2SceneSpeakerSlug : roomInfo?.characterSlug}
           defaultOutfit={roomInfo?.defaultOutfit}
           npcSpeaker={npcSpeaker}
           isNpcActive={currentSpeaker !== null && currentSpeaker === npcSpeaker}
