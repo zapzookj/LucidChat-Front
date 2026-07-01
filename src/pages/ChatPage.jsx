@@ -40,10 +40,12 @@ import {
   LogOut, User as UserIcon, Gamepad2, Save, Sparkles, Lock, Unlock,
   CheckCircle, AlertTriangle, Info, Zap, Play, SkipForward,
   Heart, Crown, MapPin, Shirt, Award, ChevronRight, ChevronLeft, Gem, Rocket, ShoppingBag,
-  ThumbsUp, ThumbsDown, MoreHorizontal, Image
+  ThumbsUp, ThumbsDown, MoreHorizontal, Image, Flag
 } from "lucide-react";
 import { assetUrl } from "../utils/assetUrl";
 import { sfx } from "../utils/sfx";
+import HelpButton from "../components/HelpButton";
+import { reportChat } from "../api/SupportApi";
 
 const ChatPage = () => {
   const { user, logout, refreshUser } = useAuth();
@@ -143,6 +145,10 @@ const ChatPage = () => {
 
   // ━━━ [Phase 5.2] 싫어요 사유 모달 ━━━
   const [dislikeModal, setDislikeModal] = useState(null); // { logId } | null
+  // [Phase 6] 채팅 응답 신고 (CS 티켓 채널 — 품질용 싫어요와 별개)
+  const [reportModal, setReportModal] = useState(null); // { logId, message, speaker } | null
+  const [reportReason, setReportReason] = useState("");
+  const [reportSubmitting, setReportSubmitting] = useState(false);
 
   // ─── [Phase 5.5] 입체적 상태창 ───
   const [characterStats, setCharacterStats] = useState({
@@ -1019,7 +1025,7 @@ const ChatPage = () => {
                   "연화": "연화가 흥미롭다는 눈빛으로 당신을 바라봅니다.",
                   "아이리": "아이리가 숙여 인사하며 부드럽게 미소짓는다.",
                   "백루나": "루나가 머뭇거리며 말합니다.",
-                  "서태리": "태리가 귀찮다는 듯이 인사합니다.",
+                  "서태리": "태리가 겁에 질린 채 사내를 바라본다.",
                   "로제타": "로제타가 먹잇감을 발견한 눈빛으로 당신을 쳐다봅니다.",
                   "에델": "에델이 무심한 얼굴로 말을 건넵니다.",
                   "시에라": "시에라가 졸린 듯한 표정으로 미소를 지으며 말을 건넵니다.",
@@ -2123,6 +2129,28 @@ const ChatPage = () => {
     }
   };
 
+  const submitReport = async () => {
+    if (!reportModal) return;
+    setReportSubmitting(true);
+    try {
+      await reportChat({
+        roomId: Number(roomId) || undefined,
+        logId: reportModal.logId,
+        role: "ASSISTANT",
+        speaker: reportModal.speaker,
+        message: reportModal.message,
+        reason: reportReason.trim() || undefined,
+      });
+      showToast("신고가 접수되었습니다. 확인 후 조치하겠습니다.", "success");
+      setReportModal(null);
+      setReportReason("");
+    } catch (e) {
+      showToast(e.response?.data?.message || "신고 접수에 실패했습니다.", "error");
+    } finally {
+      setReportSubmitting(false);
+    }
+  };
+
   const handleClearHistory = () => {
     openConfirm(
         "정말로 모든 기억을 지우시겠습니까?\n이 작업은 되돌릴 수 없습니다.",
@@ -2425,13 +2453,16 @@ const ChatPage = () => {
             {roomInfo?.secretModeActive && <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-black/50" />}
         </button>
 
-        <button 
+        <button
             onClick={() => setShowHistory(true)}
             className="p-3 rounded-full bg-black/40 backdrop-blur-md text-white/80 hover:bg-white/20 transition border border-white/10 shadow-lg"
             title="지난 대화"
         >
             <MessageSquare size={20} />
         </button>
+
+        {/* [Phase 6] 도움말 · 문의 */}
+        <HelpButton className="relative p-3 rounded-full bg-black/40 backdrop-blur-md text-white/80 hover:bg-white/20 transition border border-white/10 shadow-lg" iconSize={20} />
       </div>
 
       <DialogueBox
@@ -3396,6 +3427,13 @@ const ChatPage = () => {
                             >
                               <ThumbsDown size={13} />
                             </button>
+                            <button
+                              onClick={() => setReportModal({ logId: msg.logId, message: msg.content, speaker: roomInfo?.characterName })}
+                              className="p-1.5 rounded-lg hover:bg-white/10 text-white/25 hover:text-amber-400 transition-all duration-200"
+                              title="이 응답 신고"
+                            >
+                              <Flag size={13} />
+                            </button>
                             <div className="w-px h-3 bg-white/10 mx-0.5" />
                           </>
                         )}
@@ -3494,6 +3532,47 @@ const ChatPage = () => {
                 className="w-full mt-3 text-white/25 text-xs hover:text-white/40 transition py-2"
               >
                 취소
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* [Phase 6] 채팅 응답 신고 모달 */}
+      <AnimatePresence>
+        {reportModal && (
+          <motion.div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setReportModal(null)} />
+            <motion.div
+              className="relative z-10 w-full max-w-sm mx-4 mb-4 sm:mb-0 rounded-2xl p-5 border border-white/10"
+              style={{ background: "linear-gradient(145deg, rgba(20,10,35,0.97), rgba(35,15,55,0.95))" }}
+              initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }} transition={{ type: "spring", damping: 25 }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-white font-bold text-sm flex items-center gap-2">
+                  <Flag size={14} className="text-amber-400" /> 이 응답 신고
+                </h3>
+                <button onClick={() => setReportModal(null)} className="p-1 hover:bg-white/10 rounded-lg transition">
+                  <X size={16} className="text-white/40" />
+                </button>
+              </div>
+              <p className="text-white/40 text-xs mb-3 leading-relaxed">
+                부적절하거나 문제가 있는 응답을 운영팀에 신고합니다. 해당 대화 정보가 함께 전달돼요.
+                <br />(단순 품질 피드백은 좋아요/싫어요를 이용해주세요.)
+              </p>
+              <textarea
+                value={reportReason}
+                onChange={(e) => setReportReason(e.target.value)}
+                rows={3}
+                placeholder="신고 사유 (선택)"
+                className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-amber-400/40 resize-none mb-3"
+              />
+              <button
+                onClick={submitReport}
+                disabled={reportSubmitting}
+                className="w-full py-2.5 rounded-xl bg-amber-500/90 hover:bg-amber-500 disabled:opacity-40 text-slate-900 font-semibold text-sm transition"
+              >
+                {reportSubmitting ? "접수 중…" : "신고하기"}
               </button>
             </motion.div>
           </motion.div>

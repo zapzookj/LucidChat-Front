@@ -6,6 +6,7 @@ import { ArrowLeft, Drama, Crown, Heart, Home, BookOpen, Save } from "lucide-rea
 // 기존 프로젝트 에셋 재활용
 import BackgroundDisplay from "../components/BackgroundDisplay";
 import CharacterDisplay from "../components/CharacterDisplay";
+import HelpButton from "../components/HelpButton";
 import AudioEngine from "../components/AudioEngine";
 
 // Theater 전용 컴포넌트
@@ -607,6 +608,8 @@ export default function TheaterPlayPage() {
             colorClass="hover:text-violet-200 hover:border-violet-300/45"
             icon={<Save size={14} />}
           />
+          {/* [Phase 6] 도움말 · 문의 */}
+          <HelpButton className="pointer-events-auto relative inline-flex items-center justify-center h-9 w-9 rounded-full bg-black/60 backdrop-blur-md border border-white/15 text-white/80 hover:text-white transition-colors duration-200" iconSize={15} />
         </div>
 
         {/* ─── 우측: 멀티 히로인 HUD (멀티 세션만) ─── */}

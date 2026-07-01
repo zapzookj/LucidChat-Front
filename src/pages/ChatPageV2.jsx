@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import CharacterDisplay from "../components/CharacterDisplay";
+import HelpButton from "../components/HelpButton";
 import DialogueBox from "../components/DialogueBox";
 import BackgroundDisplay from "../components/BackgroundDisplay";
 import AudioEngine from "../components/AudioEngine";
@@ -3236,13 +3237,16 @@ const ChatPage = () => {
             {roomInfo?.secretModeActive && <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-black/50" />}
         </button>
 
-        <button 
+        <button
             onClick={() => setShowHistory(true)}
             className="p-3 rounded-full bg-black/40 backdrop-blur-md text-white/80 hover:bg-white/20 transition border border-white/10 shadow-lg"
             title="지난 대화"
         >
             <MessageSquare size={20} />
         </button>
+
+        {/* [Phase 6] 도움말 · 문의 */}
+        <HelpButton className="relative p-3 rounded-full bg-black/40 backdrop-blur-md text-white/80 hover:bg-white/20 transition border border-white/10 shadow-lg" iconSize={20} />
       </div>
 
       <DialogueBox

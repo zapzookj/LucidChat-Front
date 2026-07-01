@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import AchievementGallery from "../components/AchievementGallery";
 import LucidStore from "../components/LucidStore";
+import HelpButton from "../components/HelpButton";
 
 // [Phase 5.5-Theater-Polish · Phase I] 통합 진입점
 import TheaterDoorway from "../components/lobby/TheaterDoorway";
@@ -895,6 +896,8 @@ const LobbyPage = () => {
           >
             <Gem size={14} />
           </button>
+          {/* [Phase 6] 도움말 · 문의 (QnA / 문의하기 / 내 문의) */}
+          <HelpButton />
           {/* [Fix #6] 설정 모달 열기 */}
           <button
             onClick={() => { playSfx(`/sounds/sfx_button_click.wav`, 0.25); setShowSettings(true); }}

@@ -34,8 +34,8 @@ const getTimeGradient = () => {
   return "from-slate-900 via-indigo-950 to-slate-950";
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace("/api/v1", "") || "http://localhost:8080";
-// const API_BASE = 'http://localhost:8080';
+// const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace("/api/v1", "") || "http://localhost:8080";
+const API_BASE = 'http://localhost:8080';
 
 const LoginPage = () => {
   const { login } = useAuth();
