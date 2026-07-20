@@ -20,6 +20,8 @@ import { fetchMyTheaterSessions, fetchWorld as fetchTheaterWorld } from "../api/
 import StoryV2LobbyView from "../components/story-v2/StoryV2LobbyView";
 import StoryCreateFlow from "../components/story-v2/StoryCreateFlow";
 import LobbyNewEncounterFlow from "../components/lobby/LobbyNewEncounterFlow";
+// [Studio v1] UGC 스튜디오 진입 훅 카드
+import CreateHookCard from "../components/studio/CreateHookCard";
 import { assetUrl } from "../utils/assetUrl";
 import { playSfx } from "../utils/sfx";
 
@@ -783,6 +785,13 @@ const LobbyPage = () => {
     }
   };
 
+  // [Studio v1] 스튜디오 진입 — Doorway와 같은 BGM 페이드 + 전환 연출
+  const handleEnterStudio = () => {
+    fadeBgmOut();
+    setEntering(true);
+    setTimeout(() => navigate("/studio"), 700);
+  };
+
   // [Phase I] 극장 입구(Doorway) 클릭 → /theater 페이지로 이동
   const handleEnterTheaterPortal = () => {
     playSfx(`/sounds/sfx_button_click.wav`, 0.4);
@@ -940,6 +949,8 @@ const LobbyPage = () => {
             <div className="flex flex-col items-center gap-5 sm:gap-7 flex-shrink-0">
               {[
                 { label: "새로운 만남", sub: "New Encounter", action: () => setView("encounter") },
+                // [Studio v1] UGC 캐릭터 생성 스튜디오 진입
+                { label: "스튜디오", sub: "Studio", action: handleEnterStudio },
                 { label: "기억의 끈", sub: "Continue", action: () => { fetchRoomsAll(); setView("continue"); }, disabled: mergedRooms.length === 0 },
                 { label: "수집품", sub: "Archives", action: () => setShowAchievements(true) },
               ].map((item, i) => (
@@ -1029,6 +1040,11 @@ const LobbyPage = () => {
                     {characters.map((c, idx) => (
                       <CharacterCard key={c.id} character={c} isActive={idx === activeCharIdx} onClick={() => handleCardClick(idx)} onHover={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.12)} />
                     ))}
+                    {/* [Studio v1] 카루셀 말미 — 스튜디오 진입 훅 카드 */}
+                    <CreateHookCard
+                      onClick={() => { playSfx(`/sounds/sfx_button_click.wav`, 0.3); handleEnterStudio(); }}
+                      onHover={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.12)}
+                    />
                   </div>
                   {activeCharIdx < characters.length - 1 && (
                     <motion.button onClick={goNext} onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.15)}

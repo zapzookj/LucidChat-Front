@@ -20,6 +20,13 @@ import TheaterDirectorCommandPanel from "../components/theater/TheaterDirectorCo
 import TheaterDiaryPanel from "../components/theater/TheaterDiaryPanel";
 import TheaterSaveLoadPanel from "../components/theater/TheaterSaveLoadPanel";
 
+// [Phase B · 단계1] 모바일 세로 레이아웃 (additive)
+import useDeviceProfile from "../hooks/useDeviceProfile";
+import TheaterMobileTopBar from "../components/theater/mobile/TheaterMobileTopBar";
+import TheaterMenuSheet from "../components/theater/mobile/TheaterMenuSheet";
+import TheaterAffinitySheet from "../components/theater/mobile/TheaterAffinitySheet";
+import TheaterPlaybackSheet from "../components/theater/mobile/TheaterPlaybackSheet";
+
 import { fetchTheaterRoom } from "../api/TheaterLobbyApi";
 import { updatePlaySettings } from "../api/TheaterPlayApi";
 import {
@@ -77,6 +84,13 @@ export default function TheaterPlayPage() {
   const { roomId } = useParams();
   const numericRoomId = Number(roomId);
   const navigate = useNavigate();
+
+  // [Phase B · 단계1] 폼팩터 프로필 + 모바일 전용 시트 UI 상태
+  // (순수 프리젠테이션 — 스트림/데이터/씬 로직에는 관여하지 않음)
+  const { isMobile } = useDeviceProfile();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [affinityOpen, setAffinityOpen] = useState(false);
+  const [playbackOpen, setPlaybackOpen] = useState(false);
 
   // ─── 방 정보 + 세션 상태 ───
   const [roomInfo, setRoomInfo] = useState(null);
@@ -234,6 +248,8 @@ export default function TheaterPlayPage() {
     if (chapterReport || branchModalData || historyOpen) return;
     // [Phase 5.5 UX Polish · R3] 감독 명령어/다이어리 패널이 열린 동안에도 자동 진행 일시정지
     if (commandOpen || diaryOpen || saveLoadOpen) return;
+    // [Phase B · 단계1] 모바일 시트(메뉴/호감도/재생 설정)가 열린 동안에도 일시정지
+    if (mobileMenuOpen || affinityOpen || playbackOpen) return;
     if (historyViewIndex !== null) return; // 이전 보기 중엔 자동 진행 안 함
 
     const delay = AUTO_ADVANCE_MS[playSpeed] || AUTO_ADVANCE_MS.NORMAL;
@@ -247,6 +263,7 @@ export default function TheaterPlayPage() {
     typingDone, autoPlayEnabled, playSpeed, loadingNext,
     chapterEnding, chapterReport, branchModalData, historyOpen,
     commandOpen, diaryOpen, saveLoadOpen,
+    mobileMenuOpen, affinityOpen, playbackOpen,
     historyViewIndex, nextScene
   ]);
 
@@ -533,8 +550,11 @@ export default function TheaterPlayPage() {
             outfit={displayedScene?.outfit || activeHeroine.defaultOutfit || "MAID"}
             characterSlug={activeHeroine.characterSlug}
             defaultOutfit={activeHeroine.defaultOutfit}
+            // [Fix-UGC-CDN] 히로인별 절대 URL이 오면 그 CDN 디렉터리로 조립 (없으면 기존 경로)
+            defaultImageUrl={activeHeroine.defaultImageUrl}
             npcSpeaker={null}
             isNpcActive={false}
+            portrait={isMobile}
           />
         )}
       </div>
@@ -545,7 +565,23 @@ export default function TheaterPlayPage() {
         ─ 좌측 배지: 세계관/Act/Chapter + Act 진행 도트(● ● ○ ○ ○) — Theater의 4-Act 호흡 시각화
         ─ 우측: 멀티 히로인 카드 — 활성 시 pulse + violet glow, 비활성은 톤 다운
         ─ 모드 토큰(violet/indigo) 일관 적용
+
+        [Phase B · 단계1] 데스크톱은 아래 HUD 그대로(byte-identical),
+        모바일은 compact top bar + 시트로 접어 밀도 완화(additive).
       */}
+      {isMobile ? (
+        <TheaterMobileTopBar
+          worldDisplayName={roomInfo.worldDisplayName}
+          currentAct={roomInfo.progress?.currentAct}
+          currentChapter={roomInfo.progress?.currentChapter || 1}
+          actTotalChapters={actTotalChapters}
+          historyViewIndex={historyViewIndex}
+          heroineCount={roomInfo.heroines?.length || 0}
+          onBack={() => navigate("/")}
+          onOpenMenu={() => setMobileMenuOpen(true)}
+          onOpenAffinity={() => setAffinityOpen(true)}
+        />
+      ) : (
       <div className="absolute top-0 left-0 right-0 z-20 p-4 flex items-start justify-between pointer-events-none">
         {/* ─── 좌측: 뒤로 버튼 + 세계관·Act 배지 ─── */}
         <div className="flex items-center gap-2 pointer-events-auto">
@@ -675,6 +711,7 @@ export default function TheaterPlayPage() {
           </div>
         )}
       </div>
+      )}
 
       {/* ═══ 5. 하단 Dialogue Box ═══ */}
       <AnimatePresence mode="wait">
@@ -717,6 +754,9 @@ export default function TheaterPlayPage() {
               // [Polish · P2 #5] 감독 명령 버튼을 DialogueBox로 위임
               onOpenCommand={() => { sfx.wooshLight(); setCommandOpen(true); }}
               commandPulseActive={showCommandPulse}
+              // [Phase B · 단계1] 모바일: tap-advance 레이어 + slim 컨트롤 + 재생 설정 시트
+              mobile={isMobile}
+              onOpenPlayback={() => { sfx.wooshLight(); setPlaybackOpen(true); }}
             />
           </motion.div>
         )}
@@ -856,6 +896,34 @@ export default function TheaterPlayPage() {
           />
         )}
       </AnimatePresence>
+
+      {/* ═══ [Phase B · 단계1] 모바일 전용 시트 (메뉴/호감도/재생 설정) ═══
+          모두 기존 페이지 상태·핸들러만 호출 — 새 로직 없음 */}
+      {isMobile && (
+        <>
+          <TheaterMenuSheet
+            open={mobileMenuOpen}
+            onClose={() => setMobileMenuOpen(false)}
+            onOpenDiary={() => { sfx.wooshLight(); setDiaryOpen(true); }}
+            onOpenSaveLoad={() => { sfx.wooshLight(); setSaveLoadOpen(true); }}
+            onOpenHistory={() => { sfx.wooshLight(); setHistoryOpen(true); }}
+          />
+          <TheaterAffinitySheet
+            open={affinityOpen}
+            onClose={() => setAffinityOpen(false)}
+            heroines={roomInfo.heroines || []}
+            activeHeroineId={activeHeroine?.characterId}
+          />
+          <TheaterPlaybackSheet
+            open={playbackOpen}
+            onClose={() => setPlaybackOpen(false)}
+            playSpeed={playSpeed}
+            onSpeedChange={handleSpeedChange}
+            autoPlayEnabled={autoPlayEnabled}
+            onToggleAutoPlay={handleToggleAutoPlay}
+          />
+        </>
+      )}
     </div>
   );
 }

@@ -42,6 +42,9 @@ import {
   Heart, Crown, MapPin, Shirt, Award, ChevronRight, ChevronLeft, Gem, Rocket, ShoppingBag,
   ThumbsUp, ThumbsDown, MoreHorizontal, Image, Flag
 } from "lucide-react";
+// [Phase B · 단계3] 모바일 세로 (additive) — M1 DialogueBox 계약 + 오버플로 메뉴 재사용
+import useDeviceProfile from "../hooks/useDeviceProfile";
+import StoryV2MobileMenuSheet from "../components/story-v2/mobile/StoryV2MobileMenuSheet";
 import { assetUrl } from "../utils/assetUrl";
 import { sfx } from "../utils/sfx";
 import HelpButton from "../components/HelpButton";
@@ -51,7 +54,11 @@ const ChatPage = () => {
   const { user, logout, refreshUser } = useAuth();
   const { roomId } = useParams();
   const navigate = useNavigate();
-  
+
+  // [Phase B · 단계3] 폼팩터 프로필 + 모바일 오버플로 메뉴 상태 (프리젠테이션 전용)
+  const { isMobile } = useDeviceProfile();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   const [roomInfo, setRoomInfo] = useState(null);
   const [messages, setMessages] = useState([]);
   const initCalledRef = useRef(null); // [Phase 5 Fix] StrictMode 중복 init 방지 (roomId 기반)
@@ -1032,9 +1039,12 @@ const ChatPage = () => {
                   "강채린": "채린이 반가운 듯 밝게 웃으며 다가와 말을 건넵니다.",
                   "류설아": "당당한 표정으로 당신을 바라보며 말을 건넵니다."
               };
+              // [Studio v1] UGC 등 맵에 없는 이름의 조사 처리 (받침 유무 → 이/가)
+              const lastCode = charName.charCodeAt(charName.length - 1);
+              const josa = lastCode >= 0xac00 && lastCode <= 0xd7a3 && (lastCode - 0xac00) % 28 !== 0 ? "이" : "가";
               queue.push({
                   dialogue: greetingLog.cleanContent,
-                  narration: narrationMap[charName] || `${charName}가 고개를 숙여 인사하며 부드럽게 미소짓는다.`,
+                  narration: narrationMap[charName] || `${charName}${josa} 고개를 숙여 인사하며 부드럽게 미소짓는다.`,
                   emotion: greetingLog.emotionTag,
                   isEvent: false,
                   sceneType: "NORMAL"
@@ -2336,8 +2346,10 @@ const ChatPage = () => {
           outfit={currentOutfit}
           characterSlug={roomInfo?.characterSlug}
           defaultOutfit={roomInfo?.defaultOutfit}
+          defaultImageUrl={roomInfo?.defaultImageUrl}
           npcSpeaker={npcSpeaker}
           isNpcActive={currentSpeaker !== null && currentSpeaker !== roomInfo?.characterName}
+          portrait={isMobile}
         />
 
         {/* [Phase 5.5-IT] 속마음 말풍선 — CharacterDisplay 위에 오버레이 */}
@@ -2406,6 +2418,19 @@ const ChatPage = () => {
       </AnimatePresence>
 
       {/* Top Buttons */}
+      {/* [Phase B · 단계3] 데스크톱은 기존 클러스터 그대로, 모바일은 ⋯ 오버플로 → 메뉴 시트 */}
+      {isMobile ? (
+        <button
+          onClick={() => { sfx.wooshLight(); setMobileMenuOpen(true); }}
+          aria-label="메뉴"
+          className="absolute top-6 right-4 z-50 w-11 h-11 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-md text-white/80 border border-white/10 shadow-lg active:scale-95 transition"
+        >
+          <MoreHorizontal size={20} />
+          {roomInfo?.secretModeActive && (
+            <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-black/50" />
+          )}
+        </button>
+      ) : (
       <div className="absolute top-6 right-6 z-50 flex items-center gap-3">
         {/* 💎 상점 */}
         <button
@@ -2464,8 +2489,10 @@ const ChatPage = () => {
         {/* [Phase 6] 도움말 · 문의 */}
         <HelpButton className="relative p-3 rounded-full bg-black/40 backdrop-blur-md text-white/80 hover:bg-white/20 transition border border-white/10 shadow-lg" iconSize={20} />
       </div>
+      )}
 
       <DialogueBox
+        mobile={isMobile}
         characterName={roomInfo?.characterName}
         scene={currentScene}
         onSend={handleSendMessage}
@@ -2500,6 +2527,20 @@ const ChatPage = () => {
         onRequestDirector={handleRequestDirector}
         directorLoading={directorLoading}
       />
+
+      {/* [Phase B · 단계3] 모바일 오버플로 메뉴 시트 — 기존 상태/핸들러만 호출 */}
+      {isMobile && (
+        <StoryV2MobileMenuSheet
+          open={mobileMenuOpen}
+          onClose={() => setMobileMenuOpen(false)}
+          isBgmPlaying={isBgmPlaying}
+          onToggleBgm={toggleBgm}
+          onOpenStore={(tab) => { setStoreInitialTab(tab); setShowStore(true); }}
+          onOpenSettings={() => setShowSettings(true)}
+          onOpenHistory={() => setShowHistory(true)}
+          secretModeActive={roomInfo?.secretModeActive}
+        />
+      )}
 
       {/* ================= Event Selection Modal (3-Branch) ================= */}
       <AnimatePresence>

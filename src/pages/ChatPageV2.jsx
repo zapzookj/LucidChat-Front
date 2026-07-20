@@ -49,6 +49,9 @@ import StoryV2HeroineSelector from "../components/story-v2/StoryV2HeroineSelecto
 import StoryV2LocationMoveModal from "../components/story-v2/StoryV2LocationMoveModal";
 import StoryV2ResetModal from "../components/story-v2/StoryV2ResetModal";
 import StoryV2EndingCredits from "../components/story-v2/StoryV2EndingCredits";
+// [Phase B · 단계2] 모바일 세로 (additive)
+import useDeviceProfile from "../hooks/useDeviceProfile";
+import StoryV2MobileMenuSheet from "../components/story-v2/mobile/StoryV2MobileMenuSheet";
 import { getHeroinePaletteByCharacterId, USER_BUBBLE_PALETTE, SYSTEM_BUBBLE_PALETTE } from "../utils/characterColor";
 import { dayPartToV1Time } from "../utils/dayPart";
 // DirectorInterlude 제거 — 투명 디렉터 패턴으로 대체
@@ -78,6 +81,10 @@ const ChatPage = () => {
   const { user, logout, refreshUser } = useAuth();
   const { roomId } = useParams();
   const navigate = useNavigate();
+
+  // [Phase B · 단계2] 폼팩터 프로필 + 모바일 오버플로 메뉴 상태 (프리젠테이션 전용)
+  const { isMobile } = useDeviceProfile();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
   const [roomInfo, setRoomInfo] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -3120,8 +3127,11 @@ const ChatPage = () => {
           outfit={(isV2 && v2SceneSpeakerOutfit) || currentOutfit}
           characterSlug={isV2 ? v2SceneSpeakerSlug : roomInfo?.characterSlug}
           defaultOutfit={roomInfo?.defaultOutfit}
+          // [Fix-UGC-CDN] V2는 화자가 roomInfo 캐릭터와 다를 수 있어 미전달 (기존 경로 유지)
+          defaultImageUrl={isV2 ? null : roomInfo?.defaultImageUrl}
           npcSpeaker={npcSpeaker}
           isNpcActive={currentSpeaker !== null && currentSpeaker === npcSpeaker}
+          portrait={isMobile}
         />
 
         {/* [Phase 5.5-IT] 속마음 말풍선 — CharacterDisplay 위에 오버레이 */}
@@ -3190,6 +3200,19 @@ const ChatPage = () => {
       </AnimatePresence>
 
       {/* Top Buttons */}
+      {/* [Phase B · 단계2] 데스크톱은 기존 6-pill 클러스터 그대로, 모바일은 ⋯ 오버플로 → 메뉴 시트 */}
+      {isMobile ? (
+        <button
+          onClick={() => { sfx.wooshLight(); setMobileMenuOpen(true); }}
+          aria-label="메뉴"
+          className="absolute top-6 right-4 z-50 w-11 h-11 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-md text-white/80 border border-white/10 shadow-lg active:scale-95 transition"
+        >
+          <MoreHorizontal size={20} />
+          {roomInfo?.secretModeActive && (
+            <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-full border-2 border-black/50" />
+          )}
+        </button>
+      ) : (
       <div className="absolute top-6 right-6 z-50 flex items-center gap-3">
         {/* 💎 상점 */}
         <button
@@ -3248,8 +3271,10 @@ const ChatPage = () => {
         {/* [Phase 6] 도움말 · 문의 */}
         <HelpButton className="relative p-3 rounded-full bg-black/40 backdrop-blur-md text-white/80 hover:bg-white/20 transition border border-white/10 shadow-lg" iconSize={20} />
       </div>
+      )}
 
       <DialogueBox
+        mobile={isMobile}
         characterName={roomInfo?.characterName}
         scene={currentScene}
         onSend={handleSendMessage}
@@ -3760,6 +3785,20 @@ const ChatPage = () => {
             onClick={handleNotificationClickV2}
           />
         </>
+      )}
+
+      {/* [Phase B · 단계2] 모바일 오버플로 메뉴 시트 — 기존 상태/핸들러만 호출 */}
+      {isMobile && (
+        <StoryV2MobileMenuSheet
+          open={mobileMenuOpen}
+          onClose={() => setMobileMenuOpen(false)}
+          isBgmPlaying={isBgmPlaying}
+          onToggleBgm={toggleBgm}
+          onOpenStore={(tab) => { setStoreInitialTab(tab); setShowStore(true); }}
+          onOpenSettings={() => setShowSettings(true)}
+          onOpenHistory={() => setShowHistory(true)}
+          secretModeActive={roomInfo?.secretModeActive}
+        />
       )}
 
       {/* Settings Modal */}

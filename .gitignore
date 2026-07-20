@@ -22,3 +22,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+### Secrets / local-only assets (2026-07-20) ###
+public/ngrok.yml
+.vs/
+# CDN 원본의 로컬 사본 (배포는 CloudFront 서빙 — 리포 비대화 방지)
+public/characters/
+public/backgrounds/
+public/sounds/
+public/videos/

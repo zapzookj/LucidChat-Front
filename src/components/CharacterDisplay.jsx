@@ -23,11 +23,26 @@ const EMOTION_LIST = [
   "DUMBFOUNDED", "SULKING", "PLEADING"
 ];
 
-function resolveCharacterImage(characterSlug, outfit, emotion) {
-  const slug = characterSlug || "airi";
+// [Fix-UGC-CDN] assetDir(절대 URL 디렉터리)이 주어지면 그 디렉터리 기준으로 조립.
+// UGC 캐릭터의 스탠딩은 공식 CDN(VITE_ASSET_BASE_URL)이 아닌 백엔드 S3 CDN에 있으므로,
+// 백엔드가 준 절대 URL(defaultImageUrl)에서 유도한 디렉터리를 써야 403이 나지 않는다.
+// assetDir이 없으면 기존 assetUrl 경로 그대로 (공식 캐릭터 무회귀).
+function resolveCharacterImage(characterSlug, outfit, emotion, assetDir = null) {
   const o = (outfit || "MAID").toLowerCase();
   const e = (emotion || "NEUTRAL").toLowerCase();
+  if (assetDir) return `${assetDir}/${o}_${e}.png`;
+  const slug = characterSlug || "airi";
   return assetUrl(`/characters/${slug}/${o}_${e}.png`); // ⬅️
+}
+
+// [Fix-UGC-CDN] defaultImageUrl(절대 URL일 때만)에서 디렉터리 베이스를 유도.
+// 예: https://d3gb5c…/characters/ugc-5/default_neutral.png → https://d3gb5c…/characters/ugc-5
+function deriveAssetDir(defaultImageUrl) {
+  if (typeof defaultImageUrl !== "string" || !/^https?:\/\//i.test(defaultImageUrl)) return null;
+  const idx = defaultImageUrl.lastIndexOf("/");
+  // 프로토콜의 "//" 직후 슬래시는 경로 구분자가 아님 — 실제 경로가 있을 때만 유효
+  if (idx <= defaultImageUrl.indexOf("//") + 1) return null;
+  return defaultImageUrl.substring(0, idx);
 }
 
 const EMOTION_ANIM = {
@@ -195,9 +210,15 @@ const NpcSilhouette = ({ name, isActive }) => (
 
 const CharacterDisplay = ({
   emotion = "NEUTRAL", outfit = "MAID", characterSlug = "airi", defaultOutfit,
+  // [Fix-UGC-CDN] 백엔드가 준 절대 URL (GET /chat/rooms/{id}의 defaultImageUrl).
+  // UGC 캐릭터의 CDN 디렉터리 유도용 — 없거나 절대 URL이 아니면 기존 동작 유지.
+  defaultImageUrl = null,
   npcSpeaker = null, isNpcActive = false,
+  // [Phase B · 단계1] 모바일 세로 bust-up 크롭 (default false → 데스크톱 geometry 불변)
+  portrait = false,
 }) => {
-  const imagePath = resolveCharacterImage(characterSlug, outfit, emotion);
+  const assetDir = useMemo(() => deriveAssetDir(defaultImageUrl), [defaultImageUrl]);
+  const imagePath = resolveCharacterImage(characterSlug, outfit, emotion, assetDir);
   const config = EMOTION_ANIM[emotion] || EMOTION_ANIM.NEUTRAL;
   const idleControls = useAnimation();
   const prevEmotionRef = useRef(emotion);
@@ -275,8 +296,8 @@ const CharacterDisplay = ({
                     className="h-[85%] md:h-[90%] object-contain select-none pointer-events-none"
                     style={{ filter: `drop-shadow(0 0 25px ${config.glow}) drop-shadow(0 5px 15px rgba(0,0,0,0.4)) brightness(${isMainActive ? config.imgBrightness : 0.65})` }}
                     onError={(e) => {
-                      const fb1 = resolveCharacterImage(characterSlug, outfit, "NEUTRAL");
-                      const fb2 = resolveCharacterImage(characterSlug, "MAID", emotion);
+                      const fb1 = resolveCharacterImage(characterSlug, outfit, "NEUTRAL", assetDir);
+                      const fb2 = resolveCharacterImage(characterSlug, defaultOutfit || "MAID", emotion, assetDir);
                       // resolveCharacterImage가 절대 URL을 반환하므로 직접 비교
                       if (e.target.src !== fb1 && e.target.src !== fb2) e.target.src = fb2;
                       else e.target.style.display = "none";
@@ -315,9 +336,14 @@ const CharacterDisplay = ({
         <motion.div
           animate={{ y: [0, -8, 0], scaleY: [1, 1.004, 1], scaleX: [1, 1.001, 1] }}
           transition={{ duration: 6, repeat: Infinity, ease: "easeInOut" }}
-          className="relative w-full h-full max-w-4xl flex items-end justify-center pb-20 md:pb-28"
+          className={`relative w-full h-full max-w-4xl flex items-end justify-center ${portrait ? "pb-0" : "pb-20 md:pb-28"}`}
         >
           <motion.div animate={idleControls} className="relative h-full w-full flex items-end justify-center">
+            {/* [Phase B · 단계1] portrait 시 상반신 bust-up 크롭 — top-biased 확대(하반신은 루트 overflow-hidden 으로 clip). 기본 off. */}
+            <div
+              className="relative h-full w-full flex items-end justify-center"
+              style={portrait ? { transform: "scale(1.5)", transformOrigin: "center 18%" } : undefined}
+            >
             <AnimatePresence mode="popLayout">
               <motion.img
                 key={`${characterSlug}_${outfit}_${emotion}`}
@@ -327,13 +353,14 @@ const CharacterDisplay = ({
                 className="h-[85%] md:h-[90%] object-contain select-none pointer-events-none"
                 style={{ filter: `drop-shadow(0 0 25px ${config.glow}) drop-shadow(0 5px 15px rgba(0,0,0,0.4)) brightness(${config.imgBrightness})` }}
                 onError={(e) => {
-                  const fb1 = resolveCharacterImage(characterSlug, outfit, "NEUTRAL");
-                  const fb2 = resolveCharacterImage(characterSlug, "MAID", emotion);
+                  const fb1 = resolveCharacterImage(characterSlug, outfit, "NEUTRAL", assetDir);
+                  const fb2 = resolveCharacterImage(characterSlug, defaultOutfit || "MAID", emotion, assetDir);
                   if (e.target.src !== fb1 && e.target.src !== fb2) e.target.src = fb2;
                   else e.target.style.display = "none";
                 }}
               />
             </AnimatePresence>
+            </div>
           </motion.div>
         </motion.div>
       ) : null}

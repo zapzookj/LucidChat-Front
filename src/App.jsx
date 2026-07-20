@@ -10,6 +10,8 @@ import TheaterIntermissionPage from "./pages/TheaterIntermissionPage";
 import TheaterEndingCredits from "./pages/TheaterEndingCredits";
 import TheaterArchivePage from "./pages/TheaterArchivePage";
 import OAuthSuccessPage from "./pages/OAuthSuccessPage";
+// [Studio v1] UGC 캐릭터 생성 스튜디오
+import StudioPage from "./pages/StudioPage";
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -49,6 +51,15 @@ function App() {
             element={
               <ProtectedRoute>
                 <LobbyPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* [Studio v1] UGC 캐릭터 생성 스튜디오 */}
+          <Route
+            path="/studio"
+            element={
+              <ProtectedRoute>
+                <StudioPage />
               </ProtectedRoute>
             }
           />
