@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ChevronLeft, ChevronRight, Play, Pause, BookOpen, SkipForward, Heart, Megaphone
+  ChevronLeft, ChevronRight, Play, Pause, BookOpen, SkipForward, Heart, Megaphone, Settings2
 } from "lucide-react";
 import { sanitizeScene } from "../../utils/dialogueSanitizer";
 import { sfx } from "../../utils/sfx";
@@ -156,6 +156,9 @@ export default function TheaterDialogueBox({
   // [Polish · P2 #5] 감독 명령 버튼을 DialogueBox로 이전.
   onOpenCommand,
   commandPulseActive = false,
+  // [Phase B · 단계1] 모바일 세로 레이아웃 (default false → 데스크톱 렌더 byte-identical)
+  mobile = false,
+  onOpenPlayback,
 }) {
   const speed = TYPING_SPEED[playSpeed] || TYPING_SPEED.NORMAL;
 
@@ -236,10 +239,25 @@ export default function TheaterDialogueBox({
   const heroineDialogue = displayed.dialogue_heroine || "";
 
   return (
-    <div
-      className="absolute bottom-0 left-0 right-0 z-30 p-4 md:p-6 pointer-events-none"
-      onClick={(e) => e.stopPropagation()}
-    >
+    <>
+      {/* [Phase B · 단계1] 모바일 tap-to-advance — 무대(배경/스프라이트) 영역 탭 시 진행.
+          박스의 로컬 allDone/skipAll 을 그대로 재사용(로직 lift-up 없음).
+          z-10: 배경(z-0) 위, 상단바(z-20)/박스(z-30) 아래. inline 분기 중엔 비활성. */}
+      {mobile && !branchInlineActive && (
+        <div
+          className="absolute inset-0 z-10"
+          aria-hidden="true"
+          onClick={() => {
+            if (!canGoNext || loadingNext) return;
+            if (allDone) { sfx.pageTurn(); onNextScene?.(); }
+            else { skipAll(); }
+          }}
+        />
+      )}
+      <div
+        className={`absolute bottom-0 left-0 right-0 z-30 pointer-events-none ${mobile ? "p-3 pb-safe-3" : "p-4 md:p-6"}`}
+        onClick={(e) => e.stopPropagation()}
+      >
       {/* [Polish · P2 #1] inline 분기 활성 시 본체 흐림 */}
       <motion.div
         className="max-w-5xl mx-auto pointer-events-auto"
@@ -256,33 +274,43 @@ export default function TheaterDialogueBox({
         }}
       >
         {/* ═══ 컨트롤 바 (박스 위) ═══ */}
-        <TopControls
-          playSpeed={playSpeed}
-          onSpeedChange={onSpeedChange}
-          autoPlayEnabled={autoPlayEnabled}
-          onToggleAutoPlay={onToggleAutoPlay}
-          onOpenHistory={onOpenHistory}
-          sceneIndexInBatch={sceneIndexInBatch}
-          sceneCountInBatch={sceneCountInBatch}
-          leadHeroineName={leadHeroineName}
-          leadHeroineAffection={leadHeroineAffection}
-        />
+        {mobile ? (
+          <MobileTopRow
+            autoPlayEnabled={autoPlayEnabled}
+            onToggleAutoPlay={onToggleAutoPlay}
+            onOpenPlayback={onOpenPlayback}
+            sceneIndexInBatch={sceneIndexInBatch}
+            sceneCountInBatch={sceneCountInBatch}
+          />
+        ) : (
+          <TopControls
+            playSpeed={playSpeed}
+            onSpeedChange={onSpeedChange}
+            autoPlayEnabled={autoPlayEnabled}
+            onToggleAutoPlay={onToggleAutoPlay}
+            onOpenHistory={onOpenHistory}
+            sceneIndexInBatch={sceneIndexInBatch}
+            sceneCountInBatch={sceneCountInBatch}
+            leadHeroineName={leadHeroineName}
+            leadHeroineAffection={leadHeroineAffection}
+          />
+        )}
 
         {/* ═══ 메인 다이얼로그 박스 ═══ */}
         <div
           className="relative rounded-2xl bg-black/75 backdrop-blur-md border border-white/10 shadow-2xl"
           style={{
-            minHeight: "200px",
-            maxHeight: "40vh",
+            minHeight: mobile ? "160px" : "200px",
+            maxHeight: mobile ? "52vh" : "40vh",
           }}
         >
-          <div className="p-5 md:p-6 overflow-y-auto max-h-[38vh] space-y-3">
+          <div className={`overflow-y-auto space-y-3 ${mobile ? "p-4 max-h-[48vh]" : "p-5 md:p-6 max-h-[38vh]"}`}>
             {/* 나레이션 */}
             {scene?.narration && (
               <motion.div
                 initial={{ opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="text-white/90 text-[15px] md:text-base leading-relaxed"
+                className={`text-white/90 leading-relaxed ${mobile ? "text-[17px]" : "text-[15px] md:text-base"}`}
                 style={{ fontFamily: "'Noto Serif KR', serif" }}
               >
                 {narrationText}
@@ -309,7 +337,7 @@ export default function TheaterDialogueBox({
                   }}
                 />
                 <div
-                  className="text-violet-200/90 text-sm italic leading-relaxed"
+                  className={`text-violet-200/90 italic leading-relaxed ${mobile ? "text-[15px]" : "text-sm"}`}
                   style={{ fontFamily: "'Noto Serif KR', serif" }}
                 >
                   <span className="text-violet-300/55 mr-1">「</span>
@@ -330,6 +358,7 @@ export default function TheaterDialogueBox({
                 speakerName={dialogueSpeakerName}
                 text={isAvatarSpeaking ? userDialogue : heroineDialogue}
                 fullText={scene.dialogue}
+                mobile={mobile}
               />
             )}
           </div>
@@ -344,10 +373,12 @@ export default function TheaterDialogueBox({
             allDone={allDone}
             onOpenCommand={onOpenCommand}
             commandPulseActive={commandPulseActive}
+            mobile={mobile}
           />
         </div>
       </motion.div>
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -355,7 +386,7 @@ export default function TheaterDialogueBox({
 //  대사 라인 (유저 vs 히로인 스타일 분리)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const DialogueLine = ({ isAvatarSpeaking, isHeroineSpeaking, speakerName, text, fullText }) => {
+const DialogueLine = ({ isAvatarSpeaking, isHeroineSpeaking, speakerName, text, fullText, mobile = false }) => {
   if (!text && !fullText) return null;
 
   const typing = (text?.length || 0) < (fullText?.length || 0);
@@ -372,7 +403,7 @@ const DialogueLine = ({ isAvatarSpeaking, isHeroineSpeaking, speakerName, text, 
           {speakerName}
         </div>
         <div
-          className="max-w-[85%] px-4 py-2 rounded-2xl rounded-tr-sm bg-cyan-500/15 border border-cyan-400/30 text-white text-base md:text-lg leading-relaxed"
+          className={`max-w-[85%] px-4 py-2 rounded-2xl rounded-tr-sm bg-cyan-500/15 border border-cyan-400/30 text-white leading-relaxed ${mobile ? "text-[17px]" : "text-base md:text-lg"}`}
           style={{ fontFamily: "'Noto Sans KR', sans-serif" }}
         >
           {text}
@@ -394,7 +425,7 @@ const DialogueLine = ({ isAvatarSpeaking, isHeroineSpeaking, speakerName, text, 
           {speakerName}
         </div>
         <div
-          className="max-w-[85%] px-4 py-2 rounded-2xl rounded-tl-sm bg-amber-500/10 border border-amber-400/30 text-white text-base md:text-lg leading-relaxed"
+          className={`max-w-[85%] px-4 py-2 rounded-2xl rounded-tl-sm bg-amber-500/10 border border-amber-400/30 text-white leading-relaxed ${mobile ? "text-[17px]" : "text-base md:text-lg"}`}
           style={{ fontFamily: "'Noto Sans KR', sans-serif" }}
         >
           <span className="text-amber-200/70 mr-1">"</span>
@@ -516,6 +547,63 @@ const TopControls = ({
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  [Phase B · 단계1] 모바일 slim 컨트롤 행
+//   속도/기록/lead-heroine 은 시트로 이전(페이지). 여기엔 진행도 dots +
+//   자동/수동 one-tap(최다 사용) + ⚙(재생 설정 시트) 만 남긴다.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const MobileTopRow = ({
+  autoPlayEnabled, onToggleAutoPlay, onOpenPlayback,
+  sceneIndexInBatch, sceneCountInBatch,
+}) => {
+  const total = Math.max(1, sceneCountInBatch || 1);
+  const current = Math.max(0, Math.min(total - 1, sceneIndexInBatch || 0));
+  return (
+    <div
+      className="flex items-center justify-between gap-2 mb-2 px-0.5 pointer-events-auto"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div
+        className="flex items-center gap-1 bg-black/55 backdrop-blur-md rounded-full px-2.5 h-9 border border-white/10"
+        aria-label={`씬 ${current + 1} / ${total}`}
+      >
+        {Array.from({ length: total }).map((_, i) => {
+          let cls = "rounded-full transition-all duration-300";
+          if (i < current) cls += " w-1 h-1 bg-violet-300/85";
+          else if (i === current) cls += " w-1.5 h-1.5 bg-violet-200";
+          else cls += " w-1 h-1 bg-white/15";
+          return <span key={i} className={cls} />;
+        })}
+        <span className="ml-1 text-[10px] text-white/55 font-mono tabular-nums">
+          {current + 1}<span className="text-white/25">/{total}</span>
+        </span>
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleAutoPlay?.(); }}
+          aria-label={autoPlayEnabled ? "자동 재생 끄기" : "자동 재생 켜기"}
+          className={`flex items-center gap-1 h-10 px-3.5 rounded-full text-[11px] font-bold backdrop-blur-md border transition-colors ${
+            autoPlayEnabled
+              ? "bg-emerald-500/22 border-emerald-300/40 text-emerald-100"
+              : "bg-black/55 border-white/10 text-white/60"
+          }`}
+        >
+          {autoPlayEnabled ? <Play size={11} fill="currentColor" /> : <Pause size={11} fill="currentColor" />}
+          <span>{autoPlayEnabled ? "자동" : "수동"}</span>
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onOpenPlayback?.(); }}
+          aria-label="재생 설정"
+          className="w-10 h-10 flex items-center justify-center rounded-full bg-black/55 backdrop-blur-md border border-white/10 text-white/65"
+        >
+          <Settings2 size={16} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  하단 네비게이션 바
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //
@@ -531,17 +619,17 @@ const TopControls = ({
 //
 const BottomNav = ({
   onPrev, onNext, canGoPrev, canGoNext, loadingNext, allDone,
-  onOpenCommand, commandPulseActive,
+  onOpenCommand, commandPulseActive, mobile = false,
 }) => (
   <div
-    className="flex items-center justify-between px-4 py-2.5 border-t border-white/5"
+    className={`flex items-center justify-between border-t border-white/5 ${mobile ? "px-3 py-3" : "px-4 py-2.5"}`}
     onClick={(e) => e.stopPropagation()}
   >
     <button
       onClick={(e) => { e.stopPropagation(); if (canGoPrev) { sfx.pageTurn(); onPrev?.(); } }}
       disabled={!canGoPrev || loadingNext}
       aria-label="이전 씬"
-      className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs transition-colors duration-200 ${
+      className={`flex items-center gap-1 rounded-full text-xs transition-colors duration-200 ${mobile ? "px-4 py-2.5" : "px-3 py-1.5"} ${
         canGoPrev && !loadingNext
           ? "text-white/65 hover:text-white hover:bg-white/5"
           : "text-white/20 cursor-not-allowed"
@@ -574,7 +662,7 @@ const BottomNav = ({
         }}
         aria-label="감독 명령"
         title="감독 명령 (다음 배치에 환경 이벤트 추가)"
-        className={`relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors duration-200 ${
+        className={`relative inline-flex items-center gap-1.5 rounded-full text-xs font-semibold border transition-colors duration-200 ${mobile ? "px-4 py-2.5" : "px-3 py-1.5"} ${
           commandPulseActive
             ? "bg-amber-500/15 border-amber-300/45 text-amber-200 hover:bg-amber-500/20"
             : "bg-white/[0.04] border-white/15 text-white/75 hover:text-amber-200 hover:border-amber-300/40 hover:bg-amber-500/8"
@@ -600,7 +688,7 @@ const BottomNav = ({
         ? { scale: 1.02, transition: { type: "spring", stiffness: 400, damping: 20 } }
         : {}}
       aria-label={allDone ? "다음 씬" : "타이핑 건너뛰기"}
-      className={`flex items-center gap-2 px-5 py-2 rounded-full font-bold text-sm shadow-lg transition-all duration-200 ${
+      className={`flex items-center gap-2 rounded-full font-bold shadow-lg transition-all duration-200 ${mobile ? "px-6 py-3 text-base" : "px-5 py-2 text-sm"} ${
         canGoNext && !loadingNext
           ? allDone
             // 다음으로 진행 — mode-theater 그라디언트 (시그니처 액션)

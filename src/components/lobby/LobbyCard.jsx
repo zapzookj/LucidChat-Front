@@ -45,10 +45,12 @@ export default function LobbyCard({
   size = "md",
 }) {
   const a = ACCENTS[accent] || ACCENTS.neutral;
+  // [Phase B · 단계4] 모바일(<640px)에서만 폭을 유동화(2열 그리드/캐러셀 대응).
+  //  sm: 이상(데스크톱)은 기존 고정 px 그대로 → 데스크톱 렌더 불변(G1).
   const dims =
     size === "lg"
-      ? "w-[240px] h-[348px] sm:w-[270px] sm:h-[392px]"
-      : "w-[200px] h-[290px] sm:w-[224px] sm:h-[324px]";
+      ? "w-[60vw] max-w-[240px] h-[348px] sm:w-[270px] sm:h-[392px]"
+      : "w-[44vw] max-w-[200px] h-[290px] sm:w-[224px] sm:h-[324px]";
 
   return (
     <motion.button

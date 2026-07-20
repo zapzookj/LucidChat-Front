@@ -486,7 +486,8 @@ const LucidStore = ({
                 {characters.length > 0 && (
                   <div>
                     <label className="text-xs text-white/40 uppercase tracking-wider mb-2 block">대상 캐릭터 선택</label>
-                    <div className="flex gap-3">
+                    {/* [Phase B · 단계4] 모바일(<640px)에서만 줄바꿈 — 데스크톱 한 줄 배치 불변(G1) */}
+                    <div className="flex gap-3 max-sm:flex-wrap">
                       {characters.map((ch) => (
                         <button
                           key={ch.id}

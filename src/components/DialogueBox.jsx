@@ -241,6 +241,52 @@ function SystemTurnCue() {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  [Phase B · 단계2] M1 모바일 compact HUD
+//   데스크톱의 넓은 정보바(Status/BPM/Energy/Boost pill)가 375px 를 오버플로하므로
+//   컴팩트 배지 행으로 압축. hover 툴팁이 없는 터치 환경이라 각 배지는 탭 시
+//   기존 상태창(onOpenStatusPanel = BiometricStatusPanel)으로 상세를 노출한다.
+// ═══════════════════════════════════════════════════════════════
+const MobileInfoBar = ({
+  bpm, energy, hasPaidEnergy, displayPaidEnergy, boostMode, onOpenStatusPanel, statChanges,
+}) => (
+  <div className="relative flex justify-end items-center gap-1.5 px-1">
+    <StatChangeToasts changes={statChanges} />
+    {boostMode && (
+      <span className="flex items-center gap-1 h-10 px-2.5 rounded-full bg-black/60 backdrop-blur-md border border-cyan-500/40 text-cyan-300">
+        <Rocket size={13} />
+        <span className="text-[10px] font-bold uppercase">Boost</span>
+      </span>
+    )}
+    <button
+      onClick={onOpenStatusPanel}
+      aria-label="심박수 상세"
+      className="flex items-center gap-1.5 h-10 px-3 rounded-full bg-black/60 backdrop-blur-md border border-rose-500/40 text-white active:scale-95 transition"
+    >
+      <Heart size={14} fill="#f472b6" color="#f472b6" />
+      <span className="text-sm font-bold tabular-nums">{bpm}</span>
+    </button>
+    <button
+      onClick={onOpenStatusPanel}
+      aria-label="에너지 상세"
+      className="flex items-center gap-1.5 h-10 px-3 rounded-full bg-black/60 backdrop-blur-md border border-yellow-500/40 text-white active:scale-95 transition"
+    >
+      <Zap size={14} className="text-yellow-400" fill={energy > 0 ? "currentColor" : "none"} />
+      <span className="text-sm font-bold tabular-nums">
+        {energy}
+        {hasPaidEnergy && <span className="text-[10px] text-emerald-400/80 ml-0.5">+{displayPaidEnergy}</span>}
+      </span>
+    </button>
+    <button
+      onClick={onOpenStatusPanel}
+      aria-label="상태창"
+      className="flex items-center justify-center w-10 h-10 rounded-full bg-black/60 backdrop-blur-md border border-purple-500/30 text-purple-300 active:scale-95 transition"
+    >
+      <Activity size={16} />
+    </button>
+  </div>
+);
+
 const DialogueBox = ({
   characterName,
   scene: rawScene,
@@ -289,6 +335,8 @@ const DialogueBox = ({
   onSelectDialogueOption,         // 선택지 클릭 → (option: string) => void
   showStoryActions = false,       // V2 액션바 노출 (topicConcluded 연동)
   onStoryAction,                  // 액션 클릭 → (type: "NEXT_SCENE"|"TIME_ADVANCE"|"MOVE") => void
+  // ── [Phase B · 단계2] M1 모바일 세로 계약 (additive — 미전달 시 V1·V2 데스크톱 byte-identical) ──
+  mobile = false,
 }) => {
   const [input, setInput] = useState("");
   const [displayedText, setDisplayedText] = useState("");
@@ -448,10 +496,21 @@ const DialogueBox = ({
   const currentBpmRange = BPM_RANGES.find(r => bpm >= r.min && bpm <= r.max);
 
   return (
-    <div className="absolute bottom-0 w-full z-20 p-4 pb-8 flex justify-center select-none">
+    <div className={`absolute bottom-0 w-full z-20 flex justify-center select-none ${mobile ? "p-3 pb-safe-4" : "p-4 pb-8"}`}>
       <div className="w-full max-w-4xl flex flex-col gap-3">
 
         {/* ═══ 상단 정보바 ═══ */}
+        {mobile ? (
+          <MobileInfoBar
+            bpm={bpm}
+            energy={energy}
+            hasPaidEnergy={hasPaidEnergy}
+            displayPaidEnergy={displayPaidEnergy}
+            boostMode={boostMode}
+            onOpenStatusPanel={onOpenStatusPanel}
+            statChanges={statChanges}
+          />
+        ) : (
         <div className="flex justify-end items-center px-2 gap-3 relative">
 
           {/* 부스트 모드 뱃지 */}
@@ -631,6 +690,7 @@ const DialogueBox = ({
             </div>
           </div>
         </div>
+        )}
 
         {/* ═══ 메인 대화창 ═══ */}
         <motion.div
@@ -702,7 +762,7 @@ const DialogueBox = ({
                 key="dialogue-view"
                 initial={false}
                 className={`min-h-[3.5rem] leading-relaxed font-medium drop-shadow-md tracking-wide flex flex-col justify-center ${
-                  isEventScene ? 'items-center text-center py-4' : 'text-lg text-white/95'
+                  isEventScene ? 'items-center text-center py-4' : `text-white/95 ${mobile ? 'text-xl' : 'text-lg'}`
                 }`}
               >
                 {isEventScene && (

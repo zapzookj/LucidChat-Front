@@ -1,7 +1,7 @@
 import { getStoryV2StreamUrl, getStoryV2OpeningStreamUrl } from "./StoryV2Api";
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL;
-// const BASE_URL = 'http://localhost:8080/api/v1';
+// const BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const BASE_URL = 'http://localhost:8080/api/v1';
 
 /**
  * [Story V2] V2 메시지/액션 SSE 스트림 클라이언트.

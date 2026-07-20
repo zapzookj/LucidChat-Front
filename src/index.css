@@ -38,5 +38,28 @@ input:focus {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3); 
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/*
+ * [Phase B · 단계0] 모바일 세로 레이아웃용 additive 세이프에어리어 유틸.
+ * env(safe-area-inset-*) 은 노치 없는 기기/데스크톱에서 0 이므로 데스크톱 렌더에 무영향(G1).
+ * 동적 뷰포트 높이(dvh)는 Tailwind 3.4 기본 유틸(h-dvh/min-h-dvh)을 그대로 사용.
+ */
+@layer utilities {
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .pl-safe { padding-left: env(safe-area-inset-left); }
+  .pr-safe { padding-right: env(safe-area-inset-right); }
+  .mt-safe { margin-top: env(safe-area-inset-top); }
+  .mb-safe { margin-bottom: env(safe-area-inset-bottom); }
+  .top-safe { top: env(safe-area-inset-top); }
+  .bottom-safe { bottom: env(safe-area-inset-bottom); }
+  /* 최소 여백 + 세이프에어리어(max) — 노치 없는 기기에서도 기본 여백 보장 */
+  .pt-safe-2 { padding-top: max(0.5rem, env(safe-area-inset-top)); }
+  .pb-safe-2 { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
+  .pt-safe-3 { padding-top: max(0.75rem, env(safe-area-inset-top)); }
+  .pb-safe-3 { padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); }
+  .pt-safe-4 { padding-top: max(1rem, env(safe-area-inset-top)); }
+  .pb-safe-4 { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 }
