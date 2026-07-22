@@ -12,6 +12,8 @@ import {
   confirmCreation, abandonCreationJob, fetchMyUgcCharacters, requestPublish,
   requestSecret, updateUgcTexts,
 } from "../../api/StudioApi";
+// [World Builder] 세계관 연결 셀렉터 — 공식 4종 상수 + 내 월드 조회
+import { fetchMyUgcWorlds, OFFICIAL_WORLDS } from "../../api/WorldStudioApi";
 import useUgcCreationJob from "../../hooks/useUgcCreationJob";
 import ProfileEditPanel from "./ProfileEditPanel";
 import { sfx } from "../../utils/sfx";
@@ -238,14 +240,33 @@ const APPEARANCE_FIELDS = [
 const EMPTY_APPEARANCE = APPEARANCE_FIELDS.reduce((acc, f) => ({ ...acc, [f.key]: "" }), {});
 
 const ConceptStep = ({ busy, error, energy, onSubmit }) => {
+  const navigate = useNavigate();
   const [name, setName] = useState("");
   const [concept, setConcept] = useState("");
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [appearance, setAppearance] = useState(EMPTY_APPEARANCE);
+  // [World Builder] 세계관 연결 (선택) — {type:"NONE"} | {type:"OFFICIAL",id,name} | {type:"UGC",id,name}
+  const [worldOpen, setWorldOpen] = useState(false);
+  const [worldSel, setWorldSel] = useState({ type: "NONE" });
+  const [myWorlds, setMyWorlds] = useState(null); // null = 로딩 중
   const len = concept.trim().length;
   const valid = len >= CONCEPT_MIN && len <= CONCEPT_MAX;
   const lackEnergy = energy < CREATE_COST;
   const filledAppearanceCount = APPEARANCE_FIELDS.filter((f) => appearance[f.key].trim()).length;
+
+  // [World Builder] 내 커스텀 월드(READY) 목록 — 마운트 시 1회
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const data = await fetchMyUgcWorlds();
+        if (alive) setMyWorlds(data?.worlds || []);
+      } catch {
+        if (alive) setMyWorlds([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   // 값이 있는 필드만 추려 appearance 페이로드 구성 — 전부 비었으면 null
   const buildAppearance = () => {
@@ -350,6 +371,146 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
         </AnimatePresence>
       </div>
 
+      {/* [World Builder] 세계관 연결 (선택) — 접이식 */}
+      <div className="mb-5 rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
+        <button
+          type="button"
+          onClick={() => { sfx.click(0.2); setWorldOpen((o) => !o); }}
+          className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-white/[0.03] transition-colors"
+        >
+          <span className="flex items-center gap-1.5 text-xs text-white/60 font-medium">
+            <Globe size={12} className="text-amber-300/70" />
+            세계관 연결 (선택)
+            {worldSel.type !== "NONE" && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-200 border border-amber-400/30 max-w-[140px] truncate">
+                {worldSel.name}
+              </span>
+            )}
+          </span>
+          <motion.span animate={{ rotate: worldOpen ? 180 : 0 }} transition={{ duration: 0.25 }}>
+            <ChevronDown size={14} className="text-white/40" />
+          </motion.span>
+        </button>
+        <AnimatePresence initial={false}>
+          {worldOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+              className="overflow-hidden"
+            >
+              <div className="px-4 pb-4 pt-1">
+                <p className="text-[11px] text-white/35 mb-3">
+                  캐릭터가 살아갈 세계를 정해요. 완성 후에도 언제든 바꿀 수 있어요.
+                </p>
+
+                {/* ③ 기본값 — 나중에 연결 */}
+                <button
+                  type="button"
+                  onClick={() => { sfx.click(0.2); setWorldSel({ type: "NONE" }); }}
+                  className={`mb-3 px-3 py-1.5 rounded-full text-[11px] font-medium border transition-colors ${
+                    worldSel.type === "NONE"
+                      ? "bg-amber-500/20 border-amber-400/60 text-amber-100"
+                      : "bg-white/[0.03] border-white/10 text-white/55 hover:bg-white/[0.08]"
+                  }`}
+                >
+                  나중에 연결
+                </button>
+
+                {/* ① 공식 세계관 — 가로 스크롤 칩 */}
+                <div className="text-[10px] text-white/40 uppercase tracking-widest mb-1.5">
+                  공식 세계관
+                </div>
+                <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-1.5 mb-3">
+                  {OFFICIAL_WORLDS.map((w) => {
+                    const selected = worldSel.type === "OFFICIAL" && worldSel.id === w.id;
+                    return (
+                      <button
+                        key={w.id}
+                        type="button"
+                        onClick={() => {
+                          sfx.click(0.2);
+                          setWorldSel(
+                            selected ? { type: "NONE" } : { type: "OFFICIAL", id: w.id, name: w.name }
+                          );
+                        }}
+                        className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] font-medium border transition-colors ${
+                          selected
+                            ? "bg-amber-500/20 border-amber-400/60 text-amber-100"
+                            : "bg-white/[0.03] border-white/10 text-white/55 hover:bg-white/[0.08]"
+                        }`}
+                      >
+                        {w.name}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* ② 내 커스텀 월드 — 썸네일 칩 */}
+                <div className="text-[10px] text-white/40 uppercase tracking-widest mb-1.5">
+                  내 세계관
+                </div>
+                {myWorlds === null ? (
+                  <div className="py-3 text-[11px] text-white/35">불러오는 중…</div>
+                ) : myWorlds.length > 0 ? (
+                  <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1.5">
+                    {myWorlds.map((w) => {
+                      const selected = worldSel.type === "UGC" && worldSel.id === w.worldId;
+                      return (
+                        <button
+                          key={w.worldId}
+                          type="button"
+                          onClick={() => {
+                            sfx.click(0.2);
+                            setWorldSel(
+                              selected ? { type: "NONE" } : { type: "UGC", id: w.worldId, name: w.name }
+                            );
+                          }}
+                          className={`flex-shrink-0 w-32 rounded-xl overflow-hidden border-2 text-left transition-colors ${
+                            selected ? "border-amber-400" : "border-white/10 hover:border-amber-300/50"
+                          }`}
+                        >
+                          <div className="aspect-video bg-black/40">
+                            {w.thumbnailUrl ? (
+                              <img
+                                src={w.thumbnailUrl}
+                                alt={w.name}
+                                className="w-full h-full object-cover"
+                                draggable={false}
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-white/15">
+                                <Globe size={16} />
+                              </div>
+                            )}
+                          </div>
+                          <div
+                            className={`px-2 py-1.5 text-[10px] font-bold truncate ${
+                              selected ? "bg-amber-500/20 text-amber-100" : "bg-black/30 text-white/60"
+                            }`}
+                          >
+                            {w.name}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => { sfx.click(); navigate("/studio/world"); }}
+                    className="w-full py-3 rounded-xl border border-dashed border-white/15 hover:border-amber-400/50 bg-white/[0.02] hover:bg-amber-500/[0.04] text-[11px] text-white/45 hover:text-amber-100 transition-colors"
+                  >
+                    아직 만든 세계관이 없어요 — 월드 빌더에서 만들기
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
       {/* 에너지 고지 */}
       <div className="flex items-center gap-1.5 mb-5 text-amber-300/85">
         <Zap size={14} />
@@ -370,7 +531,14 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
         onClick={() => {
           if (!valid || busy || lackEnergy) { sfx.locked(); return; }
           sfx.click();
-          onSubmit({ name, concept: concept.trim(), appearance: buildAppearance() });
+          onSubmit({
+            name,
+            concept: concept.trim(),
+            appearance: buildAppearance(),
+            // [World Builder] 세계관 연결 — 동시 지정은 UI에서 원천 차단 (단일 선택)
+            officialWorldId: worldSel.type === "OFFICIAL" ? worldSel.id : null,
+            ugcWorldId: worldSel.type === "UGC" ? worldSel.id : null,
+          });
         }}
         whileTap={{ scale: valid && !busy ? 0.98 : 1 }}
         className={`w-full py-3.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
@@ -391,7 +559,7 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
 //  선택한 원화가 캐릭터의 대표 일러스트·썸네일로 확정된다.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const GachaStep = ({ job, busy, error, rerollCost, onSelect, onRerollRequest }) => {
+const GachaStep = ({ job, busy, error, rerollCost, appearanceRerollPending, onSelect, onRerollRequest }) => {
   // [리롤 누적] goldenShots는 리롤마다 +2장씩 누적 — 리롤 중(CONCEPT_PROCESSING·GOLDEN_GENERATING)
   // 이어도 기존 후보는 응답에 유지되므로, 상태와 무관하게 존재하는 카드는 계속 보여준다.
   const shots = job?.goldenShots || [];
@@ -432,8 +600,24 @@ const GachaStep = ({ job, busy, error, rerollCost, onSelect, onRerollRequest }) 
             <Sparkles size={26} className="text-amber-300" />
           </motion.div>
         </div>
-        <CyclingCopy lines={GACHA_LOADING_COPY} className="w-full mb-2" />
-        <p className="text-xs text-white/35">보통 30~90초 정도 걸려요. 잠시만 기다려 주세요.</p>
+        {/* [폴리싱 #1] 외형 수정 리롤 — 백엔드가 구외형 원화를 의도적으로 비운 상태.
+            "원화가 사라졌다" 오해가 없도록 전용 카피로 안내한다. */}
+        {appearanceRerollPending ? (
+          <>
+            <p className="text-sm text-amber-100/85 font-medium text-center mb-2">
+              외형을 바꿔서 새 원화를 소환하는 중이에요.
+            </p>
+            <p className="text-xs text-white/35 text-center leading-relaxed px-6 mb-2">
+              이전 원화는 새 외형과 달라 목록에서 제외했어요.
+            </p>
+            <p className="text-xs text-white/35">보통 30~90초 정도 걸려요. 잠시만 기다려 주세요.</p>
+          </>
+        ) : (
+          <>
+            <CyclingCopy lines={GACHA_LOADING_COPY} className="w-full mb-2" />
+            <p className="text-xs text-white/35">보통 30~90초 정도 걸려요. 잠시만 기다려 주세요.</p>
+          </>
+        )}
       </div>
     );
   }
@@ -537,15 +721,16 @@ const GachaStep = ({ job, busy, error, rerollCost, onSelect, onRerollRequest }) 
             exit={{ opacity: 0 }}
           >
             <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setPreview(null)} />
+            {/* [폴리싱 #5] 확대 프리뷰 — 뷰포트 최대 활용 (이미지 크기에 맞춰 폭 결정) */}
             <motion.div
-              className="relative z-10 w-full max-w-sm"
+              className="relative z-10 flex flex-col max-w-[92vw] max-h-[86vh]"
               initial={{ scale: 0.92, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.92, y: 20 }}
               transition={{ type: "spring", stiffness: 300, damping: 28 }}
             >
-              <div className="rounded-2xl overflow-hidden border border-amber-400/30 shadow-[0_0_60px_rgba(251,191,36,0.15)]">
-                <img src={preview.url} alt={`원화 ${preview.index + 1}`} className="w-full max-h-[65vh] object-contain bg-black/90" />
+              <div className="rounded-2xl overflow-hidden border border-amber-400/30 shadow-[0_0_60px_rgba(251,191,36,0.15)] mx-auto">
+                <img src={preview.url} alt={`원화 ${preview.index + 1}`} className="max-w-[92vw] max-h-[72vh] w-auto h-auto object-contain bg-black/90" />
               </div>
               <div className="flex gap-3 mt-4">
                 <button
@@ -575,6 +760,164 @@ const GachaStep = ({ job, busy, error, rerollCost, onSelect, onRerollRequest }) 
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  원화(황금샷) 리롤 전용 모달 — 비용 고지 + 외형 수정(선택)
+//  ConfirmModal 폼팩터(z-[130], 앰버 무드)를 확장한 전용 모달.
+//  외형 필드가 하나라도 채워지면 appearance 객체(빈 필드 생략), 전부 비면 null을
+//  onConfirm으로 넘긴다 — null = 기존 외형 유지(순수 seed 리롤).
+//  황금샷(GACHA_WAIT) 전용: 스탠딩(BASE_WAIT) 리롤은 원화가 고정이라 외형 수정 불가.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const GoldenRerollModal = ({ open, busy, rerollCost, onConfirm, onCancel }) => {
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [appearance, setAppearance] = useState(EMPTY_APPEARANCE);
+  const filledCount = APPEARANCE_FIELDS.filter((f) => appearance[f.key].trim()).length;
+
+  // 열릴 때마다 입력 초기화 — 직전 리롤의 외형 입력이 남지 않도록
+  useEffect(() => {
+    if (open) {
+      setAppearance(EMPTY_APPEARANCE);
+      setAppearanceOpen(false);
+    }
+  }, [open]);
+
+  // 값이 있는 필드만 추려 appearance 페이로드 구성 — 전부 비었으면 null (ConceptStep 패턴)
+  const buildAppearance = () => {
+    const entries = APPEARANCE_FIELDS
+      .map((f) => [f.key, appearance[f.key].trim()])
+      .filter(([, v]) => v);
+    return entries.length ? Object.fromEntries(entries) : null;
+  };
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="fixed inset-0 z-[130] flex items-center justify-center p-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={busy ? undefined : onCancel} />
+          <motion.div
+            className="relative z-10 w-full max-w-md rounded-2xl p-6 border border-amber-400/25 max-h-[85vh] overflow-y-auto custom-scrollbar"
+            style={{
+              background: "linear-gradient(145deg, rgba(28,18,8,0.97), rgba(20,12,6,0.96))",
+              boxShadow: "0 30px 60px rgba(0,0,0,0.6)",
+            }}
+            initial={{ scale: 0.92, y: 16, opacity: 0 }}
+            animate={{ scale: 1, y: 0, opacity: 1 }}
+            exit={{ scale: 0.92, y: 16, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 300, damping: 28 }}
+          >
+            {/* 비용 고지 — 기존 ConfirmModal 카피 유지 */}
+            <h3 className="font-bold mb-2 text-amber-100">원화 다시 소환</h3>
+            <p className="text-white/60 text-sm leading-relaxed mb-4 whitespace-pre-line">
+              {`에너지 ${rerollCost}을 사용해 원화 2장을 새로 소환합니다.\n기존 후보는 사라지지 않고 그대로 유지돼요.`}
+            </p>
+
+            {/* 외형을 바꿔서 다시 뽑기 (선택) — ConceptStep 외형 아코디언과 동일 폼팩터 */}
+            <div className="mb-4 rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
+              <button
+                type="button"
+                onClick={() => { sfx.click(0.2); setAppearanceOpen((o) => !o); }}
+                className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-white/[0.03] transition-colors"
+              >
+                <span className="flex items-center gap-1.5 text-xs text-white/60 font-medium">
+                  <Brush size={12} className="text-amber-300/70" />
+                  외형을 바꿔서 다시 뽑기 (선택)
+                  {filledCount > 0 && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-200 border border-amber-400/30">
+                      {filledCount}
+                    </span>
+                  )}
+                </span>
+                <motion.span animate={{ rotate: appearanceOpen ? 180 : 0 }} transition={{ duration: 0.25 }}>
+                  <ChevronDown size={14} className="text-white/40" />
+                </motion.span>
+              </button>
+              <AnimatePresence initial={false}>
+                {appearanceOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25, ease: "easeOut" }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-4 pb-4 pt-1">
+                      <p className="text-[11px] text-white/35 mb-1">
+                        바꾸고 싶은 부분만 짧게 적어주세요. 비워둔 항목은 지금 모습 그대로 유지돼요.
+                      </p>
+                      {/* [폴리싱 #1] 사전 안내 — 외형 수정 시 백엔드가 구외형 원화 후보를 비운다 */}
+                      <p className="text-[11px] text-amber-200/70 mb-3">
+                        외형을 바꾸면 기존 원화 후보는 사라져요.
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {APPEARANCE_FIELDS.map((f) => (
+                          <div key={f.key}>
+                            <label className="text-[11px] text-white/50 mb-1 block">{f.label}</label>
+                            <input
+                              type="text"
+                              value={appearance[f.key]}
+                              maxLength={60}
+                              placeholder="비워두면 기존 유지"
+                              onChange={(e) =>
+                                setAppearance((p) => ({ ...p, [f.key]: e.target.value }))
+                              }
+                              className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-white text-xs placeholder:text-white/25 focus:border-amber-400/60 outline-none"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* 외형 입력 시 안내 — 새 원화부터 적용, 스탠딩 확정 후 변경 불가 */}
+            <AnimatePresence initial={false}>
+              {filledCount > 0 && (
+                <motion.p
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden text-[11px] text-amber-200/70 leading-relaxed mb-4"
+                >
+                  외형이 바뀌면 새 원화부터 적용돼요 — 스탠딩 확정 후에는 바꿀 수 없어요
+                </motion.p>
+              )}
+            </AnimatePresence>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => { sfx.click(); onCancel(); }}
+                onMouseEnter={() => sfx.hover()}
+                className="flex-1 py-2.5 rounded-xl bg-white/5 text-white/50 hover:bg-white/10 transition text-sm disabled:opacity-50"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => { sfx.click(); onConfirm(buildAppearance()); }}
+                onMouseEnter={() => sfx.hover()}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1.5 disabled:opacity-50 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/20"
+              >
+                {busy ? "처리 중…" : filledCount > 0 ? "외형 바꿔서 소환" : "다시 소환"}
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  STEP 3 — 스탠딩 (BASE_PROCESSING 로딩 → BASE_WAIT 후보 2장 선택/리롤)
 //  GachaStep의 카드 뒤집기 reveal 패턴을 재사용. 선택 = 베이스 스탠딩 확정.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -588,10 +931,11 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, onSelect, onRerollReques
   const hasRevealed = candidates.some((c) => c.url || c.status === "FAILED");
   const isWaiting = !hasRevealed;
   const isRerolling = !canSelect && hasRevealed; // 기존 후보 유지한 채 새 후보 파생 중
-  // 새 후보가 배열에 pending(DERIVING/REFINING)으로 들어와 있으면 그 칸이 로딩 칸 역할 —
-  // 아직 배열에 없으면 부족분만큼 합성 플레이스홀더로 채운다.
+  // 새 후보가 배열에 pending(DERIVING/REFINING)으로 들어와 있으면 그 칸이 로딩 칸 역할.
+  // [폴리싱 #6] 백엔드는 파생 시작 시 후보 2개를 미리 배열에 넣으므로, pending이 하나라도
+  // 있으면 합성 플레이스홀더는 0 — 1장이 먼저 완성돼 pending이 1로 줄어도 유령 로딩 칸이 생기지 않는다.
   const pendingInList = candidates.filter((c) => !c.url && c.status !== "FAILED").length;
-  const placeholderCount = isRerolling ? Math.max(0, 2 - pendingInList) : 0;
+  const placeholderCount = isRerolling && pendingInList === 0 ? 2 : 0;
   const gridScrolls = candidates.length + placeholderCount > 4; // 4장 초과 시 스크롤 그리드
   const [preview, setPreview] = useState(null); // {index,url} | null
 
@@ -764,15 +1108,16 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, onSelect, onRerollReques
             exit={{ opacity: 0 }}
           >
             <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setPreview(null)} />
+            {/* [폴리싱 #5] 확대 프리뷰 — 뷰포트 최대 활용 (이미지 크기에 맞춰 폭 결정) */}
             <motion.div
-              className="relative z-10 w-full max-w-sm"
+              className="relative z-10 flex flex-col max-w-[92vw] max-h-[86vh]"
               initial={{ scale: 0.92, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.92, y: 20 }}
               transition={{ type: "spring", stiffness: 300, damping: 28 }}
             >
-              <div className="rounded-2xl overflow-hidden border border-amber-400/30 shadow-[0_0_60px_rgba(251,191,36,0.15)]">
-                <img src={preview.url} alt={`스탠딩 후보 ${preview.index + 1}`} className="w-full max-h-[65vh] object-contain bg-black/90" />
+              <div className="rounded-2xl overflow-hidden border border-amber-400/30 shadow-[0_0_60px_rgba(251,191,36,0.15)] mx-auto">
+                <img src={preview.url} alt={`스탠딩 후보 ${preview.index + 1}`} className="max-w-[92vw] max-h-[72vh] w-auto h-auto object-contain bg-black/90" />
               </div>
               <div className="flex gap-3 mt-4">
                 <button
@@ -808,7 +1153,7 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, onSelect, onRerollReques
 //  STEP 4 — 소환 진행 (15칸 감정 그리드)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const ForgeProgressStep = ({ job }) => {
+const ForgeProgressStep = ({ job, onOpenWorldBuilder }) => {
   const assets = job?.emotionAssets || {};
   const readyCount = EMOTION_ORDER.filter(
     (t) => t !== "NEUTRAL" && EMOTION_DONE_STATUSES.has(assets[t]?.status)
@@ -888,6 +1233,21 @@ const ForgeProgressStep = ({ job }) => {
           );
         })}
       </div>
+
+      {/* [World Builder] 감정 파생 대기 CTA — 기다리는 시간을 세계관 만들기로 (레이턴시 하이딩) */}
+      {onOpenWorldBuilder && (
+        <div className="mt-5 flex justify-center">
+          <button
+            type="button"
+            onClick={() => { sfx.click(); onOpenWorldBuilder(); }}
+            onMouseEnter={() => sfx.hover()}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-amber-500/12 hover:bg-amber-500/22 border border-amber-400/35 hover:border-amber-300/60 text-amber-100 text-xs font-bold transition-colors"
+          >
+            <Globe size={13} />
+            기다리는 동안 이 캐릭터의 세계관 만들기
+          </button>
+        </div>
+      )}
 
       <p className="mt-5 text-center text-[11px] text-white/35">
         소환은 서버에서 계속 진행돼요. 나가서 기다려도 괜찮아요.
@@ -1098,17 +1458,18 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, onRerollRequest, onVersi
             exit={{ opacity: 0 }}
           >
             <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={() => setZoomTag(null)} />
+            {/* [폴리싱 #5] 컷 확대 — 뷰포트 최대 활용 (이미지 크기에 맞춰 폭 결정) */}
             <motion.div
-              className="relative z-10 w-full max-w-sm"
+              className="relative z-10 flex flex-col max-w-[92vw] max-h-[86vh]"
               initial={{ scale: 0.92 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0.92 }}
             >
-              <div className="relative rounded-2xl overflow-hidden border border-amber-400/30">
+              <div className="relative rounded-2xl overflow-hidden border border-amber-400/30 mx-auto">
                 <img
                   src={assets[zoomTag]?.thumbUrl}
                   alt={EMOTION_LABELS[zoomTag]}
-                  className="w-full max-h-[70vh] object-contain bg-black/90"
+                  className="max-w-[92vw] max-h-[72vh] w-auto h-auto object-contain bg-black/90"
                 />
                 {/* [리롤 누적] 리롤/재시도 중 — 직전 선택본 위 스피너 오버레이 (thumbUrl 유지) */}
                 {zoomInProgress && (
@@ -1490,8 +1851,13 @@ export default function StudioCreateFlow({
   useEffect(() => { setActionError(null); }, [step]);
 
   // ─── 공통 액션 러너 ───
+  // [폴리싱 #8] state 기반 busy는 리렌더 전 2번째 클릭이 통과한다 — ref 기반 재진입 락으로 연타 차단
+  const busyRef = useRef(false);
+  const confirmFiredRef = useRef(false); // ConfirmModal 확인 버튼 이중 발화 가드
   const runAction = useCallback(
     async (fn, successSfx = null) => {
+      if (busyRef.current) return false;
+      busyRef.current = true;
       setActionBusy(true);
       setActionError(null);
       try {
@@ -1505,6 +1871,7 @@ export default function StudioCreateFlow({
         setActionError(e?.response?.data?.message || "요청에 실패했습니다.");
         return false;
       } finally {
+        busyRef.current = false;
         setActionBusy(false);
       }
     },
@@ -1512,11 +1879,13 @@ export default function StudioCreateFlow({
   );
 
   // ─── STEP 1: 소환 시작 ───
-  const handleConceptSubmit = async ({ name, concept, appearance }) => {
+  const handleConceptSubmit = async ({ name, concept, appearance, officialWorldId, ugcWorldId }) => {
+    if (busyRef.current) return; // [폴리싱 #8] 연타 재진입 방어
+    busyRef.current = true;
     setActionBusy(true);
     setActionError(null);
     try {
-      const res = await createUgcCharacter({ name, concept, appearance });
+      const res = await createUgcCharacter({ name, concept, appearance, officialWorldId, ugcWorldId });
       sfx.sparkle();
       setJobId(res.jobId);
       onEnergyRefresh?.();
@@ -1525,6 +1894,7 @@ export default function StudioCreateFlow({
       // 400(진행 중 잡/잔액 부족/모더레이션 차단): 서버 메시지 그대로
       setActionError(e?.response?.data?.message || "소환을 시작하지 못했습니다.");
     } finally {
+      busyRef.current = false;
       setActionBusy(false);
     }
   };
@@ -1533,13 +1903,32 @@ export default function StudioCreateFlow({
   const handleGoldenSelect = (index) =>
     runAction(() => selectGoldenShot(jobId, index), sfx.sparkle);
 
-  const handleGoldenRerollRequest = () => {
-    setConfirmState({
-      title: "원화 다시 소환",
-      desc: `에너지 ${rerollCosts.goldenShot}을 사용해 원화 2장을 새로 소환합니다.\n기존 후보는 사라지지 않고 그대로 유지돼요.`,
-      confirmLabel: "다시 소환",
-      action: () => runAction(() => rerollGoldenShots(jobId), sfx.cardFanout),
-    });
+  // 리롤은 전용 모달(GoldenRerollModal)로 — 비용 고지 + 외형 수정(선택)까지 담당
+  const [goldenRerollOpen, setGoldenRerollOpen] = useState(false);
+  const handleGoldenRerollRequest = () => setGoldenRerollOpen(true);
+
+  // [폴리싱 #1] 외형 수정 리롤 중 — 백엔드가 구외형 원화를 비우므로 대기 뷰에 전용 카피를 띄운다
+  const [appearanceRerollPending, setAppearanceRerollPending] = useState(false);
+
+  // 다음 GACHA_WAIT 도달(새 원화 도착) 시 해제
+  useEffect(() => {
+    if (status === "GACHA_WAIT") setAppearanceRerollPending(false);
+  }, [status]);
+
+  // appearance: 값 있는 필드만 담긴 객체 | null(외형 유지 순수 seed 리롤) — 모달이 구성
+  // [폴리싱 #8] 확인 버튼 이중 발화 차단 — 핸들러 최상단 ref 가드
+  const goldenConfirmFiredRef = useRef(false);
+  const handleGoldenRerollConfirm = async (appearance) => {
+    if (goldenConfirmFiredRef.current) return;
+    goldenConfirmFiredRef.current = true;
+    try {
+      setGoldenRerollOpen(false);
+      if (appearance) setAppearanceRerollPending(true);
+      const ok = await runAction(() => rerollGoldenShots(jobId, appearance), sfx.cardFanout);
+      if (!ok) setAppearanceRerollPending(false); // 요청 실패 — 기존 후보 유지되므로 안내 철회
+    } finally {
+      goldenConfirmFiredRef.current = false;
+    }
   };
 
   // ─── STEP 3: 스탠딩 후보 선택 / 리롤 ───
@@ -1637,6 +2026,8 @@ export default function StudioCreateFlow({
 
   const runCharAction = useCallback(
     async (fn, successSfx = null) => {
+      if (busyRef.current) return false; // [폴리싱 #8] 연타 재진입 방어
+      busyRef.current = true;
       setActionBusy(true);
       setActionError(null);
       try {
@@ -1649,6 +2040,7 @@ export default function StudioCreateFlow({
         setActionError(e?.response?.data?.message || "요청에 실패했습니다.");
         return false;
       } finally {
+        busyRef.current = false;
         setActionBusy(false);
       }
     },
@@ -1892,6 +2284,7 @@ export default function StudioCreateFlow({
                 busy={actionBusy}
                 error={actionError}
                 rerollCost={rerollCosts.goldenShot}
+                appearanceRerollPending={appearanceRerollPending}
                 onSelect={handleGoldenSelect}
                 onRerollRequest={handleGoldenRerollRequest}
               />
@@ -1911,7 +2304,13 @@ export default function StudioCreateFlow({
             )}
 
             {/* STEP 4 — 소환 진행 */}
-            {!isFailed && hasJob && job && step === 4 && <ForgeProgressStep job={job} />}
+            {!isFailed && hasJob && job && step === 4 && (
+              <ForgeProgressStep
+                job={job}
+                // [World Builder] 캐릭터 잡은 서버에서 계속 진행 — 월드 빌더로 이동해도 안전
+                onOpenWorldBuilder={() => navigate("/studio/world")}
+              />
+            )}
 
             {/* STEP 5 — 검수 / 후처리 */}
             {!isFailed && hasJob && job && step === 5 && (
@@ -1981,15 +2380,32 @@ export default function StudioCreateFlow({
         onClose={() => setProfileOpen(false)}
       />
 
+      {/* ═══ 원화(황금샷) 리롤 전용 모달 — 비용 고지 + 외형 수정(선택) ═══ */}
+      <GoldenRerollModal
+        open={goldenRerollOpen}
+        busy={actionBusy}
+        rerollCost={rerollCosts.goldenShot}
+        onConfirm={handleGoldenRerollConfirm}
+        onCancel={() => setGoldenRerollOpen(false)}
+      />
+
       {/* ═══ confirm 모달 ═══ */}
       <ConfirmModal
         data={confirmState}
         busy={actionBusy}
         onCancel={() => setConfirmState(null)}
         onConfirm={async () => {
-          const action = confirmState?.action;
-          setConfirmState(null);
-          if (action) await action();
+          // [폴리싱 #8] 확인 버튼 이중 발화 차단 — setConfirmState(null)이 플러시되기 전
+          // 2번째 클릭이 confirmState를 다시 읽는 것을 ref 가드로 막는다
+          if (confirmFiredRef.current) return;
+          confirmFiredRef.current = true;
+          try {
+            const action = confirmState?.action;
+            setConfirmState(null);
+            if (action) await action();
+          } finally {
+            confirmFiredRef.current = false;
+          }
         }}
       />
     </motion.div>

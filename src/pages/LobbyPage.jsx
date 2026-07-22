@@ -22,6 +22,8 @@ import StoryCreateFlow from "../components/story-v2/StoryCreateFlow";
 import LobbyNewEncounterFlow from "../components/lobby/LobbyNewEncounterFlow";
 // [Studio v1] UGC 스튜디오 진입 훅 카드
 import CreateHookCard from "../components/studio/CreateHookCard";
+// [Profile v1] 캐릭터 카드 클릭 → 프로필 → 대화 진입
+import CharacterProfileView from "../components/CharacterProfileView";
 import { assetUrl } from "../utils/assetUrl";
 import { playSfx } from "../utils/sfx";
 
@@ -582,6 +584,8 @@ const LobbyPage = () => {
   const [theaterSessions, setTheaterSessions] = useState([]);
   const [activeCharIdx, setActiveCharIdx] = useState(0);
   const [selectedCharacter, setSelectedCharacter] = useState(null);
+  // [Profile v1] 프로필 뷰 대상 캐릭터 id — 카드 클릭 → 프로필 → (CTA) 모드 선택 → 대화
+  const [profileCharId, setProfileCharId] = useState(null);
   const [showAchievements, setShowAchievements] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
@@ -686,17 +690,22 @@ const LobbyPage = () => {
   useEffect(() => {
     if (view !== "characters") return;
     const handler = (e) => {
+      // [Profile v1] 프로필 오버레이가 열려 있으면 ESC는 프로필 자체가 처리 — 여기선 무시
+      if (profileCharId) return;
       if (e.key === "ArrowLeft") goPrev();
       if (e.key === "ArrowRight") goNext();
       if (e.key === "Escape") { selectedCharacter ? setSelectedCharacter(null) : setView("hub"); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [view, selectedCharacter, characters.length]);
+  }, [view, selectedCharacter, profileCharId, characters.length]);
 
+  // [Profile v2] 활성 카드 클릭 → 곧바로 모드 선택이 아니라 프로필 카드(card)를 먼저 연다.
+  //   프로필 CTA(onStartChat)가 기존 진입 로직(ModeSelectOverlay → handleModeSelect
+  //   → POST /lobby/rooms → navigate)을 그대로 호출하므로 진입 경로 회귀 없음.
   const handleCardClick = (idx) => {
     playSfx(`/sounds/sfx_button_click.wav`, 0.3);
-    idx === activeCharIdx ? setSelectedCharacter(characters[idx]) : setActiveCharIdx(idx);
+    idx === activeCharIdx ? setProfileCharId(characters[idx].id) : setActiveCharIdx(idx);
   };
 
   // [Phase I] 모드 선택 분기:
@@ -1068,6 +1077,19 @@ const LobbyPage = () => {
       </AnimatePresence>
 
       {/* ═══ Overlays ═══ */}
+      {/* [Profile v2] 캐릭터 프로필 (중앙 카드) — CTA가 기존 모드 선택 오버레이로 연결 */}
+      <CharacterProfileView
+        characterId={profileCharId}
+        variant="card"
+        open={Boolean(profileCharId)}
+        onClose={() => setProfileCharId(null)}
+        onStartChat={(characterId) => {
+          const target = characters.find((c) => String(c.id) === String(characterId));
+          setProfileCharId(null);
+          // 기존 진입 로직 재사용: ModeSelectOverlay → handleModeSelect(방 생성 → navigate)
+          if (target) setSelectedCharacter(target);
+        }}
+      />
       <AnimatePresence>
         {selectedCharacter && (
           <ModeSelectOverlay

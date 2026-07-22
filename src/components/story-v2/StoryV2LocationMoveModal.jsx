@@ -39,7 +39,7 @@ export default function StoryV2LocationMoveModal({ currentLocationKey, worldId, 
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-stone-900 rounded-lg max-w-md w-full max-h-[80vh] overflow-y-auto"
+        className="bg-stone-900 rounded-lg max-w-md w-full max-h-[80vh] overflow-y-auto custom-scrollbar"
       >
         <div className="px-5 py-4 border-b border-stone-700 flex items-center justify-between">
           <h3 className="font-bold text-amber-200 flex items-center gap-2">

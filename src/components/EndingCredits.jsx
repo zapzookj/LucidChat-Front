@@ -585,7 +585,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange, characterName = 
         {phase === PHASES.MEMORIES && (
           <motion.div
             key="memories"
-            className="absolute inset-0 flex flex-col items-center pt-16 px-6 overflow-y-auto"
+            className="absolute inset-0 flex flex-col items-center pt-16 px-6 overflow-y-auto custom-scrollbar"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -791,7 +791,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange, characterName = 
         {phase === PHASES.ACKNOWLEDGMENTS && (
         <motion.div
             key="ack"
-            className="absolute inset-0 flex flex-col items-center pt-12 px-6 overflow-y-auto"
+            className="absolute inset-0 flex flex-col items-center pt-12 px-6 overflow-y-auto custom-scrollbar"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}

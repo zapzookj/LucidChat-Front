@@ -304,7 +304,7 @@ export default function TheaterDialogueBox({
             maxHeight: mobile ? "52vh" : "40vh",
           }}
         >
-          <div className={`overflow-y-auto space-y-3 ${mobile ? "p-4 max-h-[48vh]" : "p-5 md:p-6 max-h-[38vh]"}`}>
+          <div className={`overflow-y-auto custom-scrollbar space-y-3 ${mobile ? "p-4 max-h-[48vh]" : "p-5 md:p-6 max-h-[38vh]"}`}>
             {/* 나레이션 */}
             {scene?.narration && (
               <motion.div

@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Heart, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity, MessageSquare, Eye, Clock, EyeIcon, Gem, MessageCircle, ChevronUp, FastForward, MapPin } from "lucide-react";
+import { Send, Heart, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity, MessageSquare, Eye, Clock, EyeIcon, Gem, MessageCircle, ChevronUp, FastForward, MapPin, User } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { sanitizeScene } from "../utils/dialogueSanitizer";
 import { sfx } from "../utils/sfx";
@@ -248,10 +248,24 @@ function SystemTurnCue() {
 //   기존 상태창(onOpenStatusPanel = BiometricStatusPanel)으로 상세를 노출한다.
 // ═══════════════════════════════════════════════════════════════
 const MobileInfoBar = ({
-  bpm, energy, hasPaidEnergy, displayPaidEnergy, boostMode, onOpenStatusPanel, statChanges,
+  bpm, energy, hasPaidEnergy, displayPaidEnergy, boostMode, onOpenStatusPanel, statChanges, toggleRef,
+  onOpenProfile = null, // [Profile v1] 프로필 진입점 (미전달 시 비노출 — V2 등 기존 호출 byte-identical)
+  profileToggleRef = null, // [Profile v2] 프로필 패널 excludeRef — 바깥 mousedown 깜빡임 방지
 }) => (
-  <div className="relative flex justify-end items-center gap-1.5 px-1">
+  /* [폴리싱 #8] toggleRef — 배지 3종 모두 상태창 토글이므로 행 전체를 바깥 클릭 판정에서 제외 */
+  <div ref={toggleRef} className="relative flex justify-end items-center gap-1.5 px-1">
     <StatChangeToasts changes={statChanges} />
+    {/* [Profile v1] 프로필 버튼 — 상태창 배지와 같은 폼팩터 */}
+    {onOpenProfile && (
+      <button
+        ref={profileToggleRef}
+        onClick={onOpenProfile}
+        aria-label="캐릭터 프로필"
+        className="flex items-center justify-center w-10 h-10 rounded-full bg-black/60 backdrop-blur-md border border-amber-500/30 text-amber-300 active:scale-95 transition"
+      >
+        <User size={16} />
+      </button>
+    )}
     {boostMode && (
       <span className="flex items-center gap-1 h-10 px-2.5 rounded-full bg-black/60 backdrop-blur-md border border-cyan-500/40 text-cyan-300">
         <Rocket size={13} />
@@ -306,6 +320,10 @@ const DialogueBox = ({
   // ── [Phase 5.5-v3] 기존 props ──
   bpm = 65,
   onOpenStatusPanel,
+  statusToggleRef = null, // [폴리싱 #8] 상태창 토글 버튼 ref — BiometricStatusPanel excludeRef와 연결
+  // [Profile v1] 캐릭터 프로필 진입점 (additive — 미전달 시 버튼 비노출, V2 동작 불변)
+  onOpenProfile = null,
+  profileToggleRef = null, // [Profile v2] 프로필 패널(panel variant) excludeRef 연결용
   statChanges = null,
   // ── [Phase 5.5-IT] 속마음 props ──
   innerThought = null,
@@ -509,6 +527,9 @@ const DialogueBox = ({
             boostMode={boostMode}
             onOpenStatusPanel={onOpenStatusPanel}
             statChanges={statChanges}
+            toggleRef={statusToggleRef}
+            onOpenProfile={onOpenProfile}
+            profileToggleRef={profileToggleRef}
           />
         ) : (
         <div className="flex justify-end items-center px-2 gap-3 relative">
@@ -534,10 +555,25 @@ const DialogueBox = ({
             )}
           </AnimatePresence>
 
+          {/* ━━━ [Profile v1] 프로필 버튼 — STATUS 옆, 같은 폼팩터 ━━━ */}
+          {onOpenProfile && (
+            <button
+              ref={profileToggleRef}
+              onClick={onOpenProfile}
+              className="flex items-center gap-2 bg-black/60 backdrop-blur-md px-3.5 py-2 rounded-full border border-amber-500/30
+                         hover:border-amber-400/50 hover:bg-black/80 transition-all shadow-[0_0_12px_rgba(251,191,36,0.15)] group"
+              title="캐릭터 프로필"
+            >
+              <User size={18} className="text-amber-400/80 group-hover:text-amber-300 transition" />
+              <span className="text-[10px] text-amber-300/70 font-bold uppercase leading-none hidden sm:block">Profile</span>
+            </button>
+          )}
+
           {/* ━━━ 상태창 버튼 + 스탯 변화 팝업 ━━━ */}
           <div className="relative">
             <StatChangeToasts changes={statChanges} />
             <button
+              ref={statusToggleRef}
               onClick={onOpenStatusPanel}
               className="flex items-center gap-2 bg-black/60 backdrop-blur-md px-3.5 py-2 rounded-full border border-purple-500/30
                          hover:border-purple-400/50 hover:bg-black/80 transition-all shadow-[0_0_12px_rgba(168,85,247,0.15)] group"

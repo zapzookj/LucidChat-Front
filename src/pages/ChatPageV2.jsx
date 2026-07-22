@@ -190,6 +190,7 @@ const ChatPage = () => {
   const [dynamicRelationTag, setDynamicRelationTag] = useState(null);
   const [characterThought, setCharacterThought] = useState(null);
   const [showStatusPanel, setShowStatusPanel] = useState(false);   // 상태창 오픈 상태
+  const statusToggleRef = useRef(null); // [폴리싱 #8] STATUS 토글 버튼 — 패널 바깥 클릭 판정에서 제외 (깜빡임 방지)
   const [latestStatChanges, setLatestStatChanges] = useState(null); // 스탯 변화 팝업용
 
   // ─── [Phase 5.5-IT] 속마음 시스템 ───
@@ -3147,6 +3148,7 @@ const ChatPage = () => {
       <BiometricStatusPanel
         isOpen={showStatusPanel}
         onClose={() => setShowStatusPanel(false)}
+        excludeRef={statusToggleRef}
         stats={characterStats}
         bpm={currentBpm}
         dynamicRelationTag={dynamicRelationTag}
@@ -3291,7 +3293,13 @@ const ChatPage = () => {
         chatMode={roomInfo?.chatMode}
         onOpenStore={isV2 ? handleOpenStoreV2 : (tab) => { setStoreInitialTab(tab); setShowStore(true); }}
         bpm={currentBpm}
-        onOpenStatusPanel={isV2 ? () => setShowHeroineSelector(true) : () => setShowStatusPanel(true)}
+        onOpenStatusPanel={
+          isV2
+            // [폴리싱 #8] 토글 버튼이 excludeRef로 바깥 판정에서 빠지므로, V2에서는 셀렉터를 열 때 상태창을 명시적으로 닫는다
+            ? () => { setShowStatusPanel(false); setShowHeroineSelector(true); }
+            : () => setShowStatusPanel(true)
+        }
+        statusToggleRef={statusToggleRef}
         statChanges={latestStatChanges}
         // ── [Phase 5.5-Sep] 스토리 전용 props 모드 가드 ──
         innerThought={directorEligible ? currentInnerThought : null}

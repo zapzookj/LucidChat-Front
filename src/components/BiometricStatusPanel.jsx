@@ -232,6 +232,7 @@ const BiometricStatusPanel = ({
   statusLevel = "STRANGER",
   isSecretMode = false,
   chatMode = "STORY",  // [Feature #2] 스토리 전용 섹션 블러용
+  excludeRef = null,   // [폴리싱 #8] 바깥 클릭 판정에서 제외할 토글 버튼 ref — mousedown 닫힘 → click 재오픈 깜빡임 방지
 }) => {
   const panelRef = useRef(null);
   const [hoveredStat, setHoveredStat] = useState(null);
@@ -256,15 +257,19 @@ const BiometricStatusPanel = ({
   const currentBpmRangeIdx = BPM_RANGES.findIndex(r => bpm >= r.min && bpm <= r.max);
 
   // 패널 외부 클릭 시 닫기
+  // [폴리싱 #8] 토글 버튼(excludeRef)은 바깥 판정에서 제외 — 패널이 열린 상태에서 토글을 누르면
+  // mousedown이 먼저 닫고 click이 다시 열어 깜빡이는 이중 처리 방지
   useEffect(() => {
     if (!isOpen) return;
     sfx.wooshLight();
     const handler = (e) => {
-      if (panelRef.current && !panelRef.current.contains(e.target)) onClose();
+      if (!panelRef.current || panelRef.current.contains(e.target)) return;
+      if (excludeRef?.current?.contains(e.target)) return;
+      onClose();
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, excludeRef]);
 
   return (
     <AnimatePresence>

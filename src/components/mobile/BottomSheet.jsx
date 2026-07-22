@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { sfx } from "../../utils/sfx";
@@ -36,9 +36,19 @@ export default function BottomSheet({
   className = "",
   contentClassName = "",
 }) {
+  // [폴리싱 #8] 열림 직후 같은 클릭이 백드롭에 떨어져 곧바로 닫히는 사고 방지 — 열림 시각 기록
+  const openedAtRef = useRef(0);
   useEffect(() => {
-    if (open) sfx.wooshLight();
+    if (open) {
+      openedAtRef.current = Date.now();
+      sfx.wooshLight();
+    }
   }, [open]);
+
+  const handleBackdropClick = () => {
+    if (Date.now() - openedAtRef.current < 250) return; // 열림 후 250ms 이내 클릭 무시
+    onClose?.();
+  };
 
   useEffect(() => {
     if (!open) return undefined;
@@ -59,7 +69,7 @@ export default function BottomSheet({
         >
           <div
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={closeOnBackdrop ? onClose : undefined}
+            onClick={closeOnBackdrop ? handleBackdropClick : undefined}
           />
 
           <motion.div

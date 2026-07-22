@@ -31,7 +31,7 @@ export default function StoryV2CharacterPanel({ room, currentSpeakerCharacterId,
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-stone-900 rounded-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto"
+        className="bg-stone-900 rounded-lg max-w-2xl w-full max-h-[85vh] overflow-y-auto custom-scrollbar"
       >
         <div className="px-5 py-4 border-b border-stone-700 flex items-center justify-between">
           <h3 className="font-bold text-amber-200">히로인 상태</h3>

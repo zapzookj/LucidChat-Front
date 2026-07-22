@@ -41,6 +41,29 @@ input:focus {
   background: rgba(255, 255, 255, 0.3);
 }
 
+/* [폴리싱 #4] textarea/select 기본 스크롤바 전역 교체 — .custom-scrollbar와 동일 스타일.
+ * 개별 컴포넌트가 클래스를 빠뜨려도 OS 기본(밝은) 스크롤바가 노출되지 않도록 전역 적용. */
+textarea::-webkit-scrollbar,
+select::-webkit-scrollbar {
+  width: 6px;
+}
+
+textarea::-webkit-scrollbar-track,
+select::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+textarea::-webkit-scrollbar-thumb,
+select::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+}
+
+textarea::-webkit-scrollbar-thumb:hover,
+select::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 /*
  * [Phase B · 단계0] 모바일 세로 레이아웃용 additive 세이프에어리어 유틸.
  * env(safe-area-inset-*) 은 노치 없는 기기/데스크톱에서 0 이므로 데스크톱 렌더에 무영향(G1).

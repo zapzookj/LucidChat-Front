@@ -148,7 +148,7 @@ export default function TheaterSaveLoadPanel({
         </div>
 
         {/* 슬롯 리스트 */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+        <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-3">
           {loading && (
             <div className="flex justify-center py-12">
               <motion.div

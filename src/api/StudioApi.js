@@ -39,17 +39,24 @@ import api from "./axios";
 
 /**
  * 캐릭터 소환 시작 (에너지 20 차감).
- * @param {{name?: string, concept: string, appearance?: object|null}} payload
+ * @param {{name?: string, concept: string, appearance?: object|null,
+ *          officialWorldId?: string|null, ugcWorldId?: number|null}} payload
  *   appearance: {hair, eyes, body, outfit, accessories, extra} — 전부 선택 문자열
  *   필드(외형 구조화 힌트). 비어 있으면 필드 자체를 생략한다.
+ *   [World Builder] officialWorldId(WorldId enum name) | ugcWorldId(숫자) —
+ *   세계관 연결 선택 필드. 동시 지정 400, 둘 다 생략 = '나중에 연결'.
  * @returns {Promise<{jobId: string}>} 202 Accepted
  *   400: 이미 진행 중인 잡 / 잔액 부족 / 모더레이션 차단 — message를 그대로 노출
  */
-export async function createUgcCharacter({ name, concept, appearance = null }) {
+export async function createUgcCharacter({
+  name, concept, appearance = null, officialWorldId = null, ugcWorldId = null,
+}) {
   const res = await api.post("/ugc/characters", {
     name: name?.trim() ? name.trim() : null,
     concept,
     ...(appearance ? { appearance } : {}),
+    ...(officialWorldId ? { officialWorldId } : {}),
+    ...(ugcWorldId ? { ugcWorldId } : {}),
   });
   return res.data;
 }
@@ -68,11 +75,22 @@ export async function selectGoldenShot(jobId, selectedIndex) {
   return res.data;
 }
 
-/** 황금샷(원화) 2장 전체 리롤 (에너지 rerollCosts.goldenShot) */
-export async function rerollGoldenShots(jobId) {
+/**
+ * 황금샷(원화) 2장 전체 리롤 (에너지 rerollCosts.goldenShot).
+ * @param {string} jobId
+ * @param {{hair?: string, eyes?: string, body?: string, outfit?: string,
+ *          accessories?: string, extra?: string}|null} appearance
+ *   외형 수정 힌트 — 전부 선택 문자열 필드. 값이 하나라도 있으면 서버가 외형 전용
+ *   LLM 재구조화(페르소나·설정 보존, 외형 태그·씬·배경색만 교체) 후 새 프롬프트로
+ *   리롤한다. 생략/null = 기존 외형 유지(순수 seed 리롤).
+ *   [계약] 빈 객체·전부 빈 문자열이면 appearance 자체를 생략할 것 — 호출부에서
+ *   빈 필드를 걸러 값 있는 필드만 담거나 null을 넘긴다.
+ *   황금샷(GACHA_WAIT) 리롤 전용 — 스탠딩(BASE_WAIT) 리롤은 원화 고정이라 외형 수정 불가.
+ */
+export async function rerollGoldenShots(jobId, appearance = null) {
   const res = await api.post(
     `/ugc/characters/${encodeURIComponent(jobId)}/golden-shot`,
-    { reroll: true }
+    { reroll: true, ...(appearance ? { appearance } : {}) }
   );
   return res.data;
 }
@@ -172,6 +190,18 @@ export async function requestSecret(characterId) {
 /** 텍스트 부분 수정 — {name?, tagline?, personality?, tone?, firstGreeting?} */
 export async function updateUgcTexts(characterId, texts) {
   const res = await api.patch(`/ugc/characters/${characterId}/texts`, texts);
+  return res.data;
+}
+
+/**
+ * [World Builder] 캐릭터 세계관 사후 연결/변경/해제 — 무료.
+ * @param {number|string} characterId
+ * @param {{officialWorldId?: string|null, ugcWorldId?: number|null}} payload
+ *   { officialWorldId } | { ugcWorldId } | 둘 다 null = 연결 해제.
+ *   공개 캐릭터에는 APPROVED 월드만 연결 가능 — 400 message를 그대로 노출한다.
+ */
+export async function updateUgcCharacterWorld(characterId, payload) {
+  const res = await api.patch(`/ugc/characters/${characterId}/world`, payload);
   return res.data;
 }
 

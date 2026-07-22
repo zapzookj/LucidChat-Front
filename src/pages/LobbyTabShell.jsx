@@ -160,7 +160,7 @@ function TheaterLayout({ tabBar, onOpenCreateFlow }) {
       </div>
 
       {/* 메인 콘텐츠 영역 */}
-      <div className="relative z-10 flex-1 overflow-y-auto">
+      <div className="relative z-10 flex-1 overflow-y-auto custom-scrollbar">
         <TheaterLobbyTab onCreateFlow={onOpenCreateFlow} />
       </div>
     </div>

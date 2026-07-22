@@ -49,6 +49,8 @@ import { assetUrl } from "../utils/assetUrl";
 import { sfx } from "../utils/sfx";
 import HelpButton from "../components/HelpButton";
 import { reportChat } from "../api/SupportApi";
+// [Profile v1] PROFILE 버튼 → 캐릭터 프로필 (CTA = "대화로 돌아가기" 단순 닫기)
+import CharacterProfileView from "../components/CharacterProfileView";
 
 const ChatPage = () => {
   const { user, logout, refreshUser } = useAuth();
@@ -166,6 +168,10 @@ const ChatPage = () => {
   const [dynamicRelationTag, setDynamicRelationTag] = useState(null);
   const [characterThought, setCharacterThought] = useState(null);
   const [showStatusPanel, setShowStatusPanel] = useState(false);   // 상태창 오픈 상태
+  const statusToggleRef = useRef(null); // [폴리싱 #8] STATUS 토글 버튼 — 패널 바깥 클릭 판정에서 제외 (깜빡임 방지)
+  // [Profile v1] 캐릭터 프로필 오버레이 (STATUS 옆 PROFILE 버튼 / 모바일 정보바)
+  const [showProfile, setShowProfile] = useState(false);
+  const profileToggleRef = useRef(null); // [Profile v2] PROFILE 토글 버튼 — 프로필 패널 바깥 클릭 판정 제외
   const [latestStatChanges, setLatestStatChanges] = useState(null); // 스탯 변화 팝업용
 
   // ─── [Phase 5.5-IT] 속마음 시스템 ───
@@ -1099,7 +1105,9 @@ const ChatPage = () => {
     }
     // null이 아닌 값만 업데이트 (null = 이전 상태 유지)
     // 프론트 가드: 서버에서 제공한 허용 목록에 포함된 값만 적용
-    if (currentScene.location) {
+    // [World Builder] UGC 월드 방(ugcWorldId 존재)은 동적(AI 생성) 배경이 유일한
+    // 렌더 소스 — enum location 폴백이 배경을 지우지 않도록 클리어·반영 모두 스킵
+    if (currentScene.location && !roomInfo?.ugcWorldId) {
       const allowedLocs = roomInfo?.availableLocations || [];
       if (allowedLocs.length === 0 || allowedLocs.includes(currentScene.location)) {
         // [Phase 5.5-Illust] enum 기반 장소가 실제로 변경되면 AI 생성 배경 오버라이드 해제
@@ -2365,6 +2373,7 @@ const ChatPage = () => {
       <BiometricStatusPanel
         isOpen={showStatusPanel}
         onClose={() => setShowStatusPanel(false)}
+        excludeRef={statusToggleRef}
         stats={characterStats}
         bpm={currentBpm}
         dynamicRelationTag={dynamicRelationTag}
@@ -2510,6 +2519,10 @@ const ChatPage = () => {
         onOpenStore={(tab) => { setStoreInitialTab(tab); setShowStore(true); }}
         bpm={currentBpm}
         onOpenStatusPanel={() => setShowStatusPanel(true)}
+        statusToggleRef={statusToggleRef}
+        // [Profile v1] PROFILE 버튼 — roomInfo 로드 전엔 진입점 비노출
+        onOpenProfile={roomInfo?.characterId ? () => { sfx.click(); setShowProfile((v) => !v); } : null}
+        profileToggleRef={profileToggleRef}
         statChanges={latestStatChanges}
         // ── [Phase 5.5-Sep] 스토리 전용 props 모드 가드 ──
         innerThought={isStoryMode ? currentInnerThought : null}
@@ -2526,6 +2539,16 @@ const ChatPage = () => {
         paidEnergy={paidEnergy}
         onRequestDirector={handleRequestDirector}
         directorLoading={directorLoading}
+      />
+
+      {/* [Profile v2] 캐릭터 프로필 — STATUS와 같은 맥락의 우측 사이드 패널. CTA는 "대화로 돌아가기"(닫기) */}
+      <CharacterProfileView
+        characterId={roomInfo?.characterId}
+        variant="panel"
+        open={showProfile}
+        onClose={() => setShowProfile(false)}
+        onStartChat={null}
+        excludeRef={profileToggleRef}
       />
 
       {/* [Phase B · 단계3] 모바일 오버플로 메뉴 시트 — 기존 상태/핸들러만 호출 */}

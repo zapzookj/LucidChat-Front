@@ -222,7 +222,7 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
           </div>
 
           {/* 본문 */}
-          <div className="flex-1 overflow-y-auto px-6 py-6">
+          <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-6">
             <AnimatePresence mode="wait">
               {step === 1 && (
                 <Step1WorldConfirm key="s1" world={context.world} />

@@ -1,20 +1,27 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
 import {
   ArrowLeft, Wand2, Sparkles, Zap, User, Plus, MoreHorizontal,
   MessageCircle, Globe, Moon, Pencil, Compass, ChevronRight, AlertTriangle,
+  Link2Off,
 } from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import {
   fetchMyUgcCharacters, fetchExploreCharacters,
-  requestPublish, requestSecret, updateUgcTexts,
+  requestPublish, requestSecret, updateUgcTexts, updateUgcCharacterWorld,
 } from "../api/StudioApi";
+// [World Builder v1] 내 세계관 섹션 + 세계관 연결 셀렉터
+import { fetchMyUgcWorlds, OFFICIAL_WORLDS } from "../api/WorldStudioApi";
 import useUgcCreationJob from "../hooks/useUgcCreationJob";
 import StudioCreateFlow from "../components/studio/StudioCreateFlow";
 import UgcStatusBadge from "../components/studio/UgcStatusBadge";
+// [World Builder v1.1] 세계관 상세/수정/장소 추가 시트
+import WorldDetailSheet from "../components/studio/WorldDetailSheet";
+// [Profile v2] 캐릭터 프로필 뷰 (탐색=card / 내 캐릭터=dossier)
+import CharacterProfileView from "../components/CharacterProfileView";
 import BottomSheet from "../components/mobile/BottomSheet";
 import { sfx } from "../utils/sfx";
 
@@ -228,6 +235,73 @@ const MyCharacterCard = ({ character, index, onChat, onMenu }) => {
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  [World Builder] 내 세계관 카드
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// reviewStatus 뱃지 — APPROVED=승인됨 teal / REJECTED=반려됨 rose / NONE=뱃지 없음
+const WORLD_REVIEW_META = {
+  APPROVED: { label: "승인됨", cls: "bg-teal-400/15 text-teal-300 border-teal-400/30" },
+  REJECTED: { label: "반려됨", cls: "bg-rose-400/15 text-rose-300 border-rose-400/30" },
+};
+
+const WORLD_JOB_STAGE_LABELS = {
+  CONCEPT_PROCESSING: "설정 초안 생성 중",
+  EDIT_WAIT: "설정 편집 대기",
+  ILLUSTRATING: "일러스트 생성 중",
+  REVIEW_WAIT: "일러스트 검수 대기",
+  BINDING: "세계 등록 중",
+  READY: "완성! 확인해 주세요",
+  FAILED: "생성 실패",
+  EXPIRED: "작업 만료",
+};
+
+// [World Builder v1.1] 카드 클릭 → WorldDetailSheet (상세/수정/장소 추가)
+const MyWorldCard = ({ world, index, onClick }) => {
+  const review = WORLD_REVIEW_META[world.reviewStatus] || null;
+  return (
+    <motion.button
+      type="button"
+      onClick={() => { sfx.click(); onClick?.(world); }}
+      onMouseEnter={() => sfx.hover()}
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.05 + index * 0.05 }}
+      className="group relative w-full text-left rounded-2xl overflow-hidden border border-white/10 hover:border-amber-400/40 bg-white/[0.03] transition-colors"
+    >
+      <div className="relative aspect-video overflow-hidden bg-gradient-to-b from-stone-800/60 to-stone-950">
+        {world.thumbnailUrl ? (
+          <img
+            src={world.thumbnailUrl}
+            alt={world.name}
+            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+            draggable={false}
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-white/15">
+            <Globe size={30} />
+          </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
+        {review && (
+          <span
+            className={`absolute top-2 left-2 inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${review.cls}`}
+          >
+            {review.label}
+          </span>
+        )}
+        <div className="absolute bottom-0 left-0 right-0 p-3">
+          <div className="text-sm font-bold text-white truncate">{world.name}</div>
+          <div className="text-[11px] text-white/50 truncate mt-0.5">
+            {world.intro || "아직 소개가 없어요"}
+          </div>
+        </div>
+      </div>
+    </motion.button>
+  );
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  탐색 피드 카드
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -277,6 +351,7 @@ const ExploreCard = ({ item, index, onClick }) => (
 
 export default function StudioPage() {
   const navigate = useNavigate();
+  const routerLocation = useLocation();
   const { user } = useAuth();
 
   const [userInfo, setUserInfo] = useState(null);
@@ -287,6 +362,14 @@ export default function StudioPage() {
   const [explore, setExplore] = useState({ items: [], nextCursor: null, initialized: false });
   const [exploreLoading, setExploreLoading] = useState(false);
   const exploreBusyRef = useRef(false);
+
+  // [World Builder] 내 세계관 목록 + 진행 중 월드 잡 (마운트 시 1회 fetch)
+  const [worldsData, setWorldsData] = useState({ worlds: [], activeJob: null, loaded: false });
+  const [worldLinkChar, setWorldLinkChar] = useState(null); // 세계관 연결 시트 대상
+  // [World Builder v1.1] 세계관 상세 시트 대상 worldId
+  const [worldDetailId, setWorldDetailId] = useState(null);
+  // [Profile v2] 프로필 뷰 대상 — { characterId, variant: "card"|"dossier" } | null
+  const [profileView, setProfileView] = useState(null);
 
   const [createFlow, setCreateFlow] = useState(null); // { jobId: string|null } | null
   const [menuChar, setMenuChar] = useState(null);     // ⋯ BottomSheet 대상
@@ -342,11 +425,27 @@ export default function StudioPage() {
     }
   }, []);
 
+  // [World Builder] 내 세계관 로드 — 마운트 시 1회
+  const fetchWorlds = useCallback(async () => {
+    try {
+      const data = await fetchMyUgcWorlds();
+      setWorldsData({
+        worlds: data?.worlds || [],
+        activeJob: data?.activeJob || null,
+        loaded: true,
+      });
+    } catch (e) {
+      console.warn("[Studio] worlds fetch failed:", e?.message);
+      setWorldsData((prev) => ({ ...prev, loaded: true }));
+    }
+  }, []);
+
   useEffect(() => {
     fetchEnergy();
     fetchMine();
+    fetchWorlds();
     loadExplore(null);
-  }, [fetchEnergy, fetchMine, loadExplore]);
+  }, [fetchEnergy, fetchMine, fetchWorlds, loadExplore]);
 
   // ─── 진행 중 잡 라이브 폴링 (위저드가 닫혀 있을 때만 — 이중 폴링 방지) ───
   const { job: liveJob } = useUgcCreationJob(createFlow ? null : mine.activeJob?.jobId || null);
@@ -384,6 +483,38 @@ export default function StudioPage() {
   const handleResumeJob = () => {
     if (!displayJob) return;
     setCreateFlow({ jobId: displayJob.jobId });
+  };
+
+  // [World Builder] 월드 완성 스텝의 "캐릭터 만들러 가기" — router state로 위저드 자동 오픈
+  const openCreateHandledRef = useRef(false);
+  useEffect(() => {
+    if (mineLoading || openCreateHandledRef.current) return;
+    if (routerLocation.state?.openCreate) {
+      openCreateHandledRef.current = true;
+      // 새로고침 시 재오픈되지 않도록 router state 제거
+      navigate(routerLocation.pathname, { replace: true, state: null });
+      handleOpenCreate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mineLoading, routerLocation.state]);
+
+  // [World Builder] 세계관 연결/변경/해제 — PATCH 후 목록 리프레시 + 토스트
+  const handleWorldLink = async (payload, successMessage) => {
+    if (!worldLinkChar) return;
+    setBusy(true);
+    try {
+      await updateUgcCharacterWorld(worldLinkChar.characterId, payload);
+      sfx.chime();
+      showToast(successMessage, "success");
+      setWorldLinkChar(null);
+      fetchMine();
+    } catch (e) {
+      sfx.thud();
+      // 공개 캐릭터 + 미승인 월드 등 — 서버 메시지 그대로 노출
+      showToast(e?.response?.data?.message || "세계관 연결에 실패했습니다.", "error");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleCloseFlow = () => {
@@ -628,7 +759,8 @@ export default function StudioPage() {
                       key={c.characterId}
                       character={c}
                       index={i}
-                      onChat={(ch) => setChatTarget({ characterId: ch.characterId, name: ch.name, mine: true })}
+                      // [Profile v1] 카드 본체 클릭 → dossier 프로필 (⋯ 메뉴의 "바로 대화하기"는 기존 confirm 유지)
+                      onChat={(ch) => setProfileView({ characterId: ch.characterId, variant: "dossier" })}
                       onMenu={setMenuChar}
                     />
                   ))}
@@ -673,6 +805,94 @@ export default function StudioPage() {
                 )}
               </section>
 
+              {/* ═══ [World Builder] 내 세계관 ═══ */}
+              <section>
+                <div className="flex items-end justify-between mb-4">
+                  <div>
+                    <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2 tracking-wide">
+                      <Globe size={18} className="text-amber-300" />
+                      내 세계관
+                    </h2>
+                    <p className="text-xs text-white/40 mt-0.5 tracking-wider">
+                      캐릭터들이 살아갈 세계를 직접 빚어보세요
+                    </p>
+                  </div>
+                  {worldsData.worlds.length > 0 && (
+                    <span className="text-[11px] text-white/35 tracking-widest uppercase">
+                      {worldsData.worlds.length}개
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {/* 진행 중 월드 잡 카드 */}
+                  {worldsData.activeJob && (
+                    <motion.button
+                      type="button"
+                      onClick={() => { sfx.click(); navigate("/studio/world"); }}
+                      onMouseEnter={() => sfx.hover()}
+                      initial={{ opacity: 0, y: 16 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      whileHover={{ scale: 1.01 }}
+                      whileTap={{ scale: 0.99 }}
+                      className="relative rounded-2xl overflow-hidden border border-amber-400/40 hover:border-amber-300/60 bg-amber-500/[0.06] aspect-video flex flex-col items-center justify-center gap-2.5 text-left transition-colors"
+                    >
+                      <motion.div
+                        className="absolute inset-0 pointer-events-none bg-gradient-to-r from-transparent via-amber-400/[0.06] to-transparent"
+                        animate={{ x: ["-100%", "100%"] }}
+                        transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                      />
+                      <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 6, repeat: Infinity, ease: "linear" }}
+                      >
+                        <Globe size={22} className="text-amber-300" />
+                      </motion.div>
+                      <div className="text-sm font-bold text-white">만들던 세계관 이어가기</div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-amber-400/15 text-amber-200 border-amber-400/40">
+                        {WORLD_JOB_STAGE_LABELS[worldsData.activeJob.status] || "진행 중"}
+                      </span>
+                    </motion.button>
+                  )}
+
+                  {/* 완성된 월드 카드 — 클릭 시 상세/수정/장소 추가 시트 */}
+                  {worldsData.worlds.map((w, i) => (
+                    <MyWorldCard
+                      key={w.worldId}
+                      world={w}
+                      index={i}
+                      onClick={(world) => setWorldDetailId(world.worldId)}
+                    />
+                  ))}
+
+                  {/* "새 세계관 만들기" 훅 카드 */}
+                  <motion.button
+                    type="button"
+                    onClick={() => { sfx.click(); navigate("/studio/world"); }}
+                    onMouseEnter={() => sfx.hover()}
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 + worldsData.worlds.length * 0.05 }}
+                    whileHover={{ scale: 1.02, y: -3 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="group relative rounded-2xl border border-dashed border-white/20 hover:border-amber-400/50 bg-white/[0.02] hover:bg-amber-500/[0.04] transition-colors aspect-video flex flex-col items-center justify-center gap-2.5 hover:shadow-[0_0_40px_rgba(251,191,36,0.12)]"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-white/5 group-hover:bg-amber-500/15 border border-white/10 group-hover:border-amber-400/40 flex items-center justify-center transition-colors">
+                      <Plus size={18} className="text-white/40 group-hover:text-amber-200 transition-colors" />
+                    </div>
+                    <div className="text-center px-3">
+                      <div className="text-sm font-bold text-white/70 group-hover:text-amber-100 transition-colors">
+                        새 세계관 만들기
+                      </div>
+                      <div className="flex items-center justify-center gap-1 mt-1 text-amber-300/70">
+                        <Zap size={10} />
+                        <span className="text-[10px] font-semibold">에너지 10</span>
+                      </div>
+                    </div>
+                  </motion.button>
+                </div>
+              </section>
+
               {/* ═══ ④ 탐색 피드 ═══ */}
               <section>
                 <div className="flex items-end justify-between mb-4">
@@ -694,8 +914,9 @@ export default function StudioPage() {
                         key={item.characterId}
                         item={item}
                         index={i}
+                        // [Profile v2] 탐색 카드 클릭 → 중앙 카드 프로필 (CTA가 SANDBOX 방 생성)
                         onClick={(it) =>
-                          setChatTarget({ characterId: it.characterId, name: it.name, creatorNickname: it.creatorNickname })
+                          setProfileView({ characterId: it.characterId, variant: "card" })
                         }
                       />
                     ))}
@@ -737,6 +958,33 @@ export default function StudioPage() {
             initialJobId={createFlow.jobId}
             energy={displayEnergy}
             onClose={handleCloseFlow}
+            onEnergyRefresh={fetchEnergy}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ═══ [Profile v2] 캐릭터 프로필 뷰 (탐색=card / 내 캐릭터=dossier) ═══ */}
+      <CharacterProfileView
+        characterId={profileView?.characterId}
+        variant={profileView?.variant || "immersive"}
+        open={Boolean(profileView)}
+        onClose={() => setProfileView(null)}
+        // 기존 진입 로직 재사용 — createOrGetRoom(POST /lobby/rooms SANDBOX) → /chat 이동
+        onStartChat={async (characterId) => {
+          setProfileView(null);
+          await startSandboxChat(characterId);
+        }}
+      />
+
+      {/* ═══ [World Builder v1.1] 세계관 상세/수정/장소 추가 시트 ═══ */}
+      <AnimatePresence>
+        {worldDetailId && (
+          <WorldDetailSheet
+            worldId={worldDetailId}
+            onClose={() => {
+              setWorldDetailId(null);
+              fetchWorlds(); // 이름/썸네일/검수상태 수정분을 목록 카드에 반영
+            }}
             onEnergyRefresh={fetchEnergy}
           />
         )}
@@ -839,6 +1087,29 @@ export default function StudioPage() {
               </button>
             ) : null}
 
+            {/* [World Builder] 세계관 연결 / 변경 */}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                sfx.click();
+                const target = menuChar;
+                setMenuChar(null);
+                setWorldLinkChar(target);
+              }}
+              className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/5 hover:border-white/15 transition-colors text-left disabled:opacity-50"
+            >
+              <Globe size={16} className="text-amber-300/80" />
+              <div>
+                <div className="text-sm font-bold text-white">
+                  {menuChar.worldName ? "세계관 변경" : "세계관 연결"}
+                </div>
+                <div className="text-[11px] text-white/40 mt-0.5">
+                  {menuChar.worldName ? `현재: ${menuChar.worldName}` : "미연결 — 공식·커스텀 세계관을 연결해요"}
+                </div>
+              </div>
+            </button>
+
             {/* 설정 수정 */}
             <button
               type="button"
@@ -903,6 +1174,129 @@ export default function StudioPage() {
             >
               {busy ? "저장 중…" : "저장"}
             </button>
+          </div>
+        )}
+      </BottomSheet>
+
+      {/* ═══ [World Builder] 세계관 연결/변경 BottomSheet ═══ */}
+      <BottomSheet
+        open={Boolean(worldLinkChar)}
+        onClose={() => setWorldLinkChar(null)}
+        title="세계관 연결"
+        zIndex={95}
+      >
+        {worldLinkChar && (
+          <div className="space-y-2 pb-2">
+            <p className="text-[11px] text-white/45 leading-relaxed mb-1">
+              {worldLinkChar.name} ·{" "}
+              {worldLinkChar.worldName ? `현재 연결: ${worldLinkChar.worldName}` : "미연결"}
+            </p>
+
+            {/* 공식 4종 */}
+            <div className="text-[10px] text-white/40 uppercase tracking-widest pt-1">공식 세계관</div>
+            {OFFICIAL_WORLDS.map((w) => {
+              const active =
+                worldLinkChar.worldType === "OFFICIAL" && worldLinkChar.worldId === w.id;
+              return (
+                <button
+                  key={w.id}
+                  type="button"
+                  disabled={busy || active}
+                  onClick={() => handleWorldLink({ officialWorldId: w.id }, `${w.name} 세계관을 연결했어요.`)}
+                  className={`w-full flex items-center gap-3 p-3.5 rounded-xl border transition-colors text-left disabled:opacity-60 ${
+                    active
+                      ? "bg-amber-500/[0.08] border-amber-400/40"
+                      : "bg-white/[0.03] hover:bg-white/[0.08] border-white/5 hover:border-white/15"
+                  }`}
+                >
+                  <Globe size={16} className={active ? "text-amber-300" : "text-white/40"} />
+                  <div className="flex-1">
+                    <div className="text-sm font-bold text-white">{w.name}</div>
+                  </div>
+                  {active && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-200 border border-amber-400/40">
+                      연결 중
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+
+            {/* 내 READY 월드 */}
+            <div className="text-[10px] text-white/40 uppercase tracking-widest pt-2">내 세계관</div>
+            {worldsData.worlds.length > 0 ? (
+              worldsData.worlds.map((w) => {
+                const active =
+                  worldLinkChar.worldType === "UGC" && worldLinkChar.ugcWorldId === w.worldId;
+                return (
+                  <button
+                    key={w.worldId}
+                    type="button"
+                    disabled={busy || active}
+                    onClick={() => handleWorldLink({ ugcWorldId: w.worldId }, `${w.name} 세계관을 연결했어요.`)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors text-left disabled:opacity-60 ${
+                      active
+                        ? "bg-amber-500/[0.08] border-amber-400/40"
+                        : "bg-white/[0.03] hover:bg-white/[0.08] border-white/5 hover:border-white/15"
+                    }`}
+                  >
+                    <div className="w-16 aspect-video rounded-lg overflow-hidden border border-white/10 flex-shrink-0 bg-black/40">
+                      {w.thumbnailUrl ? (
+                        <img src={w.thumbnailUrl} alt={w.name} className="w-full h-full object-cover" draggable={false} />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-white/15">
+                          <Globe size={12} />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold text-white truncate">{w.name}</div>
+                      <div className="text-[11px] text-white/40 truncate mt-0.5">
+                        {w.reviewStatus === "APPROVED"
+                          ? "승인됨 — 공개 캐릭터에도 연결할 수 있어요"
+                          : w.reviewStatus === "REJECTED"
+                          ? "반려됨"
+                          : "비공개 캐릭터에 연결할 수 있어요"}
+                      </div>
+                    </div>
+                    {active && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-200 border border-amber-400/40 flex-shrink-0">
+                        연결 중
+                      </span>
+                    )}
+                  </button>
+                );
+              })
+            ) : (
+              <button
+                type="button"
+                onClick={() => { sfx.click(); setWorldLinkChar(null); navigate("/studio/world"); }}
+                className="w-full py-3.5 rounded-xl border border-dashed border-white/15 hover:border-amber-400/50 bg-white/[0.02] hover:bg-amber-500/[0.04] text-[11px] text-white/45 hover:text-amber-100 transition-colors"
+              >
+                아직 만든 세계관이 없어요 — 월드 빌더에서 만들기
+              </button>
+            )}
+
+            {/* 연결 해제 */}
+            {(worldLinkChar.worldType === "OFFICIAL" || worldLinkChar.worldType === "UGC") && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  handleWorldLink(
+                    { officialWorldId: null, ugcWorldId: null },
+                    "세계관 연결을 해제했어요."
+                  )
+                }
+                className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-white/[0.03] hover:bg-rose-500/[0.08] border border-white/5 hover:border-rose-400/25 transition-colors text-left disabled:opacity-50"
+              >
+                <Link2Off size={16} className="text-rose-300/80" />
+                <div>
+                  <div className="text-sm font-bold text-rose-200">연결 해제</div>
+                  <div className="text-[11px] text-white/40 mt-0.5">세계관 없이 자유롭게 두어요</div>
+                </div>
+              </button>
+            )}
           </div>
         )}
       </BottomSheet>

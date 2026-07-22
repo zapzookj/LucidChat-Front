@@ -95,7 +95,7 @@ const IllustrationGalleryPage = ({ isOpen, onClose, characters = [] }) => {
         </div>
 
         {/* ═══ 갤러리 그리드 ═══ */}
-        <div className="flex-1 overflow-y-auto px-4 pb-8">
+        <div className="flex-1 overflow-y-auto custom-scrollbar px-4 pb-8">
           {loading ? (
             <div className="flex items-center justify-center h-40">
               <motion.div

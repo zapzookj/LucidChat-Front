@@ -36,7 +36,7 @@ export default function StoryV2LobbyView({ onBack, onEnterCreate, onContinue }) 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-40 overflow-y-auto bg-slate-950/85 backdrop-blur-sm px-4 sm:px-8 py-6 text-white"
+      className="fixed inset-0 z-40 overflow-y-auto custom-scrollbar bg-slate-950/85 backdrop-blur-sm px-4 sm:px-8 py-6 text-white"
     >
       {/* 헤더 */}
       <div className="flex items-center gap-3 mb-8">

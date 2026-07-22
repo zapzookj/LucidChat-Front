@@ -131,7 +131,7 @@ const PaymentModal = ({ isOpen, onClose, onPaymentComplete, userEnergy, initialT
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
         <motion.div
-          className="relative z-10 w-[90vw] max-w-lg rounded-2xl p-6 max-h-[80vh] overflow-y-auto"
+          className="relative z-10 w-[90vw] max-w-lg rounded-2xl p-6 max-h-[80vh] overflow-y-auto custom-scrollbar"
           style={{
             background: 'linear-gradient(135deg, rgba(20,15,40,0.97), rgba(40,25,70,0.95))',
             border: '1px solid rgba(255,255,255,0.1)',

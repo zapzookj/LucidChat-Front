@@ -5,6 +5,8 @@ import api from "../../api/axios";
 import { fetchWorlds as fetchStoryWorlds } from "../../api/StoryV2Api";
 import { sfx } from "../../utils/sfx";
 import LobbyCard from "./LobbyCard";
+// [Profile v2] 캐릭터 카드 클릭 → 프로필 미리보기 → CTA로 선택/해제
+import CharacterProfileView from "../CharacterProfileView";
 
 /**
  * [Phase 7-V2 Pivot] 통합 "새로운 만남" 플로우.
@@ -139,6 +141,8 @@ export default function LobbyNewEncounterFlow({
   const [loadingChars, setLoadingChars] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  // [Profile v2] 카드 클릭 시 프로필 미리보기 — 선택 확정은 프로필 CTA에서
+  const [profileCharId, setProfileCharId] = useState(null);
 
   const accent = mode ? ACCENT_BY_MODE[mode] : "neutral";
   const maxSelect = mode === "SANDBOX" ? 1 : 3;
@@ -200,24 +204,34 @@ export default function LobbyNewEncounterFlow({
     setStep("character");
   };
 
+  // [Profile v2] 호출 경로가 카드 직접 클릭 → 프로필 CTA로 바뀌면서 클릭음은 CTA(handleCta)가
+  // 담당한다 — 여기서 또 울리면 이중 재생. 단일 선택도 같은 캐릭터 재선택 시 해제로 동작
+  // (CTA "선택 해제하기" 문구와 정합).
   const toggleChar = (id) => {
     if (!multiSelect) {
-      sfx.click();
-      setSelectedCharIds([id]);
+      setSelectedCharIds((prev) => (prev[0] === id ? [] : [id]));
       return;
     }
     setSelectedCharIds((prev) => {
-      if (prev.includes(id)) {
-        sfx.click();
-        return prev.filter((x) => x !== id);
-      }
-      if (prev.length >= maxSelect) {
-        sfx.thud();
-        return prev;
-      }
-      sfx.click();
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      if (prev.length >= maxSelect) return prev; // 상한 가드 — 정상 경로에선 handleProfileSelect가 선차단
       return [...prev, id];
     });
+  };
+
+  // [Profile v2] 프로필 CTA — 선택/해제 후 프로필 닫기 (상한 초과 시 안내만)
+  const isProfileCharSelected = profileCharId != null && selectedCharIds.includes(profileCharId);
+  const handleProfileSelect = (id) => {
+    const already = selectedCharIds.includes(id);
+    if (!already && multiSelect && selectedCharIds.length >= maxSelect) {
+      sfx.thud();
+      setProfileCharId(null);
+      setError(`한 번에 최대 ${maxSelect}명까지 함께할 수 있어요.`);
+      return;
+    }
+    setError(null);
+    toggleChar(id);
+    setProfileCharId(null);
   };
 
   const goBack = useCallback(() => {
@@ -398,7 +412,8 @@ export default function LobbyNewEncounterFlow({
                       subtitle={c.tagline}
                       accent={accent}
                       selected={selectedCharIds.includes(c.id)}
-                      onClick={() => toggleChar(c.id)}
+                      // [Profile v2] 즉시 토글 대신 프로필 미리보기 — 선택은 프로필 CTA에서
+                      onClick={() => { sfx.click(); setProfileCharId(c.id); }}
                       onHover={() => sfx.hover?.()}
                     />
                   ))}
@@ -437,6 +452,16 @@ export default function LobbyNewEncounterFlow({
           </button>
         </motion.div>
       )}
+
+      {/* [Profile v2] 캐릭터 프로필 미리보기 (중앙 카드) — CTA가 선택/해제 토글 */}
+      <CharacterProfileView
+        characterId={profileCharId}
+        variant="card"
+        open={profileCharId != null}
+        onClose={() => setProfileCharId(null)}
+        onStartChat={handleProfileSelect}
+        ctaLabel={isProfileCharSelected ? "선택 해제하기" : "이 캐릭터 선택하기"}
+      />
     </motion.div>
   );
 }

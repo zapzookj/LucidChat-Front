@@ -12,6 +12,8 @@ import TheaterArchivePage from "./pages/TheaterArchivePage";
 import OAuthSuccessPage from "./pages/OAuthSuccessPage";
 // [Studio v1] UGC 캐릭터 생성 스튜디오
 import StudioPage from "./pages/StudioPage";
+// [World Builder v1] UGC 세계관 빌더
+import StudioWorldPage from "./pages/StudioWorldPage";
 
 const ProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -60,6 +62,15 @@ function App() {
             element={
               <ProtectedRoute>
                 <StudioPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* [World Builder v1] UGC 세계관 빌더 */}
+          <Route
+            path="/studio/world"
+            element={
+              <ProtectedRoute>
+                <StudioWorldPage />
               </ProtectedRoute>
             }
           />
