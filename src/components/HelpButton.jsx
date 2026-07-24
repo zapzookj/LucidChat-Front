@@ -49,7 +49,12 @@ export default function HelpButton({ className = "", iconSize = 14 }) {
           </span>
         )}
       </button>
-      <SupportPanel open={open} onClose={() => { setOpen(false); poll(); }} onSeen={poll} />
+      <SupportPanel
+        open={open}
+        onClose={() => { setOpen(false); poll(); }}
+        onSeen={poll}
+        initialTab={unread > 0 ? "notify" : "qna"}
+      />
     </>
   );
 }

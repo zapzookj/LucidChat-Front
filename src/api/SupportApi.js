@@ -17,4 +17,8 @@ export const reportChat = (payload) => api.post("/support/reports", payload).the
 // ── 인앱 알림 ──
 export const fetchUnreadCount = () =>
   api.get("/users/me/notifications/unread-count").then((r) => r.data.count ?? 0);
+// Spring Page 응답 { content:[...], totalElements, ... }
+export const fetchNotifications = (page = 0, size = 30) =>
+  api.get(`/users/me/notifications?page=${page}&size=${size}`).then((r) => r.data);
+export const markNotificationRead = (id) => api.post(`/users/me/notifications/${id}/read`);
 export const markAllNotificationsRead = () => api.post("/users/me/notifications/read-all");

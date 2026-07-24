@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  X, LifeBuoy, HelpCircle, MessageSquarePlus, Inbox,
+  X, LifeBuoy, HelpCircle, MessageSquarePlus, Inbox, Bell,
   Search, ChevronDown, ChevronLeft, Send, MessageCircle, Bug, Lightbulb, HelpCircle as HelpIcon,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { sfx } from "../utils/sfx";
 import {
   fetchFaq, createTicket, fetchMyTickets, fetchTicket, replyTicket,
-  markAllNotificationsRead,
+  fetchNotifications, markAllNotificationsRead,
 } from "../api/SupportApi";
 
 /**
@@ -18,6 +19,7 @@ import {
  */
 
 const TABS = [
+  { key: "notify", label: "알림", icon: Bell },
   { key: "qna", label: "QnA", icon: HelpCircle },
   { key: "inquiry", label: "문의하기", icon: MessageSquarePlus },
   { key: "mine", label: "내 문의", icon: Inbox },
@@ -350,6 +352,76 @@ function MineTab() {
 }
 
 // ─────────────────────────────────────────────
+//  알림 탭 (인앱 알림 목록 + 딥링크)
+// ─────────────────────────────────────────────
+function NotificationsTab({ onClose, onGoTickets, onSeen }) {
+  const [items, setItems] = useState(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    let alive = true;
+    fetchNotifications(0, 30)
+      .then((page) => {
+        if (!alive) return;
+        setItems(page?.content ?? []);
+        // 목록을 본 시점에 읽음 처리 → 도움말 배지 클리어. 미읽음 하이라이트는 이 스냅샷 기준 유지.
+        markAllNotificationsRead().then(() => onSeen?.()).catch(() => {});
+      })
+      .catch(() => { if (alive) setItems([]); });
+    return () => { alive = false; };
+  }, [onSeen]);
+
+  const clickableTypes = ["TICKET", "UGC_CHARACTER", "UGC_WORLD"];
+  const handleClick = (n) => {
+    if (!clickableTypes.includes(n.linkType)) return;
+    sfx.click();
+    if (n.linkType === "TICKET") { onGoTickets?.(); return; }
+    onClose?.();
+    if (n.linkType === "UGC_CHARACTER") navigate("/studio");
+    else if (n.linkType === "UGC_WORLD") navigate("/studio/world");
+  };
+
+  if (items === null) {
+    return <div className="text-center text-white/30 text-sm py-10">불러오는 중…</div>;
+  }
+  if (items.length === 0) {
+    return (
+      <div className="flex flex-col items-center text-center py-12">
+        <Bell size={32} className="text-white/20 mb-3" />
+        <p className="text-white/40 text-sm">새로운 알림이 없어요.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1.5">
+      {items.map((n) => {
+        const clickable = clickableTypes.includes(n.linkType);
+        return (
+          <button
+            key={n.id}
+            onClick={() => handleClick(n)}
+            className={`w-full text-left rounded-xl border px-4 py-3 transition-colors ${
+              n.read ? "border-white/10 bg-white/[0.02]" : "border-purple-400/25 bg-purple-500/[0.06]"
+            } ${clickable ? "hover:bg-white/[0.05] cursor-pointer" : "cursor-default"}`}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-rose-400 flex-shrink-0" />}
+              <span className="text-sm text-white/90 font-medium truncate">{n.title}</span>
+            </div>
+            {n.body && (
+              <p className="text-[13px] text-white/55 leading-relaxed whitespace-pre-wrap">{n.body}</p>
+            )}
+            <div className="text-[11px] text-white/30 mt-1">
+              {n.createdAt?.replace("T", " ").slice(0, 16)}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 //  Panel Shell
 // ─────────────────────────────────────────────
 export default function SupportPanel({ open, onClose, onSeen, initialTab = "qna" }) {
@@ -361,13 +433,6 @@ export default function SupportPanel({ open, onClose, onSeen, initialTab = "qna"
       setActiveTab(initialTab);
     }
   }, [open, initialTab]);
-
-  // 내 문의 탭 진입 시 알림 읽음 처리(도움말 버튼 배지 클리어)
-  useEffect(() => {
-    if (open && activeTab === "mine") {
-      markAllNotificationsRead().then(() => onSeen?.()).catch(() => {});
-    }
-  }, [open, activeTab, onSeen]);
 
   if (!open) return null;
 
@@ -444,6 +509,13 @@ export default function SupportPanel({ open, onClose, onSeen, initialTab = "qna"
 
           {/* Content */}
           <div className="px-6 pb-6 overflow-y-auto custom-scrollbar">
+            {activeTab === "notify" && (
+              <NotificationsTab
+                onClose={onClose}
+                onGoTickets={() => setActiveTab("mine")}
+                onSeen={onSeen}
+              />
+            )}
             {activeTab === "qna" && <QnaTab />}
             {activeTab === "inquiry" && <InquiryTab onSubmitted={() => setActiveTab("mine")} />}
             {activeTab === "mine" && <MineTab />}

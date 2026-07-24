@@ -338,8 +338,8 @@ export default function CharacterProfileView({
                         className="mt-3.5 pl-3 border-l-2 border-amber-400/60 italic leading-relaxed"
                         style={{ fontFamily: SERIF_STACK }}
                       >
-                        {profile.introTeaser ? (
-                          <span className="text-[13px] text-white/80">{profile.introTeaser}</span>
+                        {(profile.profileQuote || profile.introTeaser) ? (
+                          <span className="text-[13px] text-white/80">{(profile.profileQuote || profile.introTeaser)}</span>
                         ) : (
                           <span className="text-xs text-white/25">기록 없음</span>
                         )}
@@ -581,8 +581,8 @@ export default function CharacterProfileView({
                       className="mt-3.5 pl-3 border-l-2 border-amber-400/60 italic leading-relaxed"
                       style={{ fontFamily: SERIF_STACK }}
                     >
-                      {profile.introTeaser ? (
-                        <span className="text-[13px] text-white/80">{profile.introTeaser}</span>
+                      {(profile.profileQuote || profile.introTeaser) ? (
+                        <span className="text-[13px] text-white/80">{(profile.profileQuote || profile.introTeaser)}</span>
                       ) : (
                         <span className="text-xs text-white/25">기록 없음</span>
                       )}
@@ -812,8 +812,8 @@ export default function CharacterProfileView({
                     className="mt-5 pl-4 border-l-2 border-amber-400/70 italic leading-relaxed"
                     style={{ fontFamily: SERIF_STACK }}
                   >
-                    {profile.introTeaser ? (
-                      <span className="text-[15px] text-white/85">{profile.introTeaser}</span>
+                    {(profile.profileQuote || profile.introTeaser) ? (
+                      <span className="text-[15px] text-white/85">{(profile.profileQuote || profile.introTeaser)}</span>
                     ) : (
                       <span className="text-sm text-white/25">기록 없음</span>
                     )}
@@ -1006,12 +1006,12 @@ export default function CharacterProfileView({
                       >
                         “
                       </span>
-                      {profile.greetingExcerpt ? (
+                      {(profile.profileQuote || profile.greetingExcerpt) ? (
                         <p
                           className="text-sm text-white/80 leading-relaxed"
                           style={{ fontFamily: SERIF_STACK }}
                         >
-                          {profile.greetingExcerpt}
+                          {(profile.profileQuote || profile.greetingExcerpt)}
                         </p>
                       ) : (
                         <p className="text-sm text-white/25">기록 없음</p>

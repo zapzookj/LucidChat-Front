@@ -23,6 +23,24 @@ input:focus {
   outline: none;
 }
 
+/* [런칭 폴리싱] 텍스트 드래그(선택) 전역 방지 — 입력 필드만 예외.
+ * user-select는 상속되므로 body 한 번 지정으로 전 하위에 전파되고, 아래 예외 규칙이 이를 덮는다.
+ * iOS Safari 롱프레스 콜아웃/확대경도 억제. */
+html, body {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+input, textarea, [contenteditable="true"], [contenteditable=""] {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
 /* 다크 모드용 커스텀 스크롤바 */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
