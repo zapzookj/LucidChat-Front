@@ -340,9 +340,12 @@ const CharacterDisplay = ({
         >
           <motion.div animate={idleControls} className="relative h-full w-full flex items-end justify-center">
             {/* [Phase B · 단계1] portrait 시 상반신 bust-up 크롭 — top-biased 확대(하반신은 루트 overflow-hidden 으로 clip). 기본 off. */}
+            {/* [모바일 위치 보정 2026-07-24] 캐릭터가 화면 바닥 정렬이라 DialogueBox(bottom-0)에 상체가 가려짐.
+                translateY로 위로 끌어올려 상체가 대화창 위로 나오게 한다. 값(-14%)이 끌어올림 정도 — 더 올리려면
+                더 음수로, 덜 올리려면 0에 가깝게. 기기에서 눈으로 미세조정 권장. */}
             <div
               className="relative h-full w-full flex items-end justify-center"
-              style={portrait ? { transform: "scale(1.5)", transformOrigin: "center 18%" } : undefined}
+              style={portrait ? { transform: "translateY(-14%) scale(1.5)", transformOrigin: "center 18%" } : undefined}
             >
             <AnimatePresence mode="popLayout">
               <motion.img
