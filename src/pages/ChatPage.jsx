@@ -51,6 +51,9 @@ import HelpButton from "../components/HelpButton";
 import { reportChat } from "../api/SupportApi";
 // [Profile v1] PROFILE 버튼 → 캐릭터 프로필 (CTA = "대화로 돌아가기" 단순 닫기)
 import CharacterProfileView from "../components/CharacterProfileView";
+// [docs/09 A-2+A-3] 매턴 실시간 씬 일러 — 목록/폴링/홀드체인/네비게이션은 훅에 전부 캡슐화
+import useSceneIllustrations from "../hooks/useSceneIllustrations";
+import SceneIllustrationStage from "../components/SceneIllustrationStage";
 
 const ChatPage = () => {
   const { user, logout, refreshUser } = useAuth();
@@ -208,6 +211,10 @@ const ChatPage = () => {
 
   // ─── [Phase 5.5-Illust] 일러스트 갤러리 ───
   const [showIllustGallery, setShowIllustGallery] = useState(false);
+
+  // ─── [docs/09 A-2+A-3] 매턴 실시간 씬 일러 (백엔드 플래그 on 방에서만 데이터 존재) ───
+  // 씬이 하나도 없는 방은 sceneStage.hasAnyScene=false → 무대 렌더 분기가 null → 회귀 제로
+  const sceneStage = useSceneIllustrations(roomId);
 
   // ─── [v3] 투명 디렉터 시스템 ───
   const [directorLoading, setDirectorLoading] = useState(false);          // 수동 디렉터 요청 로딩 중
@@ -1440,6 +1447,9 @@ const ChatPage = () => {
         if (newThought !== undefined && newThought !== null) {
           setCharacterThought(newThought);
         }
+        // ── [docs/09 A-3] 매턴 씬 일러 수신 — null이면 훅이 no-op (기능 off 방 회귀 제로) ──
+        sceneStage.register(data.sceneIllustration);
+
         //   // ── [Phase 5.5-Illust] 일러스트 생성 트리거 ──
         if (data.generateIllustration) {
           setIllustrationAvailable(true);
@@ -2359,6 +2369,11 @@ const ChatPage = () => {
           isNpcActive={currentSpeaker !== null && currentSpeaker !== roomInfo?.characterName}
           portrait={isMobile}
         />
+
+        {/* [docs/09 A-2+A-3] 씬 일러 상주 무대 — 완료 일러가 있으면 스탠딩 무대를 덮고,
+            씬이 없는 방(백엔드 플래그 off/기존 방)은 null 렌더로 기존 무대 그대로.
+            속마음 버블·HUD·DialogueBox(z-20)는 이 레이어 위에서 그대로 동작. */}
+        <SceneIllustrationStage stage={sceneStage} portrait={isMobile} />
 
         {/* [Phase 5.5-IT] 속마음 말풍선 — CharacterDisplay 위에 오버레이 */}
         <InnerThoughtBubble
