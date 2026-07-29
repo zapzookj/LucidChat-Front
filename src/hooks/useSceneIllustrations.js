@@ -64,7 +64,17 @@ export default function useSceneIllustrations(roomId) {
       try {
         const res = await api.get(`/illustrations/scenes/${sceneId}`, { params: { roomId } });
         upsert(res.data);
-        if (TERMINAL_STATUSES.has(res.data?.status)) stopPolling();
+        if (TERMINAL_STATUSES.has(res.data?.status)) {
+          stopPolling();
+          // [리뷰픽스] 폴링 타깃 교체로 방치된 이전 비종결 씬 백필 — 종결 시점에 목록 1회 재동기화
+          // (턴 N 생성 중 턴 N+1로 타깃이 넘어가면 N의 완료본이 세션 내에서 영구 누락되던 문제)
+          try {
+            const listRes = await api.get("/illustrations/scenes", { params: { roomId } });
+            if (Array.isArray(listRes.data)) listRes.data.forEach(upsert);
+          } catch {
+            /* 백필 실패는 무해 — 재입장 시 복원 */
+          }
+        }
       } catch {
         /* 폴링 실패는 다음 틱에서 재시도 */
       }
