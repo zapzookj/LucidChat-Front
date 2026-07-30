@@ -21,6 +21,10 @@ import BiometricStatusPanel from "../components/BiometricStatusPanel";
 import InnerThoughtBubble from "../components/InnerThoughtBubble";
 import IllustrationModal from "../components/IllustrationModal";
 import LocationTransition from "../components/LocationTransition";
+// [2026-07-31 에픽 B] 씬 일러 — V2 배선(수동 요청 전용: V2 스트림은 씬 필드를 보내지 않는다)
+import useSceneIllustrations from "../hooks/useSceneIllustrations";
+import SceneIllustrationStage from "../components/SceneIllustrationStage";
+import SceneRequestButton from "../components/SceneRequestButton";
 import PaymentModal from "../components/PaymentModal";
 import IllustrationGalleryPage from "./IllustrationGalleryPage";
 import {
@@ -108,6 +112,10 @@ const ChatPage = () => {
   // [상태 정보]
   const [affection, setAffection] = useState(0);
   const [energy, setEnergy] = useState(user?.energy || 100);
+
+  // [2026-07-31 에픽 B] 씬 일러 — 목록/폴링/수동 요청 전부 훅에 캡슐화.
+  // V2는 SSE로 씬을 받지 않으므로 register 미사용 — 수동 request()가 유일한 생성 경로.
+  const sceneStage = useSceneIllustrations(roomId);
   // [Phase 5.5-Fix #1] 에너지 분리 추적
   const [freeEnergy, setFreeEnergy] = useState(user?.energy || 100);
   const [paidEnergy, setPaidEnergy] = useState(0);
@@ -3135,6 +3143,10 @@ const ChatPage = () => {
           portrait={isMobile}
         />
 
+        {/* [2026-07-31 에픽 B] 씬 일러 상주 무대 — 완료 일러가 있으면 스탠딩을 덮는다.
+            씬이 없는 방은 null 렌더로 기존 무대 그대로(회귀 제로 — V1과 동일 계약). */}
+        <SceneIllustrationStage stage={sceneStage} portrait={isMobile} />
+
         {/* [Phase 5.5-IT] 속마음 말풍선 — CharacterDisplay 위에 오버레이 */}
         <InnerThoughtBubble
           visible={hasInnerThought && !thoughtUnlocked}
@@ -4575,6 +4587,13 @@ const ChatPage = () => {
           </motion.button>
         )}
       </AnimatePresence>
+
+      {/* ═══ [2026-07-31 에픽 B] 씬 일러 수동 요청 FAB — V2 유일한 씬 생성 경로 ═══ */}
+      <SceneRequestButton
+        stage={sceneStage}
+        visible={!showEndingCredits && !isTyping && introStep === 'none'}
+        onRequested={(cost) => setEnergy((prev) => Math.max(0, prev - cost))}
+      />
 
       {/* ═══ [Phase 5.5-Illust] 장소 전환 연출 ═══ */}
      <LocationTransition

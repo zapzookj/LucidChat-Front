@@ -54,6 +54,8 @@ import CharacterProfileView from "../components/CharacterProfileView";
 // [docs/09 A-2+A-3] 매턴 실시간 씬 일러 — 목록/폴링/홀드체인/네비게이션은 훅에 전부 캡슐화
 import useSceneIllustrations from "../hooks/useSceneIllustrations";
 import SceneIllustrationStage from "../components/SceneIllustrationStage";
+// [2026-07-31 에픽 B] 씬 일러 수동 요청 FAB — 유저 트리거 전용(5에너지, 실패 자동 환불)
+import SceneRequestButton from "../components/SceneRequestButton";
 
 const ChatPage = () => {
   const { user, logout, refreshUser } = useAuth();
@@ -3738,6 +3740,13 @@ const ChatPage = () => {
             showToast("성인 인증이 완료되었습니다!", "success");
           });
         }}
+      />
+
+      {/* ═══ [2026-07-31 에픽 B] 씬 일러 수동 요청 FAB — 훅이 요청·폴링·에러를 전부 캡슐화 ═══ */}
+      <SceneRequestButton
+        stage={sceneStage}
+        visible={!showEndingCredits && !isTyping}
+        onRequested={(cost) => setEnergy((prev) => Math.max(0, prev - cost))}
       />
 
       {/* ═══ [Phase 5.5-Fix] 실시간 일러스트 생성 FAB ═══ */}

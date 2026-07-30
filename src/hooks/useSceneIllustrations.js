@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import api from "../api/axios";
 
 /**
- * [docs/09 A-2 + A-3] 매턴 실시간 씬 일러(랜드스케이프) 훅 — V1 ChatPage(SANDBOX) 전용.
+ * [docs/09 A-2 + A-3] 실시간 씬 일러(랜드스케이프) 훅 — V1 ChatPage + V2 ChatPageV2 공용.
+ * [2026-07-31 에픽 B] 수동 요청(request) 추가 — V2는 SSE 씬 수신이 없어 이것이 유일한 생성 경로.
  *
  * 책임 (ChatPage 접점 최소화를 위해 전부 이 훅에 캡슐화):
  *   1. 방 입장 시 목록 1회 로드: GET /illustrations/scenes?roomId= (id 오름차순)
@@ -131,6 +132,44 @@ export default function useSceneIllustrations(roomId) {
     if (!TERMINAL_STATUSES.has(illust.status)) startPolling(illust.id);
   }, [upsert, startPolling]);
 
+  // ── [2026-07-31 에픽 B] 유저 수동 요청 — POST /illustrations/scenes/request ──
+  // 백엔드: 5에너지 차감 → 씬 디렉터(전용 LLM) 스펙 작성 → 렌더 제출, 실패 시 자동 환불.
+  const [requesting, setRequesting] = useState(false);
+  const [requestError, setRequestError] = useState(null);
+
+  const request = useCallback(async () => {
+    if (requesting) return { ok: false };
+    setRequesting(true);
+    setRequestError(null);
+    try {
+      const res = await api.post("/illustrations/scenes/request", { roomId: Number(roomId) });
+      register(res.data); // upsert + 최신 복귀 + 폴링 시작
+      return { ok: true };
+    } catch (e) {
+      const status = e?.response?.status;
+      let msg = e?.response?.data?.message || "씬 일러 요청에 실패했어요.";
+      if (status === 409) {
+        msg = "이미 씬 일러를 생성하고 있어요.";
+        // 서버에 진행 중 렌더 존재(다른 탭/재입장 직후 등) — 목록 재동기화로 폴링 복구
+        try {
+          const listRes = await api.get("/illustrations/scenes", { params: { roomId } });
+          if (Array.isArray(listRes.data)) {
+            listRes.data.forEach(upsert);
+            const last = listRes.data[listRes.data.length - 1];
+            if (last && !TERMINAL_STATUSES.has(last.status)) startPolling(last.id);
+          }
+        } catch {
+          /* 무해 — 재입장 시 복원 */
+        }
+      }
+      setRequestError(msg);
+      setTimeout(() => setRequestError(null), 4000);
+      return { ok: false, error: msg };
+    } finally {
+      setRequesting(false);
+    }
+  }, [roomId, requesting, register, upsert, startPolling]);
+
   // ── 파생 상태 ──
   const displayable = useMemo(() => scenes.filter((s) => !!s.imageUrl), [scenes]);
   const total = displayable.length;
@@ -188,5 +227,9 @@ export default function useSceneIllustrations(roomId) {
     /** 마지막 씬이 FAILED */
     failed,
     register,
+    /** [에픽 B] 수동 요청 — 성공 시 {ok:true}, 실패 시 {ok:false, error} */
+    request,
+    requesting,
+    requestError,
   };
 }

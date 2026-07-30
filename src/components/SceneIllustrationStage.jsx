@@ -2,7 +2,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChevronLeft, ChevronRight, Loader2, ImageOff } from "lucide-react";
 
 /**
- * [docs/09 A-2 + A-3] 씬 일러 상주 무대 — V1 ChatPage(SANDBOX) 전용.
+ * [docs/09 A-2 + A-3] 씬 일러 상주 무대 — V1 ChatPage + V2 ChatPageV2 공용(에픽 B).
  *
  * 렌더 정책 (회귀 제로):
  *   - 씬 트랙이 전혀 없는 방(hasAnyScene=false) → null. 기존 스탠딩 무대 그대로.
