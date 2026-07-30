@@ -19,6 +19,20 @@ export async function fetchWorlds() {
   return res.data;
 }
 
+/**
+ * [에픽 A] 내가 극장을 열 수 있는 UGC 월드 카드 목록.
+ * id는 "UGCW_{id}" 문자열 — createSession에 그대로 통용(opaque 취급).
+ * 백엔드 게이트(ugc.modes.theater-enabled) off면 빈 배열 → 섹션 미노출.
+ */
+export async function fetchUgcTheaterWorlds() {
+  try {
+    const res = await api.get("/theater/lobby/ugc-worlds");
+    return Array.isArray(res.data) ? res.data : [];
+  } catch {
+    return []; // 실패는 무해 — 공식 목록만 노출
+  }
+}
+
 export async function fetchWorld(worldId) {
   const res = await api.get(`/theater/lobby/worlds/${encodeURIComponent(worldId)}`);
   return res.data;

@@ -58,6 +58,9 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
         setContext(ctx);
         if (ctx.personaPresets?.length > 0) {
           setSelectedPresetKey(ctx.personaPresets[0].presetKey);
+        } else {
+          // [에픽 A] UGC 월드는 프리셋 없음(자유 텍스트만) — preset 모드에 갇히지 않게 전환
+          setPersonaMode("free");
         }
       })
       .catch((e) => {

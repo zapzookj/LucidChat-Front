@@ -10,6 +10,7 @@ import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import {
   fetchWorlds,
+  fetchUgcTheaterWorlds,
   fetchMyTheaterSessions,
 } from "../api/TheaterLobbyApi";
 import TheaterCreateFlow from "../components/theater/TheaterCreateFlow";
@@ -261,9 +262,11 @@ export default function TheaterPortalPage() {
       try {
         setLoading(true);
         // [R4] 모든 세션 fetch (활성/아카이브 분리는 sessionStatus로)
-        const [w, s] = await Promise.all([fetchWorlds(), fetchMyTheaterSessions()]);
+        // [에픽 A] 내 UGC 월드 병합 — 게이트 off면 빈 배열(회귀 제로)
+        const [w, uw, s] = await Promise.all([
+          fetchWorlds(), fetchUgcTheaterWorlds(), fetchMyTheaterSessions()]);
         if (!alive) return;
-        setWorlds(w || []);
+        setWorlds([...(w || []), ...(uw || [])]);
         setSessions(s || []);
         // 아카이브 카운트 계산 (별도 API 호출 안 함 — 로컬 필터)
         const archCount = (s || []).filter(

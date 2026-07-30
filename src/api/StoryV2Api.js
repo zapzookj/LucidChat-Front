@@ -27,6 +27,16 @@ export async function fetchWorlds() {
   return res.data;
 }
 
+/**
+ * [에픽 A] 내가 스토리를 시작할 수 있는 UGC 월드 카드 목록.
+ * worldId는 "UGCW_{id}" 문자열 — create-context/rooms에 그대로 통용(opaque 취급).
+ * 백엔드 게이트(ugc.modes.story-enabled) off면 빈 배열 → 섹션 미노출.
+ */
+export async function fetchUgcStoryWorlds() {
+  const res = await api.get("/v2/story/ugc-worlds");
+  return res.data;
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  CreateFlow — World 진입
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

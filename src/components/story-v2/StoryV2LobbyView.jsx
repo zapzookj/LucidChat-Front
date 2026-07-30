@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, Sparkles, Users, Play } from "lucide-react";
-import { fetchWorlds } from "../../api/StoryV2Api";
+import { fetchWorlds, fetchUgcStoryWorlds } from "../../api/StoryV2Api";
 import { sfx } from "../../utils/sfx";
 
 /**
@@ -16,6 +16,8 @@ import { sfx } from "../../utils/sfx";
  */
 export default function StoryV2LobbyView({ onBack, onEnterCreate, onContinue }) {
   const [worlds, setWorlds] = useState([]);
+  // [에픽 A] 내 UGC 월드 — 게이트 off/실패 시 빈 배열이라 섹션 자체 미노출(회귀 제로)
+  const [ugcWorlds, setUgcWorlds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -28,6 +30,9 @@ export default function StoryV2LobbyView({ onBack, onEnterCreate, onContinue }) 
         setError("월드 목록을 불러올 수 없습니다.");
       })
       .finally(() => setLoading(false));
+    fetchUgcStoryWorlds()
+      .then((list) => setUgcWorlds(Array.isArray(list) ? list : []))
+      .catch(() => setUgcWorlds([]));
   }, []);
 
   return (
@@ -82,6 +87,27 @@ export default function StoryV2LobbyView({ onBack, onEnterCreate, onContinue }) 
               onContinue={onContinue}
             />
           ))}
+        </div>
+      )}
+
+      {/* [에픽 A] 내 세계관 (UGC) — 스토리 개방 게이트 on + 카드 존재 시에만 */}
+      {!loading && ugcWorlds.length > 0 && (
+        <div className="max-w-5xl mx-auto mt-10">
+          <h2 className="text-lg font-light text-stone-300 mb-4 flex items-center gap-2">
+            <Sparkles size={16} className="text-sky-300" />
+            내 세계관
+            <span className="text-xs text-stone-500 ml-1">My Worlds</span>
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {ugcWorlds.map((w) => (
+              <WorldCard
+                key={w.worldId}
+                world={w}
+                onEnterCreate={onEnterCreate}
+                onContinue={onContinue}
+              />
+            ))}
+          </div>
         </div>
       )}
     </motion.div>

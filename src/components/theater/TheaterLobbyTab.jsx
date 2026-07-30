@@ -5,7 +5,7 @@ import {
   Drama, Sparkles, ChevronRight, Clock, Heart, Crown,
   Play, Plus, Users, BookOpen
 } from "lucide-react";
-import { fetchWorlds, fetchMyTheaterSessions } from "../../api/TheaterLobbyApi";
+import { fetchWorlds, fetchUgcTheaterWorlds, fetchMyTheaterSessions } from "../../api/TheaterLobbyApi";
 import { assetUrl } from "../../utils/assetUrl";  // ⬅️ 경로 주의 (../../ )
 import { sfx } from "../../utils/sfx";
 
@@ -237,9 +237,11 @@ export default function TheaterLobbyTab({ onCreateFlow }) {
     (async () => {
       try {
         setLoading(true);
-        const [w, s] = await Promise.all([fetchWorlds(), fetchMyTheaterSessions()]);
+        // [에픽 A] 내 UGC 월드 병합 — 게이트 off면 빈 배열(회귀 제로)
+        const [w, uw, s] = await Promise.all([
+          fetchWorlds(), fetchUgcTheaterWorlds(), fetchMyTheaterSessions()]);
         if (!alive) return;
-        setWorlds(w || []);
+        setWorlds([...(w || []), ...(uw || [])]);
         setSessions(s || []);
       } catch (e) {
         if (!alive) return;
