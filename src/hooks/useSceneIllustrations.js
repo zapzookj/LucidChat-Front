@@ -136,24 +136,53 @@ export default function useSceneIllustrations(roomId) {
   // 백엔드: 5에너지 차감 → 씬 디렉터(전용 LLM) 스펙 작성 → 렌더 제출, 실패 시 자동 환불.
   const [requesting, setRequesting] = useState(false);
   const [requestError, setRequestError] = useState(null);
+  // [리뷰픽스] 동일 프레임 이중 클릭 가드 — 상태(requesting)는 배칭으로 늦어 ref로 즉시 차단
+  const requestingRef = useRef(false);
+  // [리뷰픽스] 연속 실패 시 이전 소거 타이머가 후속 에러를 조기 소거하던 문제 — 타이머 관리
+  const errorTimerRef = useRef(null);
+  // [리뷰픽스] 방 전환 가드 — 인플라이트 응답이 이전 방 씬을 새 방 상태에 오염시키지 않게
+  const roomIdRef = useRef(roomId);
+  roomIdRef.current = roomId;
+
+  // [리뷰픽스] 기능 가용성 — FAB 노출 게이트 + 표기 비용의 단일 소스(하드코딩 5 드리프트 제거).
+  // 기능 off(기본값)면 featureEnabled=false → 버튼 미노출(죽은 버튼 방지).
+  const [availability, setAvailability] = useState({ featureEnabled: false, energyCost: 5 });
+  useEffect(() => {
+    let alive = true;
+    api.get("/illustrations/scenes/availability")
+      .then((res) => {
+        if (!alive) return;
+        setAvailability({
+          featureEnabled: !!res.data?.enabled,
+          energyCost: Number.isFinite(res.data?.energyCost) ? res.data.energyCost : 5,
+        });
+      })
+      .catch(() => { /* 미배포/오류 — 비노출 유지 */ });
+    return () => { alive = false; };
+  }, []);
 
   const request = useCallback(async () => {
-    if (requesting) return { ok: false };
+    if (requestingRef.current) return { ok: false };
+    requestingRef.current = true;
+    const requestedRoomId = roomId;
     setRequesting(true);
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
     setRequestError(null);
     try {
-      const res = await api.post("/illustrations/scenes/request", { roomId: Number(roomId) });
+      const res = await api.post("/illustrations/scenes/request", { roomId: Number(requestedRoomId) });
+      if (roomIdRef.current !== requestedRoomId) return { ok: false }; // 방 전환됨 — 결과 폐기
       register(res.data); // upsert + 최신 복귀 + 폴링 시작
       return { ok: true };
     } catch (e) {
+      if (roomIdRef.current !== requestedRoomId) return { ok: false };
       const status = e?.response?.status;
       let msg = e?.response?.data?.message || "씬 일러 요청에 실패했어요.";
       if (status === 409) {
-        msg = "이미 씬 일러를 생성하고 있어요.";
+        msg = e?.response?.data?.message || "이미 씬 일러를 생성하고 있어요.";
         // 서버에 진행 중 렌더 존재(다른 탭/재입장 직후 등) — 목록 재동기화로 폴링 복구
         try {
-          const listRes = await api.get("/illustrations/scenes", { params: { roomId } });
-          if (Array.isArray(listRes.data)) {
+          const listRes = await api.get("/illustrations/scenes", { params: { roomId: requestedRoomId } });
+          if (roomIdRef.current === requestedRoomId && Array.isArray(listRes.data)) {
             listRes.data.forEach(upsert);
             const last = listRes.data[listRes.data.length - 1];
             if (last && !TERMINAL_STATUSES.has(last.status)) startPolling(last.id);
@@ -163,12 +192,18 @@ export default function useSceneIllustrations(roomId) {
         }
       }
       setRequestError(msg);
-      setTimeout(() => setRequestError(null), 4000);
+      errorTimerRef.current = setTimeout(() => setRequestError(null), 4000);
       return { ok: false, error: msg };
     } finally {
+      requestingRef.current = false;
       setRequesting(false);
     }
-  }, [roomId, requesting, register, upsert, startPolling]);
+  }, [roomId, register, upsert, startPolling]);
+
+  // 언마운트 시 에러 소거 타이머 정리
+  useEffect(() => () => {
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+  }, []);
 
   // ── 파생 상태 ──
   const displayable = useMemo(() => scenes.filter((s) => !!s.imageUrl), [scenes]);
@@ -231,5 +266,9 @@ export default function useSceneIllustrations(roomId) {
     request,
     requesting,
     requestError,
+    /** [리뷰픽스] 기능 가용성 — false면 FAB 미노출(백엔드 플래그 off/미배포) */
+    featureEnabled: availability.featureEnabled,
+    /** [리뷰픽스] 표기 비용 — 백엔드 illustration.scene.energy-cost의 단일 소스 */
+    energyCost: availability.energyCost,
   };
 }

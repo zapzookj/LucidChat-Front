@@ -11,11 +11,12 @@ import { Clapperboard, Loader2, Zap } from "lucide-react";
  * @param {object}   props.stage       useSceneIllustrations 훅 반환값
  * @param {boolean}  props.visible     페이지 상태(엔딩 연출 등)에 따른 노출 제어
  * @param {function} props.onRequested 요청 성공 콜백 — 페이지의 에너지 표시 차감용
- * @param {number}   props.energyCost  표기용 비용 (백엔드 illustration.scene.energy-cost와 동기)
  */
-export default function SceneRequestButton({ stage, visible = true, onRequested, energyCost = 5 }) {
-  if (!stage) return null;
-  const { request, requesting, requestError, generating } = stage;
+export default function SceneRequestButton({ stage, visible = true, onRequested }) {
+  // [리뷰픽스] 기능 off(백엔드 플래그 기본 false)면 미노출 — 죽은 버튼 방지.
+  // 비용 표기는 훅의 availability(서버 단일 소스) — 하드코딩 5 드리프트 제거.
+  if (!stage || !stage.featureEnabled) return null;
+  const { request, requesting, requestError, generating, energyCost } = stage;
   const busy = requesting || generating;
 
   const handleClick = async () => {
