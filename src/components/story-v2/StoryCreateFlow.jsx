@@ -364,7 +364,21 @@ function Step2HeroineSelect({ heroines, selected, onToggle }) {
                 <img src={h.profileImageUrl} alt={h.name} className="w-full h-32 object-cover" />
               )}
               <div className="p-3">
-                <div className="font-medium text-white">{h.name}</div>
+                <div className="font-medium text-white flex items-center gap-1.5">
+                  {h.name}
+                  {/* [2026-08-04 난이도] 공략 난이도 미니 표기 */}
+                  {h.difficulty && h.difficulty !== "NORMAL" && (
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                      h.difficulty === "EASY"
+                        ? "bg-emerald-400/15 text-emerald-200 border-emerald-400/25"
+                        : h.difficulty === "EXTREME"
+                          ? "bg-rose-400/15 text-rose-200 border-rose-400/25"
+                          : "bg-orange-400/15 text-orange-200 border-orange-400/25"
+                    }`}>
+                      {h.difficulty === "EASY" ? "★" : h.difficulty === "HARD" ? "★★★" : "★★★★"}
+                    </span>
+                  )}
+                </div>
                 {h.role && <div className="text-xs text-stone-400 mt-0.5">{h.role}</div>}
                 {h.tagline && (
                   <div className="text-xs text-stone-500 mt-1 line-clamp-2">{h.tagline}</div>

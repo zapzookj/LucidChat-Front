@@ -582,6 +582,8 @@ export default function StudioPage() {
       personality: character.personality || "",
       tone: character.tone || "",
       firstGreeting: character.firstGreeting || "",
+      // [2026-08-04 난이도] 무료 편집 필드 — 미보유 응답은 NORMAL 기본
+      difficulty: character.difficulty || "NORMAL",
     });
   };
 
@@ -1151,6 +1153,26 @@ export default function StudioPage() {
                 />
               </div>
             ))}
+            {/* [2026-08-04 난이도] 공략 난이도 — 스탯 상승 배율+성격 지시 이중 게이트 */}
+            <div>
+              <label className="text-[11px] text-white/50 mb-1 block">공략 난이도</label>
+              <div className="grid grid-cols-4 gap-1.5">
+                {[["EASY", "쉬움 ★"], ["NORMAL", "보통 ★★"], ["HARD", "어려움 ★★★"], ["EXTREME", "극악 ★★★★"]].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setEditForm((p) => ({ ...p, difficulty: value }))}
+                    className={`py-2 rounded-lg text-[11px] font-medium border transition ${
+                      editForm.difficulty === value
+                        ? "bg-amber-500/15 border-amber-400/50 text-amber-200"
+                        : "bg-white/[0.04] border-white/10 text-white/45 hover:bg-white/[0.06]"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             {[
               { key: "personality", label: "성격", rows: 3 },
               { key: "tone", label: "말투", rows: 3 },

@@ -242,6 +242,8 @@ const EMPTY_APPEARANCE = APPEARANCE_FIELDS.reduce((acc, f) => ({ ...acc, [f.key]
 const ConceptStep = ({ busy, error, energy, onSubmit }) => {
   const navigate = useNavigate();
   const [name, setName] = useState("");
+  // [2026-08-04 남캐] 성별 명시 선택 — 파이프라인 분기(앵커 태그·Male LoRA·연출 가이드)의 단일 기준
+  const [gender, setGender] = useState("FEMALE");
   const [concept, setConcept] = useState("");
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [appearance, setAppearance] = useState(EMPTY_APPEARANCE);
@@ -297,6 +299,27 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
           maxLength={20}
           className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/30 focus:border-amber-400/60 outline-none"
         />
+      </div>
+
+      {/* [2026-08-04 남캐] 성별 — 명시 선택(파이프라인 분기 기준) */}
+      <div className="mb-5">
+        <label className="text-xs text-white/60 mb-1.5 block">성별</label>
+        <div className="grid grid-cols-2 gap-2">
+          {[["FEMALE", "여성"], ["MALE", "남성"]].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => { sfx.click(0.2); setGender(value); }}
+              className={`py-2.5 rounded-xl text-sm font-medium border transition ${
+                gender === value
+                  ? "bg-amber-500/15 border-amber-400/50 text-amber-200"
+                  : "bg-white/[0.04] border-white/10 text-white/50 hover:bg-white/[0.06]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* 컨셉 */}
@@ -533,6 +556,7 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
           sfx.click();
           onSubmit({
             name,
+            gender,   // [남캐] FEMALE/MALE
             concept: concept.trim(),
             appearance: buildAppearance(),
             // [World Builder] 세계관 연결 — 동시 지정은 UI에서 원천 차단 (단일 선택)
@@ -1879,13 +1903,13 @@ export default function StudioCreateFlow({
   );
 
   // ─── STEP 1: 소환 시작 ───
-  const handleConceptSubmit = async ({ name, concept, appearance, officialWorldId, ugcWorldId }) => {
+  const handleConceptSubmit = async ({ name, gender, concept, appearance, officialWorldId, ugcWorldId }) => {
     if (busyRef.current) return; // [폴리싱 #8] 연타 재진입 방어
     busyRef.current = true;
     setActionBusy(true);
     setActionError(null);
     try {
-      const res = await createUgcCharacter({ name, concept, appearance, officialWorldId, ugcWorldId });
+      const res = await createUgcCharacter({ name, gender, concept, appearance, officialWorldId, ugcWorldId });
       sfx.sparkle();
       setJobId(res.jobId);
       onEnergyRefresh?.();

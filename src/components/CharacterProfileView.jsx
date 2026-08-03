@@ -38,6 +38,22 @@ import { sfx } from "../utils/sfx";
  */
 
 const SERIF_STACK = "Georgia,'Nanum Myeongjo',serif";
+
+// [2026-08-04 난이도] 공략 난이도 ★칩 — 무드 칩 클러스터에 동반 노출 (필드 없으면 미노출)
+const DIFFICULTY_META = {
+  EASY:    { label: "공략 ★☆☆☆", cls: "bg-emerald-400/15 text-emerald-200 border-emerald-400/25" },
+  NORMAL:  { label: "공략 ★★☆☆", cls: "bg-sky-400/15 text-sky-200 border-sky-400/25" },
+  HARD:    { label: "공략 ★★★☆", cls: "bg-orange-400/15 text-orange-200 border-orange-400/25" },
+  EXTREME: { label: "공략 ★★★★", cls: "bg-rose-400/15 text-rose-200 border-rose-400/25" },
+};
+
+const DifficultyChip = ({ difficulty, size = "text-[9px] px-2 py-0.5" }) => {
+  const meta = DIFFICULTY_META[difficulty];
+  if (!meta) return null;
+  return (
+    <span className={`${size} font-bold rounded-full border ${meta.cls}`}>{meta.label}</span>
+  );
+};
 const MONO_STACK = "'JetBrains Mono','SFMono-Regular',Consolas,monospace";
 
 /** nullable 신상 값 — null이면 "기록 없음" 회색 처리 */
@@ -317,6 +333,7 @@ export default function CharacterProfileView({
                               {tag}
                             </span>
                           ))}
+                          <DifficultyChip difficulty={profile.difficulty} />
                           {profile.worldName && (
                             <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-violet-400/15 text-violet-200 border border-violet-400/25">
                               🌙 {profile.worldName}
@@ -560,6 +577,7 @@ export default function CharacterProfileView({
                             {tag}
                           </span>
                         ))}
+                        <DifficultyChip difficulty={profile.difficulty} />
                         {profile.worldName && (
                           <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-violet-400/15 text-violet-200 border border-violet-400/25">
                             🌙 {profile.worldName}
@@ -776,6 +794,7 @@ export default function CharacterProfileView({
                       {tag}
                     </span>
                   ))}
+                  <DifficultyChip difficulty={profile.difficulty} size="text-[10px] px-2.5 py-1" />
                   {profile.worldName && (
                     <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-violet-400/15 text-violet-200 border border-violet-400/30 backdrop-blur-sm">
                       🌙 {profile.worldName}
@@ -981,6 +1000,8 @@ export default function CharacterProfileView({
                       value={profile.age != null ? `${profile.age}세` : null}
                     />
                     <DossierRow label="역할" value={profile.role} />
+                    <DossierRow label="공략 난이도"
+                      value={DIFFICULTY_META[profile.difficulty]?.label?.replace("공략 ", "") || null} />
                     <DossierRow label="키" value={profile.height} />
                     <DossierRow label="좋아하는 것" value={profile.likes} />
                     <DossierRow label="싫어하는 것" value={profile.dislikes} />

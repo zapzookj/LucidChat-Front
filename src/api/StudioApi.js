@@ -49,7 +49,7 @@ import api from "./axios";
  *   400: 이미 진행 중인 잡 / 잔액 부족 / 모더레이션 차단 — message를 그대로 노출
  */
 export async function createUgcCharacter({
-  name, concept, appearance = null, officialWorldId = null, ugcWorldId = null,
+  name, concept, appearance = null, officialWorldId = null, ugcWorldId = null, gender = null,
 }) {
   const res = await api.post("/ugc/characters", {
     name: name?.trim() ? name.trim() : null,
@@ -57,6 +57,8 @@ export async function createUgcCharacter({
     ...(appearance ? { appearance } : {}),
     ...(officialWorldId ? { officialWorldId } : {}),
     ...(ugcWorldId ? { ugcWorldId } : {}),
+    // [2026-08-04 남캐] FEMALE(기본)/MALE — MALE은 백엔드 게이트(male-builder-enabled) 필요
+    ...(gender ? { gender } : {}),
   });
   return res.data;
 }
