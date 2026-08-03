@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ArrowLeft, ArrowRight, Check, Sparkles, Users, User as UserIcon } from "lucide-react";
 import { sfx } from "../../utils/sfx";
+// [2026-08-04 페르소나] 카드 선택/관리 오버레이
+import PersonaManager from "../persona/PersonaManager";
 import {
   fetchCreateContext,
   createStoryV2Room,
@@ -38,9 +40,12 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
   const [selectedHeroineIds, setSelectedHeroineIds] = useState(hasPreset ? presetHeroineIds : []);
 
   // step 3: 페르소나
-  const [personaMode, setPersonaMode] = useState("preset"); // "preset" | "free"
+  const [personaMode, setPersonaMode] = useState("preset"); // "preset" | "free" | "card"
   const [selectedPresetKey, setSelectedPresetKey] = useState(null);
   const [freePersonaText, setFreePersonaText] = useState("");
+  // [2026-08-04 페르소나] 카드 선택 — 본문·스탯·성별이 방에 스냅샷된다
+  const [selectedCard, setSelectedCard] = useState(null);
+  const [cardPickerOpen, setCardPickerOpen] = useState(false);
   // [Phase 7-V2 Pivot] 닉네임 — 페르소나 단계에서 함께 확정
   const [nickname, setNickname] = useState("");
 
@@ -76,8 +81,9 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
     // [Phase 7-V2 Pivot] 닉네임 필수
     if (!nickname.trim()) return false;
     if (personaMode === "preset") return !!selectedPresetKey;
+    if (personaMode === "card") return !!selectedCard;   // [페르소나] 카드 선택 필수
     return freePersonaText.trim().length > 0;
-  }, [personaMode, selectedPresetKey, freePersonaText, nickname]);
+  }, [personaMode, selectedPresetKey, freePersonaText, nickname, selectedCard]);
 
   const goNext = () => {
     if (step === 1) {
@@ -129,6 +135,8 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
       nickname: nickname.trim(),   // [Phase 7-V2 Pivot] 닉네임 전달
       personaText: personaMode === "free" ? freePersonaText.trim() : null,
       selectedPersonaPresetKey: personaMode === "preset" ? selectedPresetKey : null,
+      // [2026-08-04 페르소나] 카드 모드 — 서버가 본문·스탯·성별 스냅샷(personaText보다 우선)
+      userPersonaId: personaMode === "card" ? selectedCard?.personaId : null,
       overwriteExisting,
     };
     try {
@@ -249,6 +257,8 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
                   setSelectedPresetKey={setSelectedPresetKey}
                   freePersonaText={freePersonaText}
                   setFreePersonaText={setFreePersonaText}
+                  selectedCard={selectedCard}
+                  setCardPickerOpen={setCardPickerOpen}
                   nickname={nickname}
                   setNickname={setNickname}
                 />
@@ -290,6 +300,13 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
             onCancel={() => setConflictPayload(null)}
           />
         )}
+
+        {/* [2026-08-04 페르소나] 카드 선택/관리 — onSelect로 카드 확정 */}
+        <PersonaManager
+          open={cardPickerOpen}
+          onClose={() => setCardPickerOpen(false)}
+          onSelect={(card) => { setSelectedCard(card); setCardPickerOpen(false); }}
+        />
       </motion.div>
     </AnimatePresence>
   );
@@ -412,6 +429,9 @@ function Step3Persona({
   setFreePersonaText,
   nickname,
   setNickname,
+  // [2026-08-04 페르소나] 카드 모드
+  selectedCard,
+  setCardPickerOpen,
 }) {
   return (
     <motion.div
@@ -473,8 +493,41 @@ function Step3Persona({
           >
             자유 입력 {!hasFreeUnlock && "🔒"}
           </button>
+          {/* [2026-08-04 페르소나] 내 카드 — 본문·스탯·성별 일괄 스냅샷 */}
+          <button
+            onClick={() => { setPersonaMode("card"); if (!selectedCard) setCardPickerOpen(true); }}
+            className={`flex-1 py-2 rounded text-sm font-medium transition ${
+              personaMode === "card"
+                ? "bg-sky-500 text-black"
+                : "bg-stone-800 text-stone-400 hover:bg-stone-700"
+            }`}
+          >
+            내 카드
+          </button>
         </div>
       </div>
+
+      {personaMode === "card" && (
+        <div className="space-y-2">
+          {selectedCard ? (
+            <div className="p-3 rounded border-2 border-sky-400 bg-stone-800">
+              <div className="font-medium text-white text-sm">{selectedCard.name}</div>
+              <p className="text-xs text-stone-400 mt-1 line-clamp-2">{selectedCard.personaText}</p>
+              <div className="text-[10px] text-sky-300/70 mt-1.5">
+                스탯 {selectedCard.charm + selectedCard.wit + selectedCard.boldness + selectedCard.intellect + selectedCard.empathy}p — 본문·스탯·성별이 함께 적용됩니다
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-stone-500">카드를 선택해 주세요.</p>
+          )}
+          <button
+            onClick={() => setCardPickerOpen(true)}
+            className="w-full py-2 rounded text-xs font-medium bg-stone-800 text-stone-300 hover:bg-stone-700 transition"
+          >
+            {selectedCard ? "다른 카드 선택 / 관리" : "카드 선택하기"}
+          </button>
+        </div>
+      )}
 
       {personaMode === "preset" && (
         <div className="space-y-2">

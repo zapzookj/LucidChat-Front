@@ -24,6 +24,8 @@ import LobbyNewEncounterFlow from "../components/lobby/LobbyNewEncounterFlow";
 import CreateHookCard from "../components/studio/CreateHookCard";
 // [Profile v1] 캐릭터 카드 클릭 → 프로필 → 대화 진입
 import CharacterProfileView from "../components/CharacterProfileView";
+// [2026-08-04 페르소나] 카드 갤러리/빌더 오버레이
+import PersonaManager from "../components/persona/PersonaManager";
 import { assetUrl } from "../utils/assetUrl";
 import { playSfx } from "../utils/sfx";
 
@@ -587,6 +589,8 @@ const LobbyPage = () => {
   // [Profile v1] 프로필 뷰 대상 캐릭터 id — 카드 클릭 → 프로필 → (CTA) 모드 선택 → 대화
   const [profileCharId, setProfileCharId] = useState(null);
   const [showAchievements, setShowAchievements] = useState(false);
+  // [2026-08-04 페르소나] 카드 갤러리/빌더
+  const [showPersonaManager, setShowPersonaManager] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -961,6 +965,8 @@ const LobbyPage = () => {
                 // [Studio v1] UGC 캐릭터 생성 스튜디오 진입
                 { label: "스튜디오", sub: "Studio", action: handleEnterStudio },
                 { label: "기억의 끈", sub: "Continue", action: () => { fetchRoomsAll(); setView("continue"); }, disabled: mergedRooms.length === 0 },
+                // [2026-08-04 페르소나] 카드 갤러리/빌더 — '나'를 튜닝하는 입구
+                { label: "페르소나", sub: "Persona", action: () => setShowPersonaManager(true) },
                 { label: "수집품", sub: "Archives", action: () => setShowAchievements(true) },
               ].map((item, i) => (
                 <motion.button
@@ -1136,6 +1142,9 @@ const LobbyPage = () => {
       </AnimatePresence>
 
       <AnimatePresence>{showAchievements && <AchievementGallery onClose={() => setShowAchievements(false)} />}</AnimatePresence>
+
+      {/* [2026-08-04 페르소나] 카드 갤러리/빌더 — 관리 모드(onSelect 없음) */}
+      <PersonaManager open={showPersonaManager} onClose={() => setShowPersonaManager(false)} />
 
       {/* [Phase I] 캐릭터 카드 → Theater 모드 선택 시 진입하는 CreateFlow */}
       <AnimatePresence>
