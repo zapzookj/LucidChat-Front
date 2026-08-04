@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { Fragment, useEffect, useState, useRef, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import CharacterDisplay from "../components/CharacterDisplay";
@@ -56,6 +56,11 @@ import useSceneIllustrations from "../hooks/useSceneIllustrations";
 import SceneIllustrationStage from "../components/SceneIllustrationStage";
 // [2026-07-31 에픽 B] 씬 일러 수동 요청 FAB — 유저 트리거 전용(5에너지, 실패 자동 환불)
 import SceneRequestButton from "../components/SceneRequestButton";
+// [Scene-Polish A] 인트로 나레이션 마지막 문장 재사용 + 주격 조사 유틸 (V1/V2 공유)
+import { extractLastSentence, subjectJosa } from "../utils/dialogueSanitizer";
+// [Scene-Polish C] 히스토리 클릭 → 씬 점프 (마커 행 + ordinal 매핑, V1/V2 공유)
+import SceneHistoryMarker from "../components/SceneHistoryMarker";
+import { buildSceneHistoryIndex } from "../utils/sceneHistoryMap";
 
 const ChatPage = () => {
   const { user, logout, refreshUser } = useAuth();
@@ -673,6 +678,8 @@ const ChatPage = () => {
             thoughtUnlocked: log.thoughtUnlocked || false,
             innerThought: log.innerThought || null,
             emotionTag: scene.emotion || log.emotionTag,
+            // [Scene-Polish C] 방 내 절대 서수 — 히스토리 씬 마커 매핑 키 (씬별 분리돼도 원본 로그 서수 공유)
+            ordinal: log.ordinal ?? null,
           };
         });
       } catch (e) {
@@ -1040,26 +1047,16 @@ const ChatPage = () => {
           }
           
           // (2) 첫인사 씬 — [Phase 5] roomData에서 직접 캐릭터 이름 참조 (stale closure 방지)
+          // [Scene-Polish A] 하드코딩 narrationMap 삭제 — 서버가 이미 생성해 로그로 도착한
+          //   SYSTEM 인트로 나레이션의 *마지막 문장*을 첫인사 씬 나레이션으로 재사용.
+          //   SYSTEM 로그가 없는 레거시 UGC 방만 제네릭 폴백(받침 조사 처리).
           const greetingLog = newLogs.find(l => l.role === 'ASSISTANT');
           if (greetingLog) {
               const charName = roomData?.characterName || "캐릭터";
-              const narrationMap = {
-                  "연화": "연화가 흥미롭다는 눈빛으로 당신을 바라봅니다.",
-                  "아이리": "아이리가 숙여 인사하며 부드럽게 미소짓는다.",
-                  "백루나": "루나가 머뭇거리며 말합니다.",
-                  "서태리": "태리가 겁에 질린 채 사내를 바라본다.",
-                  "로제타": "로제타가 먹잇감을 발견한 눈빛으로 당신을 쳐다봅니다.",
-                  "에델": "에델이 무심한 얼굴로 말을 건넵니다.",
-                  "시에라": "시에라가 졸린 듯한 표정으로 미소를 지으며 말을 건넵니다.",
-                  "강채린": "채린이 반가운 듯 밝게 웃으며 다가와 말을 건넵니다.",
-                  "류설아": "당당한 표정으로 당신을 바라보며 말을 건넵니다."
-              };
-              // [Studio v1] UGC 등 맵에 없는 이름의 조사 처리 (받침 유무 → 이/가)
-              const lastCode = charName.charCodeAt(charName.length - 1);
-              const josa = lastCode >= 0xac00 && lastCode <= 0xd7a3 && (lastCode - 0xac00) % 28 !== 0 ? "이" : "가";
+              const introTail = narrationLog ? extractLastSentence(narrationLog.cleanContent) : "";
               queue.push({
                   dialogue: greetingLog.cleanContent,
-                  narration: narrationMap[charName] || `${charName}${josa} 고개를 숙여 인사하며 부드럽게 미소짓는다.`,
+                  narration: introTail || `${charName}${subjectJosa(charName)} 고개를 숙여 인사하며 부드럽게 미소짓는다.`,
                   emotion: greetingLog.emotionTag,
                   isEvent: false,
                   sceneType: "NORMAL"
@@ -1097,6 +1094,11 @@ const ChatPage = () => {
     if (currentScene.emotion && !isNpcScene) {
       setDisplayedEmotion(currentScene.emotion);
     }
+    // [Scene-Polish B] 씬 일러 자동 복귀 신호 — 캐릭터 감정이 실제로 바뀌면 훅이 autoDismiss 판단.
+    //   인트로 나레이션/이벤트 씬은 연출용 NEUTRAL이 섞여 오탐이 잦으므로 신호에서 제외.
+    if (currentScene.emotion && !isNpcScene && !currentScene.isEvent && !currentScene.isIntroNarration) {
+      sceneStage.notifyEmotion(roomInfo?.characterName || null, currentScene.emotion);
+    }
     // [Phase 5.5-NPC] 화자 추적
     if (currentScene?.speaker) {
       setCurrentSpeaker(currentScene.speaker);
@@ -1122,6 +1124,8 @@ const ChatPage = () => {
         // [Phase 5.5-Illust] enum 기반 장소가 실제로 변경되면 AI 생성 배경 오버라이드 해제
         if (currentScene.location !== currentLocation) {
           setDynamicBackgroundUrl(null);
+          // [Scene-Polish B] 장소 전환 — 씬 일러 자동 복귀 (스탠딩 무대로)
+          sceneStage.notifyLocationChange();
         }
         setCurrentLocation(currentScene.location);
       } else {
@@ -1138,6 +1142,8 @@ const ChatPage = () => {
       }
     }
     if (currentScene.bgmMode) setCurrentBgmMode(currentScene.bgmMode);
+    // sceneStage.notifyEmotion / notifyLocationChange는 안정 콜백(deps []) — 의존성 제외 안전
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentScene, eventActive, roomInfo?.characterName]);
 
   // 스크롤 처리
@@ -1462,6 +1468,8 @@ const ChatPage = () => {
         // ── [Phase 5.5-Illust / Phase 6 hotfix] 장소 전환 처리 ──
         if (data.locationTransition && data.locationTransition.isNewLocation) {
           const lt = data.locationTransition;
+          // [Scene-Polish B] 동적 장소 전환 — 씬 일러 자동 복귀 (배경이 주인공이 되는 순간)
+          sceneStage.notifyLocationChange();
           if (lt.backgroundUrl) {
             // 캐시 히트: 배경만 즉시 교체, 전환 오버레이는 띄우지 않음.
             //   (canonical_key가 같아 의미상 같은 장소인 경우 백엔드가 이미
@@ -3351,28 +3359,43 @@ const ChatPage = () => {
                   if (lastUserIdx >= 0 && lastAssistantIdx >= 0) break;
                 }
 
+                // [Scene-Polish C] 씬 썸네일 마커 — 로그 ordinal ↔ 씬 turnIndex 매핑 (V1/V2 공유 유틸)
+                const { markersByMessageIndex, ordinalByMessageIndex } = buildSceneHistoryIndex(messages, sceneStage.historyScenes);
+                const canJumpToScene = sceneStage.historyScenes.length > 0;
+                const jumpToScene = (ordinal) => {
+                  sfx.click();
+                  sceneStage.goToTurn(ordinal ?? Number.POSITIVE_INFINITY);
+                  setShowHistory(false);
+                };
+
                 return messages.map((msg, idx) => {
+                // 이 메시지 직후에 꽂을 씬 마커 + 행 클릭 점프용 유효 서수 (씬이 없으면 전부 비활성)
+                const markerNodes = (markersByMessageIndex.get(idx) || []).map((sc) => (
+                  <SceneHistoryMarker key={`scene-${sc.id}`} scene={sc} onJump={() => jumpToScene(sc.turnIndex)} />
+                ));
+                const jumpOrdinal = ordinalByMessageIndex[idx];
+                let row = null;
                 if (msg.role === 'SYSTEM') {
-                    return (
-                        <div key={`h-${idx}`} className="flex justify-center my-6">
+                    row = (
+                        <div className="flex justify-center my-6">
                             <div className="bg-gradient-to-r from-indigo-900/40 to-purple-900/40 border border-indigo-500/20 text-indigo-200 text-xs px-5 py-2.5 rounded-full backdrop-blur-sm shadow-lg flex items-center gap-2 max-w-[90%] text-center leading-relaxed">
                                 <Sparkles size={14} className="text-yellow-300 shrink-0" />
                                 <span>{msg.cleanContent}</span>
                             </div>
                         </div>
                     );
-                }
-
-                if (msg.role === 'NPC') {
-                    return (
-                        <div key={`h-${idx}`} className="group flex flex-col items-start">
+                } else if (msg.role === 'NPC') {
+                    row = (
+                        <div className="group flex flex-col items-start">
                             <span className="text-xs mb-1 px-2 text-red-400/70 flex items-center gap-1">
                                 <span>👤</span> {msg.speaker || "???"}
                             </span>
-                            <div className="px-5 py-3 rounded-2xl max-w-[85%] text-sm leading-relaxed shadow-sm
+                            <div className={`px-5 py-3 rounded-2xl max-w-[85%] text-sm leading-relaxed shadow-sm
                                             bg-gradient-to-br from-red-950/40 to-rose-950/30 text-red-100/80
-                                            rounded-tl-sm border border-red-500/10"
+                                            rounded-tl-sm border border-red-500/10 ${canJumpToScene ? 'cursor-pointer hover:brightness-125 transition' : ''}`}
                                  style={{ fontStyle: msg.cleanContent?.startsWith('*') ? 'italic' : 'normal' }}
+                                 onClick={canJumpToScene ? () => jumpToScene(jumpOrdinal) : undefined}
+                                 title={canJumpToScene ? "이 시점의 씬 일러 보러 가기" : undefined}
                             >
                                 {/* 나레이션(*로 감싸진)과 대사 분리 렌더링 */}
                                 {msg.cleanContent?.split('\n').map((line, li) => (
@@ -3383,7 +3406,7 @@ const ChatPage = () => {
                             </div>
                         </div>
                     );
-                }
+                } else {
 
                 const isMe = msg.role === 'USER';
                 const isLastOfRole = (isMe && idx === lastUserIdx) || (!isMe && idx === lastAssistantIdx);
@@ -3392,12 +3415,15 @@ const ChatPage = () => {
                 // ★ Fix-UI-4: speaker가 있으면 그 이름 표시
                 const displayName = isMe ? '나' : (msg.speaker || roomInfo?.characterName || "캐릭터");
 
-                return (
-                  <div key={`h-${msg.logId || idx}`} className={`group flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                row = (
+                  <div className={`group flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                     <span className={`text-xs mb-1 px-2 ${isMe ? 'text-pink-400' : 'text-indigo-400'}`}>{displayName}</span>
-                    <div className={`px-5 py-3 rounded-2xl max-w-[85%] text-sm leading-relaxed shadow-sm ${
+                    <div
+                      onClick={canJumpToScene ? () => jumpToScene(msg.ordinal ?? jumpOrdinal) : undefined}
+                      title={canJumpToScene ? "이 시점의 씬 일러 보러 가기" : undefined}
+                      className={`px-5 py-3 rounded-2xl max-w-[85%] text-sm leading-relaxed shadow-sm ${
                     isMe ? 'bg-pink-600 text-white rounded-tr-sm' : 'bg-[#2a2a35] text-gray-100 rounded-tl-sm border border-white/5'
-                    }`}>
+                    } ${canJumpToScene ? 'cursor-pointer hover:brightness-110 transition' : ''}`}>
                         {/* [Feature #1] 나레이션/대사 분리 렌더링 — *...* 패턴 파싱 */}
                         {msg.cleanContent?.split('\n').map((line, li) => {
                           // 라인 전체가 *...*로 감싸진 경우 → 순수 나레이션 (기존 동작 유지)
@@ -3529,6 +3555,15 @@ const ChatPage = () => {
                       </div>
                     )}
                   </div>
+                );
+                }
+
+                // [Scene-Polish C] 메시지 행 + 직후 씬 썸네일 마커
+                return (
+                  <Fragment key={`h-${msg.logId || idx}`}>
+                    {row}
+                    {markerNodes}
+                  </Fragment>
                 );
               });
               })()}

@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronLeft, ChevronRight, Loader2, ImageOff } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, ImageOff, EyeOff, Images } from "lucide-react";
 
 /**
  * [docs/09 A-2 + A-3] 씬 일러 상주 무대 — V1 ChatPage + V2 ChatPageV2 공용(에픽 B).
@@ -8,7 +8,9 @@ import { ChevronLeft, ChevronRight, Loader2, ImageOff } from "lucide-react";
  *   - 씬 트랙이 전혀 없는 방(hasAnyScene=false) → null. 기존 스탠딩 무대 그대로.
  *   - 완료 일러가 아직 없고 첫 씬 생성 중(active=false, generating=true)
  *     → 스탠딩 무대 유지 + 은은한 생성중 칩만 (pointer-events-none, 무대 클릭 불가침)
- *   - 완료 일러 존재(active=true) → 랜드스케이프 일러가 무대를 채움 (DialogueBox z-20 뒤)
+ *   - 완료 일러 존재(active=true) + visible=true → 랜드스케이프 일러가 무대를 채움 (DialogueBox z-20 뒤)
+ *   - [Scene-Polish B] visible=false(자동 복귀/수동 숨김) → 스탠딩 무대 + 우상단 '씬 보기' 칩만.
+ *     5에너지 과금 일러가 '사라진 게 아니라 보관 중'임이 체감되도록 칩에 보관 수를 명시.
  *
  * 배치 계약: ChatPage의 스탠딩 무대 래퍼(z-0) 내부, CharacterDisplay 뒤 ·
  *   InnerThoughtBubble 앞에 렌더 — 스탠딩만 덮고 속마음 버블/HUD/DialogueBox는 그대로 동작.
@@ -23,26 +25,61 @@ export default function SceneIllustrationStage({ stage, portrait = false }) {
     active, imageUrl, index, total,
     canPrev, canNext, goPrev, goNext, goLatest,
     isViewingPast, generating, failed,
+    visible = true, show, hide, dismissReason,
   } = stage;
 
-  // ── 생성중/실패 칩 (홀드 일러 위 또는 첫 생성 중 스탠딩 무대 위) ──
+  // ── 생성중/실패 칩 (우상단 스택에 들어감 — 홀드 일러 위/첫 생성 중/숨김 중 공용) ──
   const statusChip = generating ? (
-    <div className="absolute top-[4.5rem] right-4 sm:right-6 z-10 flex items-center gap-2 rounded-full bg-black/55 backdrop-blur-md border border-white/10 px-3 py-1.5 text-[11px] text-amber-200/90 shadow-lg">
+    <div className="flex items-center gap-2 rounded-full bg-black/55 backdrop-blur-md border border-white/10 px-3 py-1.5 text-[11px] text-amber-200/90 shadow-lg">
       <Loader2 size={12} className="animate-spin" />
       <span className="animate-pulse">씬 일러 생성 중…</span>
     </div>
   ) : failed ? (
-    <div className="absolute top-[4.5rem] right-4 sm:right-6 z-10 flex items-center gap-1.5 rounded-full bg-black/55 backdrop-blur-md border border-white/10 px-3 py-1.5 text-[11px] text-rose-300/90 shadow-lg">
+    <div className="flex items-center gap-1.5 rounded-full bg-black/55 backdrop-blur-md border border-white/10 px-3 py-1.5 text-[11px] text-rose-300/90 shadow-lg">
       <ImageOff size={12} />
       <span>일러 생성 실패</span>
     </div>
   ) : null;
 
+  // 우상단 오버레이 스택 위치 — 기존 생성중 칩 자리(top-[4.5rem])를 그대로 계승
+  const topRightStack = "absolute top-[4.5rem] right-4 sm:right-6 z-10 flex flex-col items-end gap-2";
+
   // 완료 일러가 아직 하나도 없음 — 스탠딩 무대 유지, 칩만 얹는다 (클릭 불가침)
   if (!active) {
     return statusChip ? (
-      <div className="absolute inset-0 pointer-events-none">{statusChip}</div>
+      <div className="absolute inset-0 pointer-events-none">
+        <div className={topRightStack}>{statusChip}</div>
+      </div>
     ) : null;
+  }
+
+  // ── [Scene-Polish B] 숨김 상태 — 스탠딩 무대로 복귀, '씬 보기' 칩만 가장자리에 ──
+  if (!visible) {
+    const autoDismissed = dismissReason === "EMOTION" || dismissReason === "LOCATION";
+    return (
+      <div className="absolute inset-0 pointer-events-none">
+        <div className={topRightStack}>
+          <motion.button
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.3, ease: "easeOut" }}
+            onClick={show}
+            aria-label="보관된 씬 일러 다시 보기"
+            title="씬 일러는 사라지지 않아요 — 눌러서 무대로 불러오기"
+            className="pointer-events-auto flex items-center gap-1.5 rounded-full bg-black/55 backdrop-blur-md
+                       border border-sky-400/25 px-3 py-1.5 text-[11px] text-sky-200/90 shadow-lg
+                       hover:bg-black/75 hover:border-sky-400/50 hover:text-sky-100 active:scale-95 transition"
+          >
+            <Images size={12} />
+            <span>{autoDismissed ? "장면 전환 — 씬 보기" : "씬 보기"}</span>
+            <span className="rounded-full bg-sky-500/20 px-1.5 py-0.5 text-[10px] tabular-nums text-sky-200">
+              {total}장 보관
+            </span>
+          </motion.button>
+          {statusChip}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -91,6 +128,22 @@ export default function SceneIllustrationStage({ stage, portrait = false }) {
         </AnimatePresence>
       </div>
 
+      {/* ── [Scene-Polish B] 우상단: 숨기기 토글(눈) + 생성중/실패 칩 스택 ── */}
+      <div className={topRightStack}>
+        <button
+          onClick={hide}
+          aria-label="씬 일러 숨기기"
+          title="스탠딩 무대로 돌아가기 — 씬은 보관되고 '씬 보기'로 언제든 복귀"
+          className="flex items-center gap-1.5 rounded-full bg-black/55 backdrop-blur-md border border-white/10
+                     px-3 py-1.5 text-[11px] text-white/75 shadow-lg
+                     hover:bg-black/75 hover:text-white active:scale-95 transition"
+        >
+          <EyeOff size={12} />
+          <span>숨기기</span>
+        </button>
+        {statusChip}
+      </div>
+
       {/* ── [A-2] 전/후 씬 셰브론 (완료본 2장 이상일 때) ── */}
       {total > 1 && (
         <>
@@ -116,9 +169,6 @@ export default function SceneIllustrationStage({ stage, portrait = false }) {
           </button>
         </>
       )}
-
-      {/* 생성중/실패 칩 — 직전 완료 일러 홀드 위에 은은하게 */}
-      {statusChip}
     </div>
   );
 }

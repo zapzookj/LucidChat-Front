@@ -15,6 +15,9 @@ import api from "../api/axios";
  *      — COMPLETED/FAILED/SKIPPED 도달 시 중단, 최대 15분 안전 상한(콜드스타트 12분 + 여유)
  *   4. 홀드체인: 현재 턴 완료본 → 직전 완료본 → (하나도 없으면) active=false → 기존 스탠딩 무대
  *   5. 씬 네비게이션: 완료본(imageUrl 보유) 기준 앞/뒤 이동 + "n / total" 인디케이터
+ *   6. [Scene-Polish B] 수명주기: visible + show/hide/toggle + autoDismiss(감정 변화·장소 전환)
+ *      — 완료 씬 영구 상주 폐지. 숨김은 '보관'이며 새 완료 씬 등록/수동 요청/토글로 복귀.
+ *   7. [Scene-Polish C] goToTurn(ordinal) — 히스토리 클릭 → 로그 서수와 가장 가까운 씬으로 점프.
  *
  * @param {string} roomId
  */
@@ -22,13 +25,38 @@ const POLL_INTERVAL = 2000;
 const MAX_POLL_TICKS = 450; // 2초 × 450 = 15분 안전 상한
 const TERMINAL_STATUSES = new Set(["COMPLETED", "FAILED", "SKIPPED"]);
 
+// [Scene-Polish B · 종원 확정] 미세 감정 전이 무시쌍 — *상호* 전이는 자동 복귀를 트리거하지 않는다.
+// 튜닝 포인트: 오탐(사소한 표정 변화로 씬이 접힘)이 보고되면 여기에 쌍을 추가.
+export const MINOR_EMOTION_TRANSITIONS = [
+  ["NEUTRAL", "RELAX"],
+];
+function isMinorEmotionShift(from, to) {
+  return MINOR_EMOTION_TRANSITIONS.some(
+    ([a, b]) => (from === a && to === b) || (from === b && to === a)
+  );
+}
+
 export default function useSceneIllustrations(roomId) {
   // { id, turnIndex, status, imageUrl } — 항상 id 오름차순 유지
   const [scenes, setScenes] = useState([]);
   // null = 최신 추적 모드, number = displayable 배열 기준 열람 인덱스
   const [viewIndex, setViewIndex] = useState(null);
+  // [Scene-Polish B] 씬 일러 표시 여부 — false여도 씬은 '보관'(scenes 유지), 스탠딩 무대로 복귀
+  const [visible, setVisible] = useState(true);
+  // 마지막 숨김 사유: "MANUAL" | "EMOTION" | "LOCATION" | null — 칩 마이크로카피용
+  const [dismissReason, setDismissReason] = useState(null);
   // { timer, sceneId, ticks, tick } — 단일 폴링 타깃(가장 최근 비종결 씬)
   const pollRef = useRef(null);
+
+  // ── [Scene-Polish B] 감정 추적 refs ──
+  // lastEmotionsRef: 화자 키 → 마지막으로 통보받은 감정 태그 (항상 최신 유지)
+  // shownEmotionsRef: 씬이 *표시된 시점*의 스냅샷 — 이후 다른 태그로 바뀌면 autoDismiss
+  const lastEmotionsRef = useRef(new Map());
+  const shownEmotionsRef = useRef(null);
+  // 안정 콜백(notifyEmotion 등)에서 최신 상태 참조용
+  const visibleRef = useRef(true);
+  visibleRef.current = visible;
+  const totalDisplayableRef = useRef(0);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -99,6 +127,11 @@ export default function useSceneIllustrations(roomId) {
     let alive = true;
     setScenes([]);
     setViewIndex(null);
+    // [Scene-Polish B] 방 전환 — 수명주기 상태 리셋 (복원 씬은 기존처럼 기본 표시)
+    setVisible(true);
+    setDismissReason(null);
+    lastEmotionsRef.current = new Map();
+    shownEmotionsRef.current = null;
     (async () => {
       try {
         const res = await api.get("/illustrations/scenes", { params: { roomId } });
@@ -172,6 +205,9 @@ export default function useSceneIllustrations(roomId) {
       const res = await api.post("/illustrations/scenes/request", { roomId: Number(requestedRoomId) });
       if (roomIdRef.current !== requestedRoomId) return { ok: false }; // 방 전환됨 — 결과 폐기
       register(res.data); // upsert + 최신 복귀 + 폴링 시작
+      // [Scene-Polish B] 수동 요청 = 명시적 의사 — 숨김 상태였어도 무대 복귀 (홀드 일러 + 생성중 칩)
+      setVisible(true);
+      setDismissReason(null);
       return { ok: true };
     } catch (e) {
       if (roomIdRef.current !== requestedRoomId) return { ok: false };
@@ -239,6 +275,106 @@ export default function useSceneIllustrations(roomId) {
 
   const goLatest = useCallback(() => setViewIndex(null), []);
 
+  // ═══════════ [Scene-Polish B] 씬 일러 수명주기 ═══════════
+  totalDisplayableRef.current = total;
+
+  /** 자동 복귀(스탠딩 무대로) — 표시 중 + 완료 씬 존재 시에만 동작 (안정 콜백) */
+  const autoDismiss = useCallback((reason) => {
+    if (!visibleRef.current) return;
+    if (totalDisplayableRef.current <= 0) return;
+    setVisible(false);
+    setDismissReason(reason || "AUTO");
+  }, []);
+
+  const show = useCallback(() => {
+    setVisible(true);
+    setDismissReason(null);
+  }, []);
+
+  const hide = useCallback(() => {
+    setVisible(false);
+    setDismissReason("MANUAL");
+  }, []);
+
+  const toggle = useCallback(() => {
+    setVisible((v) => {
+      setDismissReason(v ? "MANUAL" : null);
+      return !v;
+    });
+  }, []);
+
+  /**
+   * 감정 변화 신호 — 페이지의 감정/스프라이트 갱신 지점에서 호출.
+   * 씬이 표시된 시점의 감정 스냅샷과 *다른 태그*로 바뀌면 autoDismiss("EMOTION").
+   * NEUTRAL↔RELAX 상호 전이는 미세 변화로 무시(MINOR_EMOTION_TRANSITIONS).
+   * V2 멀티 히로인: speakerKey별 독립 추적 — 아무 히로인이든 변화 시 복귀.
+   */
+  const notifyEmotion = useCallback((speakerKey, emotionTag) => {
+    if (!emotionTag) return;
+    const key = (speakerKey && String(speakerKey).trim()) || "__MAIN__";
+    const tag = String(emotionTag).trim().toUpperCase();
+    if (!tag) return;
+    lastEmotionsRef.current.set(key, tag);
+    if (!visibleRef.current) return;
+    const baseline = shownEmotionsRef.current;
+    if (!baseline) return; // 아직 씬 미표시 — 비교 기준 없음
+    if (!baseline.has(key)) {
+      // 씬 표시 중 처음 등장한 화자 — 기준만 기록 (첫 등장을 '변화'로 오인하지 않음)
+      baseline.set(key, tag);
+      return;
+    }
+    const from = baseline.get(key);
+    if (from === tag || isMinorEmotionShift(from, tag)) return;
+    autoDismiss("EMOTION");
+  }, [autoDismiss]);
+
+  /** 장소 전환 신호 — 페이지의 장소 전환 핸들러에서 호출 */
+  const notifyLocationChange = useCallback(() => {
+    autoDismiss("LOCATION");
+  }, [autoDismiss]);
+
+  // 씬이 표시되거나 표시 씬이 바뀌면 그 시점의 감정을 기준선으로 스냅샷
+  useEffect(() => {
+    if (visible && current?.id != null) {
+      shownEmotionsRef.current = new Map(lastEmotionsRef.current);
+    }
+  }, [visible, current?.id]);
+
+  // 새 완료 씬 등록(SSE 폴링 완료·백필·타 탭 복구 포함) → 자동 표시 복귀
+  const prevTotalRef = useRef(0);
+  useEffect(() => {
+    if (total > prevTotalRef.current) {
+      setVisible(true);
+      setDismissReason(null);
+    }
+    prevTotalRef.current = total;
+  }, [total]);
+
+  // ═══════════ [Scene-Polish C] 히스토리 → 씬 점프 ═══════════
+  /**
+   * 로그 서수(ordinal)와 가장 가까운 씬으로 점프:
+   * turnIndex ≤ ordinal 인 최대 씬 → 없으면 turnIndex ≥ ordinal 인 최소 씬 → 없으면 최신.
+   * 점프 시 visible=true 복귀.
+   */
+  const goToTurn = useCallback((ordinal) => {
+    const list = displayable;
+    if (list.length === 0) return;
+    const target = Number.isFinite(ordinal) || ordinal === Number.POSITIVE_INFINITY ? ordinal : Number.POSITIVE_INFINITY;
+    let found = -1;
+    for (let i = 0; i < list.length; i++) {
+      const t = list[i].turnIndex;
+      if (t != null && t <= target) found = i;
+    }
+    if (found === -1) {
+      found = list.findIndex((s) => s.turnIndex != null && s.turnIndex >= target);
+    }
+    if (found === -1) found = list.length - 1;
+    // 최신 씬이면 추적 모드(null) — 기존 viewIndex 계약과 정합
+    setViewIndex(found >= list.length - 1 ? null : found);
+    setVisible(true);
+    setDismissReason(null);
+  }, [displayable]);
+
   return {
     /** 완료 일러가 1장 이상 — 씬 일러가 주 비주얼로 상주 */
     active: total > 0,
@@ -257,6 +393,22 @@ export default function useSceneIllustrations(roomId) {
     goNext,
     goLatest,
     isViewingPast,
+    /** [Scene-Polish B] 씬 일러 표시 여부 — false면 스탠딩 무대 + '씬 보기' 칩 */
+    visible,
+    show,
+    hide,
+    toggle,
+    autoDismiss,
+    /** 마지막 숨김 사유 — "MANUAL" | "EMOTION" | "LOCATION" | null */
+    dismissReason,
+    /** 감정 변화 신호 (화자 키, 감정 태그) — 페이지 감정 갱신 지점에서 호출 */
+    notifyEmotion,
+    /** 장소 전환 신호 — 페이지 장소 전환 핸들러에서 호출 */
+    notifyLocationChange,
+    /** [Scene-Polish C] 로그 ordinal 기준 씬 점프 (visible 복귀 포함) */
+    goToTurn,
+    /** [Scene-Polish C] 히스토리 마커용 완료 씬 목록 {id, turnIndex, imageUrl} */
+    historyScenes: displayable,
     /** 마지막 씬이 PENDING/GENERATING — 직전 일러 홀드 위 스피너용 */
     generating,
     /** 마지막 씬이 FAILED */
