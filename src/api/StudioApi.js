@@ -14,7 +14,17 @@ import api from "./axios";
  *   { jobId, status, currentStepHint, goldenShots:[{index,url}], baseStandingUrl,
  *     baseCandidates:[{index,status,url}], profile,
  *     emotionAssets:{TAG:{status,thumbUrl}}, energySpent,
- *     rerollCosts:{goldenShot,baseStanding,emotion}, failReason, characterId, expiresAt }
+ *     rerollCosts:{goldenShot,baseStanding,emotion},
+ *     stageCosts:{start,standing,emotions,finalize}, billingMode,
+ *     failReason, characterId, expiresAt }
+ *
+ *   [Pay-as-you-go] stageCosts: 단계별 에너지 단가 — 값 없으면 프론트 폴백
+ *     {start:6, standing:4, emotions:8, finalize:2}.
+ *     start=소환 시작 / standing=황금샷 선택 시 / emotions=스탠딩 선택 시 / finalize=검수 확정 시.
+ *   billingMode: "STAGED"(단계 과금 — 선택/확정 버튼에 단가 배지 노출)
+ *     | null(레거시 선차감 20E 잡 — 배지 숨김).
+ *     선택/확정 API는 에너지 부족 시 400 + message 반환 — 잡 상태는 유지되므로
+ *     에러 표시 후 충전하고 재시도 가능.
  *
  *   status: CONCEPT_PROCESSING | GACHA_WAIT | BASE_PROCESSING | BASE_WAIT
  *         | EMOTIONS_PROCESSING | REVIEW_WAIT | POSTPROCESSING | BINDING
@@ -38,7 +48,9 @@ import api from "./axios";
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * 캐릭터 소환 시작 (에너지 20 차감).
+ * 캐릭터 소환 시작 — [Pay-as-you-go] 시작 단가(stageCosts.start, 폴백 6E)만 차감.
+ * 이후 황금샷 선택 +standing / 스탠딩 선택 +emotions / 검수 확정 +finalize 단가가
+ * 각 시점에 청구된다. 레거시(billingMode=null) 잡은 기존처럼 20E 선차감.
  * @param {{name?: string, concept: string, appearance?: object|null,
  *          officialWorldId?: string|null, ugcWorldId?: number|null}} payload
  *   appearance: {hair, eyes, body, outfit, accessories, extra} — 전부 선택 문자열
@@ -147,7 +159,7 @@ export async function confirmCreation(jobId) {
   return res.data;
 }
 
-/** 중도 포기 (무환불) */
+/** 중도 포기 — 사용분 무환불, [Pay-as-you-go] 미진행 단계 비용은 청구되지 않음 */
 export async function abandonCreationJob(jobId) {
   const res = await api.delete(`/ugc/characters/${encodeURIComponent(jobId)}`);
   return res.data;

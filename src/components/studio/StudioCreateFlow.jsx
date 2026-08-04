@@ -75,7 +75,15 @@ const EMOTION_LABELS = {
 
 const CONCEPT_MIN = 30;
 const CONCEPT_MAX = 1000;
-const CREATE_COST = 20;
+
+// [Pay-as-you-go] 단계별 에너지 단가 폴백 — 서버 stageCosts 우선 (rerollCosts 패턴).
+//   start: 소환 시작(컨셉 제출) / standing: 황금샷 선택 시(스탠딩 파생 착수)
+//   emotions: 스탠딩 선택 시(15컷 감정 파생 착수) / finalize: 검수 확정 시(마무리)
+const DEFAULT_STAGE_COSTS = { start: 6, standing: 4, emotions: 8, finalize: 2 };
+// 전 단계 완주 시 총액 (= 20) — 컨셉 스텝의 총액 안내 문구용
+const STAGE_TOTAL_COST =
+  DEFAULT_STAGE_COSTS.start + DEFAULT_STAGE_COSTS.standing +
+  DEFAULT_STAGE_COSTS.emotions + DEFAULT_STAGE_COSTS.finalize;
 
 // 원화(황금샷) 대기 중 순환 서사 카피
 const GACHA_LOADING_COPY = [
@@ -101,6 +109,13 @@ const EMOTION_DONE_STATUSES = new Set(["READY", "CUTTING", "DONE"]);
 const LEAVE_ALLOWED_STATUSES = new Set([
   "GACHA_WAIT", "BASE_WAIT", "REVIEW_WAIT",
   "BASE_PROCESSING", "EMOTIONS_PROCESSING", "POSTPROCESSING", "BINDING",
+]);
+
+// "빌드 취소"(진행 중 중도 포기)를 노출하는 상태 — 터미널(READY·FAILED·EXPIRED) 제외 전 구간.
+// FAILED·EXPIRED는 에러 뷰의 "작업 정리하기"가 담당한다. (월드 플로우 중도 포기 선례)
+const ABANDON_ALLOWED_STATUSES = new Set([
+  "CONCEPT_PROCESSING", "GACHA_WAIT", "BASE_PROCESSING", "BASE_WAIT",
+  "EMOTIONS_PROCESSING", "REVIEW_WAIT", "POSTPROCESSING", "BINDING",
 ]);
 
 // "설정 다듬기"(ProfileEditPanel)를 열 수 있는 상태 — 로딩·대기 구간 전반.
@@ -253,7 +268,8 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
   const [myWorlds, setMyWorlds] = useState(null); // null = 로딩 중
   const len = concept.trim().length;
   const valid = len >= CONCEPT_MIN && len <= CONCEPT_MAX;
-  const lackEnergy = energy < CREATE_COST;
+  // [Pay-as-you-go] 시작 게이트는 시작 단가(6E) 기준 — 이후 단계는 각 선택/확정 시점에 청구
+  const lackEnergy = energy < DEFAULT_STAGE_COSTS.start;
   const filledAppearanceCount = APPEARANCE_FIELDS.filter((f) => appearance[f.key].trim()).length;
 
   // [World Builder] 내 커스텀 월드(READY) 목록 — 마운트 시 1회
@@ -534,11 +550,19 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
         </AnimatePresence>
       </div>
 
-      {/* 에너지 고지 */}
-      <div className="flex items-center gap-1.5 mb-5 text-amber-300/85">
-        <Zap size={14} />
-        <span className="text-xs font-semibold">소환 시작 시 에너지 {CREATE_COST} 소모</span>
-        {lackEnergy && <span className="text-xs text-rose-300/80 ml-1">· 에너지가 부족해요</span>}
+      {/* 에너지 고지 — [Pay-as-you-go] 시작 단가 + 이후 단계 단가·총액 병기 */}
+      <div className="mb-5">
+        <div className="flex items-center gap-1.5 text-amber-300/85">
+          <Zap size={14} />
+          <span className="text-xs font-semibold">
+            소환 시작 시 에너지 {DEFAULT_STAGE_COSTS.start}E 소모
+          </span>
+          {lackEnergy && <span className="text-xs text-rose-300/80 ml-1">· 에너지가 부족해요</span>}
+        </div>
+        <p className="mt-1 text-[11px] text-white/40 leading-relaxed">
+          이후 단계 진행 시 +{DEFAULT_STAGE_COSTS.standing}/+{DEFAULT_STAGE_COSTS.emotions}/+{DEFAULT_STAGE_COSTS.finalize}E
+          — 전 단계 완주 시 총 {STAGE_TOTAL_COST}E예요. 진행하지 않은 단계 비용은 청구되지 않아요.
+        </p>
       </div>
 
       {/* 에러 (400/402 — 서버 메시지 그대로, 모더레이션 상세 사유 미노출 원칙) */}
@@ -573,6 +597,12 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
       >
         <Sparkles size={16} />
         {busy ? "소환 준비 중…" : "소환 시작"}
+        {/* [Pay-as-you-go] 시작 단가 배지 — 기존 "20E" 대신 시작 단가만 */}
+        {!busy && (
+          <span className="inline-flex items-center gap-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full bg-black/25">
+            <Zap size={10} />{DEFAULT_STAGE_COSTS.start}E 시작
+          </span>
+        )}
       </motion.button>
     </div>
   );
@@ -583,7 +613,8 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
 //  선택한 원화가 캐릭터의 대표 일러스트·썸네일로 확정된다.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const GachaStep = ({ job, busy, error, rerollCost, appearanceRerollPending, onSelect, onRerollRequest }) => {
+// selectCost: [Pay-as-you-go] 확정 시 청구되는 다음 단계(스탠딩 파생) 단가 — 레거시 잡은 null(배지 숨김)
+const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollPending, onSelect, onRerollRequest }) => {
   // [리롤 누적] goldenShots는 리롤마다 +2장씩 누적 — 리롤 중(CONCEPT_PROCESSING·GOLDEN_GENERATING)
   // 이어도 기존 후보는 응답에 유지되므로, 상태와 무관하게 존재하는 카드는 계속 보여준다.
   const shots = job?.goldenShots || [];
@@ -711,7 +742,7 @@ const GachaStep = ({ job, busy, error, rerollCost, appearanceRerollPending, onSe
       </div>
 
       {error && (
-        <div className="mb-4 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-400/25 text-rose-200 text-xs">
+        <div className="mb-4 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-400/25 text-rose-200 text-xs leading-relaxed whitespace-pre-line">
           {error}
         </div>
       )}
@@ -773,6 +804,12 @@ const GachaStep = ({ job, busy, error, rerollCost, appearanceRerollPending, onSe
                 >
                   <Check size={15} />
                   {!canSelect ? "새 후보 생성 중…" : busy ? "확정 중…" : "이 모습으로 확정"}
+                  {/* [Pay-as-you-go] 스탠딩 파생 착수 단가 — STAGED 잡에서만 노출 */}
+                  {selectCost != null && canSelect && !busy && (
+                    <span className="inline-flex items-center gap-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full bg-black/25">
+                      <Zap size={10} />+{selectCost}E
+                    </span>
+                  )}
                 </button>
               </div>
             </motion.div>
@@ -946,7 +983,8 @@ const GoldenRerollModal = ({ open, busy, rerollCost, onConfirm, onCancel }) => {
 //  GachaStep의 카드 뒤집기 reveal 패턴을 재사용. 선택 = 베이스 스탠딩 확정.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const BaseSelectStep = ({ job, busy, error, rerollCost, onSelect, onRerollRequest, onOpenProfile }) => {
+// selectCost: [Pay-as-you-go] 확정 시 청구되는 다음 단계(15컷 감정 파생) 단가 — 레거시 잡은 null(배지 숨김)
+const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, onRerollRequest, onOpenProfile }) => {
   // [리롤 누적] baseCandidates는 리롤마다 +2장씩 누적 — 리롤 중(BASE_PROCESSING)에도
   // 기존 READY 후보는 응답에 유지되므로 계속 선택 대상으로 보여준다.
   const candidates = job?.baseCandidates || [];
@@ -1098,7 +1136,7 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, onSelect, onRerollReques
       </div>
 
       {error && (
-        <div className="mb-4 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-400/25 text-rose-200 text-xs">
+        <div className="mb-4 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-400/25 text-rose-200 text-xs leading-relaxed whitespace-pre-line">
           {error}
         </div>
       )}
@@ -1160,6 +1198,12 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, onSelect, onRerollReques
                 >
                   <Check size={15} />
                   {!canSelect ? "새 후보 생성 중…" : busy ? "확정 중…" : "이 모습으로 확정"}
+                  {/* [Pay-as-you-go] 15컷 감정 파생 착수 단가 — STAGED 잡에서만 노출 */}
+                  {selectCost != null && canSelect && !busy && (
+                    <span className="inline-flex items-center gap-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full bg-black/25">
+                      <Zap size={10} />+{selectCost}E
+                    </span>
+                  )}
                 </button>
               </div>
               <p className="mt-3 text-center text-[11px] text-amber-100/60">
@@ -1298,7 +1342,8 @@ const PostProcessingView = ({ status }) => (
   </div>
 );
 
-const ReviewGridStep = ({ job, busy, error, rerollCost, onRerollRequest, onVersionSelect, onCompleteRequest }) => {
+// finalizeCost: [Pay-as-you-go] 검수 확정(마무리) 단가 — 레거시 잡은 null(배지 숨김)
+const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRequest, onVersionSelect, onCompleteRequest }) => {
   const assets = job?.emotionAssets || {};
   const [mode, setMode] = useState("grid"); // grid | preview
   const [zoomTag, setZoomTag] = useState(null);
@@ -1448,7 +1493,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, onRerollRequest, onVersi
       )}
 
       {error && (
-        <div className="mb-4 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-400/25 text-rose-200 text-xs">
+        <div className="mb-4 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-400/25 text-rose-200 text-xs leading-relaxed whitespace-pre-line">
           {error}
         </div>
       )}
@@ -1470,6 +1515,12 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, onRerollRequest, onVersi
       >
         <Check size={16} />
         {allReady ? "완성하기" : "모든 컷이 준비되면 완성할 수 있어요"}
+        {/* [Pay-as-you-go] 검수 확정 단가 — STAGED 잡에서만 노출 */}
+        {finalizeCost != null && allReady && !busy && (
+          <span className="inline-flex items-center gap-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full bg-black/25">
+            <Zap size={10} />+{finalizeCost}E
+          </span>
+        )}
       </motion.button>
 
       {/* 컷 확대 */}
@@ -1803,7 +1854,7 @@ const CompleteStep = ({
           </motion.div>
 
           {error && (
-            <div className="mb-4 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-400/25 text-rose-200 text-xs">
+            <div className="mb-4 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-400/25 text-rose-200 text-xs leading-relaxed whitespace-pre-line">
               {error}
             </div>
           )}
@@ -1858,6 +1909,11 @@ export default function StudioCreateFlow({
   const isFailed = status === "FAILED" || status === "EXPIRED";
   const step = hasJob ? resolveStep(job) : 1;
   const rerollCosts = job?.rerollCosts || { goldenShot: 2, baseStanding: 2, emotion: 2 };
+  // [Pay-as-you-go] 단계별 단가 — 서버 stageCosts 우선, 필드 단위 폴백 (rerollCosts 패턴)
+  const stageCosts = { ...DEFAULT_STAGE_COSTS, ...(job?.stageCosts || {}) };
+  // billingMode "STAGED" = 단계 과금(선택/확정 버튼에 단가 배지 노출)
+  // null·미지정 = 레거시 선차감 잡(이미 20E 결제됨 — 배지 숨김)
+  const staged = job?.billingMode === "STAGED";
 
   // ─── "설정 다듬기" 패널 (레이턴시 하이딩 핵심 UI) ───
   const [profileOpen, setProfileOpen] = useState(false);
@@ -1879,7 +1935,7 @@ export default function StudioCreateFlow({
   const busyRef = useRef(false);
   const confirmFiredRef = useRef(false); // ConfirmModal 확인 버튼 이중 발화 가드
   const runAction = useCallback(
-    async (fn, successSfx = null) => {
+    async (fn, successSfx = null, opts = {}) => {
       if (busyRef.current) return false;
       busyRef.current = true;
       setActionBusy(true);
@@ -1892,7 +1948,17 @@ export default function StudioCreateFlow({
         return true;
       } catch (e) {
         sfx.thud();
-        setActionError(e?.response?.data?.message || "요청에 실패했습니다.");
+        const msg = e?.response?.data?.message || "요청에 실패했습니다.";
+        // [Pay-as-you-go] 선택/확정 400(에너지 부족) — 잡 상태는 유지되므로 충전 후 재시도 안내
+        const energyShortage =
+          opts.energyRetryHint &&
+          e?.response?.status === 400 &&
+          /에너지|잔액|부족/.test(msg);
+        setActionError(
+          energyShortage
+            ? `${msg}\n작업은 그대로 유지돼요 — 에너지 충전 후 다시 시도해 주세요.`
+            : msg
+        );
         return false;
       } finally {
         busyRef.current = false;
@@ -1924,8 +1990,9 @@ export default function StudioCreateFlow({
   };
 
   // ─── STEP 2: 원화(황금샷) ───
+  // [Pay-as-you-go] 선택 확정 = 스탠딩 단가 청구 시점 — 에너지 부족 400 시 재시도 안내
   const handleGoldenSelect = (index) =>
-    runAction(() => selectGoldenShot(jobId, index), sfx.sparkle);
+    runAction(() => selectGoldenShot(jobId, index), sfx.sparkle, { energyRetryHint: true });
 
   // 리롤은 전용 모달(GoldenRerollModal)로 — 비용 고지 + 외형 수정(선택)까지 담당
   const [goldenRerollOpen, setGoldenRerollOpen] = useState(false);
@@ -1956,8 +2023,9 @@ export default function StudioCreateFlow({
   };
 
   // ─── STEP 3: 스탠딩 후보 선택 / 리롤 ───
+  // [Pay-as-you-go] 선택 확정 = 감정 15컷 단가 청구 시점 — 에너지 부족 400 시 재시도 안내
   const handleBaseSelect = (index) =>
-    runAction(() => selectBaseStanding(jobId, index), sfx.sparkle);
+    runAction(() => selectBaseStanding(jobId, index), sfx.sparkle, { energyRetryHint: true });
 
   const handleBaseRerollRequest = () => {
     setConfirmState({
@@ -2006,9 +2074,39 @@ export default function StudioCreateFlow({
   const handleCompleteRequest = () => {
     setConfirmState({
       title: "캐릭터 완성",
-      desc: "완성하면 표정 컷을 더 이상 다시 뽑을 수 없어요.\n마무리 작업 후 캐릭터가 등록됩니다.",
+      desc:
+        // [Pay-as-you-go] STAGED 잡 — 마무리 단가 고지 병기
+        (staged ? `마무리 작업에 에너지 ${stageCosts.finalize}E가 사용돼요.\n` : "") +
+        "완성하면 표정 컷을 더 이상 다시 뽑을 수 없어요.\n마무리 작업 후 캐릭터가 등록됩니다.",
       confirmLabel: "완성하기",
-      action: () => runAction(() => confirmCreation(jobId), sfx.chime),
+      action: () => runAction(() => confirmCreation(jobId), sfx.chime, { energyRetryHint: true }),
+    });
+  };
+
+  // ─── 진행 중 빌드 취소 (무환불·잔여 단계 미청구) — 월드 플로우 중도 포기 선례 ───
+  const handleCancelBuildRequest = () => {
+    const spent = job?.energySpent;
+    setConfirmState({
+      danger: true,
+      title: "빌드 취소",
+      desc:
+        `지금까지 사용한 에너지${spent != null ? ` ${spent}E` : ""}는 환불되지 않아요.\n` +
+        "아직 진행하지 않은 단계 비용은 청구되지 않아요.\n" +
+        "취소하면 이 캐릭터는 사라져요.",
+      confirmLabel: "빌드 취소",
+      action: async () => {
+        setActionBusy(true);
+        try {
+          await abandonCreationJob(jobId);
+          sfx.thud();
+          onEnergyRefresh?.(); // 상위 에너지/목록 갱신 트리거
+          onClose?.(); // 위저드 닫기 — 상위(스튜디오)가 activeJob 목록을 다시 불러온다
+        } catch (e) {
+          setActionError(e?.response?.data?.message || "빌드 취소에 실패했습니다.");
+        } finally {
+          setActionBusy(false);
+        }
+      },
     });
   };
 
@@ -2102,6 +2200,8 @@ export default function StudioCreateFlow({
 
   // ─── 이탈 제어: WAIT/백그라운드 진행 상태에서만 "나가서 기다리기" ───
   const canLeave = !hasJob || LEAVE_ALLOWED_STATUSES.has(status);
+  // ─── 빌드 취소: 컨셉 제출 후 모든 비터미널 구간에서 노출 ───
+  const canAbandon = hasJob && Boolean(job) && ABANDON_ALLOWED_STATUSES.has(status);
 
   const handleLeave = () => {
     sfx.click();
@@ -2254,7 +2354,7 @@ export default function StudioCreateFlow({
                       : "생성 과정에서 문제가 발생했습니다.")}
                 </p>
                 {actionError && (
-                  <div className="mb-4 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-400/25 text-rose-200 text-xs">
+                  <div className="mb-4 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-400/25 text-rose-200 text-xs leading-relaxed whitespace-pre-line">
                     {actionError}
                   </div>
                 )}
@@ -2308,6 +2408,7 @@ export default function StudioCreateFlow({
                 busy={actionBusy}
                 error={actionError}
                 rerollCost={rerollCosts.goldenShot}
+                selectCost={staged ? stageCosts.standing : null}
                 appearanceRerollPending={appearanceRerollPending}
                 onSelect={handleGoldenSelect}
                 onRerollRequest={handleGoldenRerollRequest}
@@ -2321,6 +2422,7 @@ export default function StudioCreateFlow({
                 busy={actionBusy}
                 error={actionError}
                 rerollCost={rerollCosts.baseStanding}
+                selectCost={staged ? stageCosts.emotions : null}
                 onSelect={handleBaseSelect}
                 onRerollRequest={handleBaseRerollRequest}
                 onOpenProfile={() => setProfileOpen(true)}
@@ -2344,6 +2446,7 @@ export default function StudioCreateFlow({
                   busy={actionBusy}
                   error={actionError}
                   rerollCost={rerollCosts.emotion}
+                  finalizeCost={staged ? stageCosts.finalize : null}
                   onRerollRequest={handleEmotionRerollRequest}
                   onVersionSelect={handleEmotionVersionSelect}
                   onCompleteRequest={handleCompleteRequest}
@@ -2370,6 +2473,23 @@ export default function StudioCreateFlow({
           </motion.div>
         </AnimatePresence>
       </div>
+
+      {/* ═══ 빌드 취소 — 비터미널 진행 구간 전체에서 노출 (하단 좌측, 은은하게 — 월드 플로우 선례) ═══ */}
+      <AnimatePresence>
+        {canAbandon && (
+          <motion.button
+            type="button"
+            disabled={actionBusy}
+            onClick={() => { sfx.click(); handleCancelBuildRequest(); }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute bottom-5 left-5 sm:bottom-7 sm:left-7 z-[105] px-3 py-1.5 rounded-full text-[11px] text-white/30 hover:text-rose-300 hover:bg-rose-500/10 border border-transparent hover:border-rose-400/25 transition-colors disabled:opacity-40"
+          >
+            빌드 취소
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* ═══ "설정 다듬기" 플로팅 CTA — 로딩·대기 구간 상시 노출 (레이턴시 하이딩) ═══ */}
       <AnimatePresence>
