@@ -17,6 +17,8 @@ import { fetchMyUgcWorlds, OFFICIAL_WORLDS } from "../../api/WorldStudioApi";
 import useUgcCreationJob from "../../hooks/useUgcCreationJob";
 import ProfileEditPanel from "./ProfileEditPanel";
 import { sfx } from "../../utils/sfx";
+// [2026-08-05 난이도] 공략 난이도 라벨·색상 단일 소스 — 프로필/스튜디오 편집 시트와 공유
+import { DIFFICULTY_ORDER, DIFFICULTY_META, difficultyFilledStars } from "../../utils/difficultyMeta";
 
 /**
  * [Studio v1] StudioCreateFlow — UGC 캐릭터 소환 전체화면 위저드
@@ -259,6 +261,8 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
   const [name, setName] = useState("");
   // [2026-08-04 남캐] 성별 명시 선택 — 파이프라인 분기(앵커 태그·Male LoRA·연출 가이드)의 단일 기준
   const [gender, setGender] = useState("FEMALE");
+  // [2026-08-05 난이도] 공략 난이도 — 기본 NORMAL, 스튜디오 편집 시트에서 언제든 변경 가능
+  const [difficulty, setDifficulty] = useState("NORMAL");
   const [concept, setConcept] = useState("");
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [appearance, setAppearance] = useState(EMPTY_APPEARANCE);
@@ -336,6 +340,30 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* [2026-08-05 난이도] 공략 난이도 — StudioPage 편집 시트와 동일 문구·4단 그리드 */}
+      <div className="mb-5">
+        <label className="text-xs text-white/60 mb-1.5 block">공략 난이도</label>
+        <div className="grid grid-cols-4 gap-1.5">
+          {DIFFICULTY_ORDER.map((value) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => { sfx.click(0.2); setDifficulty(value); }}
+              className={`py-2 rounded-lg text-[11px] font-medium border transition ${
+                difficulty === value
+                  ? DIFFICULTY_META[value].selectedCls
+                  : "bg-white/[0.04] border-white/10 text-white/45 hover:bg-white/[0.06]"
+              }`}
+            >
+              {DIFFICULTY_META[value].label} {difficultyFilledStars(value)}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[11px] text-white/35">
+          캐릭터 공략이 얼마나 까다로운지 — 나중에 스튜디오에서 변경 가능
+        </p>
       </div>
 
       {/* 컨셉 */}
@@ -581,6 +609,7 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
           onSubmit({
             name,
             gender,   // [남캐] FEMALE/MALE
+            difficulty, // [난이도] EASY/NORMAL/HARD/EXTREME
             concept: concept.trim(),
             appearance: buildAppearance(),
             // [World Builder] 세계관 연결 — 동시 지정은 UI에서 원천 차단 (단일 선택)
@@ -1969,13 +1998,13 @@ export default function StudioCreateFlow({
   );
 
   // ─── STEP 1: 소환 시작 ───
-  const handleConceptSubmit = async ({ name, gender, concept, appearance, officialWorldId, ugcWorldId }) => {
+  const handleConceptSubmit = async ({ name, gender, difficulty, concept, appearance, officialWorldId, ugcWorldId }) => {
     if (busyRef.current) return; // [폴리싱 #8] 연타 재진입 방어
     busyRef.current = true;
     setActionBusy(true);
     setActionError(null);
     try {
-      const res = await createUgcCharacter({ name, gender, concept, appearance, officialWorldId, ugcWorldId });
+      const res = await createUgcCharacter({ name, gender, difficulty, concept, appearance, officialWorldId, ugcWorldId });
       sfx.sparkle();
       setJobId(res.jobId);
       onEnergyRefresh?.();
@@ -2433,8 +2462,14 @@ export default function StudioCreateFlow({
             {!isFailed && hasJob && job && step === 4 && (
               <ForgeProgressStep
                 job={job}
-                // [World Builder] 캐릭터 잡은 서버에서 계속 진행 — 월드 빌더로 이동해도 안전
-                onOpenWorldBuilder={() => navigate("/studio/world")}
+                // [World Builder] 캐릭터 잡은 서버에서 계속 진행 — 월드 빌더로 이동해도 안전.
+                // 세계관 기지정 잡(공식 requestedWorldId | UGC requestedUgcWorldId)에는 CTA를
+                // 숨긴다(null → ForgeProgressStep 내부 조건 렌더). 필드 미제공(구버전 뷰)은 기존 노출 유지.
+                onOpenWorldBuilder={
+                  job?.requestedWorldId || job?.requestedUgcWorldId
+                    ? null
+                    : () => navigate("/studio/world")
+                }
               />
             )}
 

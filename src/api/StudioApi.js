@@ -52,16 +52,19 @@ import api from "./axios";
  * 이후 황금샷 선택 +standing / 스탠딩 선택 +emotions / 검수 확정 +finalize 단가가
  * 각 시점에 청구된다. 레거시(billingMode=null) 잡은 기존처럼 20E 선차감.
  * @param {{name?: string, concept: string, appearance?: object|null,
- *          officialWorldId?: string|null, ugcWorldId?: number|null}} payload
+ *          officialWorldId?: string|null, ugcWorldId?: number|null,
+ *          difficulty?: string|null}} payload
  *   appearance: {hair, eyes, body, outfit, accessories, extra} — 전부 선택 문자열
  *   필드(외형 구조화 힌트). 비어 있으면 필드 자체를 생략한다.
  *   [World Builder] officialWorldId(WorldId enum name) | ugcWorldId(숫자) —
  *   세계관 연결 선택 필드. 동시 지정 400, 둘 다 생략 = '나중에 연결'.
+ *   [난이도] difficulty: "EASY"|"NORMAL"|"HARD"|"EXTREME" — 생략 시 서버 기본.
  * @returns {Promise<{jobId: string}>} 202 Accepted
  *   400: 이미 진행 중인 잡 / 잔액 부족 / 모더레이션 차단 — message를 그대로 노출
  */
 export async function createUgcCharacter({
   name, concept, appearance = null, officialWorldId = null, ugcWorldId = null, gender = null,
+  difficulty = null,
 }) {
   const res = await api.post("/ugc/characters", {
     name: name?.trim() ? name.trim() : null,
@@ -71,6 +74,8 @@ export async function createUgcCharacter({
     ...(ugcWorldId ? { ugcWorldId } : {}),
     // [2026-08-04 남캐] FEMALE(기본)/MALE — MALE은 백엔드 게이트(male-builder-enabled) 필요
     ...(gender ? { gender } : {}),
+    // [2026-08-05 난이도] EASY/NORMAL/HARD/EXTREME — 미전송 시 서버 기본(NORMAL)
+    ...(difficulty ? { difficulty } : {}),
   });
   return res.data;
 }
