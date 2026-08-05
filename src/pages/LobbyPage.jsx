@@ -962,6 +962,9 @@ const LobbyPage = () => {
             <div className="flex flex-col items-center gap-5 sm:gap-7 flex-shrink-0">
               {[
                 { label: "새로운 만남", sub: "New Encounter", action: () => setView("encounter") },
+                // [2026-08-06 UGC 스토리 진입 픽스] 월드 브라우저(공식+내 세계관) — 에픽 A에서
+                // 화면은 완성됐으나 진입 배선이 누락돼 데드 UI였음(UGC 월드 스토리 진입 불가 원인)
+                { label: "세계관", sub: "Worlds", action: () => setView("worlds") },
                 // [Studio v1] UGC 캐릭터 생성 스튜디오 진입
                 { label: "스튜디오", sub: "Studio", action: handleEnterStudio },
                 { label: "기억의 끈", sub: "Continue", action: () => { fetchRoomsAll(); setView("continue"); }, disabled: mergedRooms.length === 0 },
