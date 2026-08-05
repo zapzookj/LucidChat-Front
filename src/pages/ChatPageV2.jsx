@@ -335,6 +335,17 @@ const ChatPage = () => {
     return v2Room.heroines.find((h) => h.name === currentSpeaker)?.slug || null;
   }, [isV2, v2Room?.heroines, currentSpeaker]);
 
+  // [2026-08-06 UGC 스프라이트 CDN 픽스] 현재 씬 화자 히로인의 스탠딩 원본 URL — UGC 캐릭터는
+  // 공식 CDN(d3578f)에 에셋이 없어 이 URL에서 assetDir을 유도해야 스프라이트가 뜬다(V1 동일 계약).
+  const v2SceneSpeakerImageUrl = useMemo(() => {
+    if (!isV2 || !v2Room?.heroines) return null;
+    if (currentSpeaker) {
+      const h = v2Room.heroines.find((x) => x.name === currentSpeaker);
+      if (h?.defaultImageUrl) return h.defaultImageUrl;
+    }
+    return currentSpeakerHeroine?.defaultImageUrl || null;
+  }, [isV2, v2Room?.heroines, currentSpeaker, currentSpeakerHeroine]);
+
   // [Bug-Sprite] 현재 *씬* 화자 히로인의 복장 — 캐릭터마다 default-outfit이 다름(airi=MAID, yeonhwa=HANBOK…).
   //  우선순위: 씬 명시 outfit > 현재 화자 히로인 기본 복장 > 첫 히로인(폴백 캐릭터) 기본 복장.
   //  → 멀티 히로인 응답에서 화자 전환 시 slug와 함께 복장도 전환되어 스프라이트 404 방지.
@@ -3173,8 +3184,9 @@ const ChatPage = () => {
           outfit={(isV2 && v2SceneSpeakerOutfit) || currentOutfit}
           characterSlug={isV2 ? v2SceneSpeakerSlug : roomInfo?.characterSlug}
           defaultOutfit={roomInfo?.defaultOutfit}
-          // [Fix-UGC-CDN] V2는 화자가 roomInfo 캐릭터와 다를 수 있어 미전달 (기존 경로 유지)
-          defaultImageUrl={isV2 ? null : roomInfo?.defaultImageUrl}
+          // [2026-08-06 UGC 스프라이트 CDN 픽스] V2도 화자별 defaultImageUrl 배선 —
+          // null 강제(구코드)가 UGC 히로인 스탠딩 403의 원인이었다(07-23 지목·미수정 결함)
+          defaultImageUrl={isV2 ? v2SceneSpeakerImageUrl : roomInfo?.defaultImageUrl}
           npcSpeaker={npcSpeaker}
           isNpcActive={currentSpeaker !== null && currentSpeaker === npcSpeaker}
           portrait={isMobile}
