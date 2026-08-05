@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChevronLeft, ChevronDown, MessageCircle, User, X } from "lucide-react";
 import { fetchCharacterProfile } from "../api/ProfileApi";
 import { sfx } from "../utils/sfx";
+import { DIFFICULTY_META } from "../utils/difficultyMeta";
 
 /**
  * [Profile v1] CharacterProfileView — 캐릭터 프로필 풀스크린 오버레이 (z-[100])
@@ -39,19 +40,25 @@ import { sfx } from "../utils/sfx";
 
 const SERIF_STACK = "Georgia,'Nanum Myeongjo',serif";
 
-// [2026-08-04 난이도] 공략 난이도 ★칩 — 무드 칩 클러스터에 동반 노출 (필드 없으면 미노출)
-const DIFFICULTY_META = {
-  EASY:    { label: "공략 ★☆☆☆", cls: "bg-emerald-400/15 text-emerald-200 border-emerald-400/25" },
-  NORMAL:  { label: "공략 ★★☆☆", cls: "bg-sky-400/15 text-sky-200 border-sky-400/25" },
-  HARD:    { label: "공략 ★★★☆", cls: "bg-orange-400/15 text-orange-200 border-orange-400/25" },
-  EXTREME: { label: "공략 ★★★★", cls: "bg-rose-400/15 text-rose-200 border-rose-400/25" },
-};
-
-const DifficultyChip = ({ difficulty, size = "text-[9px] px-2 py-0.5" }) => {
+// [2026-08-05 난이도 배지 승격] 공략 난이도 색 배지 — 무드 칩 클러스터에서 분리,
+// 이름/역할 라인 근처 독립 슬롯 노출 (종원 승인: "태그 사이에 묻혀 안 보인다").
+// 무드 칩(rounded-full·/15 bg)과 형태·채도를 달리해 태그로 오독되지 않게 한다.
+// meta 단일 소스: src/utils/difficultyMeta.js (필드 없으면 미노출)
+const DifficultyBadge = ({ difficulty, size = "sm", blur = false }) => {
   const meta = DIFFICULTY_META[difficulty];
   if (!meta) return null;
+  const sizeCls =
+    size === "lg" ? "text-[11px] px-2.5 py-1 gap-1.5" : "text-[10px] px-2 py-[3px] gap-1";
   return (
-    <span className={`${size} font-bold rounded-full border ${meta.cls}`}>{meta.label}</span>
+    <span
+      className={`inline-flex items-center whitespace-nowrap font-bold rounded-md border ${sizeCls} ${meta.badgeCls} ${
+        blur ? "backdrop-blur-sm" : ""
+      }`}
+    >
+      <span className="opacity-55 font-semibold text-[0.82em] tracking-wider">공략</span>
+      <span>{meta.label}</span>
+      <span className="text-[0.85em] opacity-90">{meta.stars}</span>
+    </span>
   );
 };
 const MONO_STACK = "'JetBrains Mono','SFMono-Regular',Consolas,monospace";
@@ -312,6 +319,12 @@ export default function CharacterProfileView({
                           {profile.name}
                         </h2>
                         {ageRole && <p className="text-[11px] text-white/55 mt-0.5">{ageRole}</p>}
+                        {/* [2026-08-05 난이도 배지 승격] 이름 라인 하단 독립 슬롯 */}
+                        {DIFFICULTY_META[profile.difficulty] && (
+                          <div className="mt-1.5">
+                            <DifficultyBadge difficulty={profile.difficulty} blur />
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -333,7 +346,6 @@ export default function CharacterProfileView({
                               {tag}
                             </span>
                           ))}
-                          <DifficultyChip difficulty={profile.difficulty} />
                           {profile.worldName && (
                             <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-violet-400/15 text-violet-200 border border-violet-400/25">
                               🌙 {profile.worldName}
@@ -552,6 +564,12 @@ export default function CharacterProfileView({
                         {profile.name}
                       </h2>
                       {ageRole && <p className="text-xs text-white/50 mt-0.5">{ageRole}</p>}
+                      {/* [2026-08-05 난이도 배지 승격] 이름 라인 하단 독립 슬롯 */}
+                      {DIFFICULTY_META[profile.difficulty] && (
+                        <div className="mt-1.5">
+                          <DifficultyBadge difficulty={profile.difficulty} />
+                        </div>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -577,7 +595,6 @@ export default function CharacterProfileView({
                             {tag}
                           </span>
                         ))}
-                        <DifficultyChip difficulty={profile.difficulty} />
                         {profile.worldName && (
                           <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-violet-400/15 text-violet-200 border border-violet-400/25">
                             🌙 {profile.worldName}
@@ -794,7 +811,6 @@ export default function CharacterProfileView({
                       {tag}
                     </span>
                   ))}
-                  <DifficultyChip difficulty={profile.difficulty} size="text-[10px] px-2.5 py-1" />
                   {profile.worldName && (
                     <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-violet-400/15 text-violet-200 border border-violet-400/30 backdrop-blur-sm">
                       🌙 {profile.worldName}
@@ -814,6 +830,12 @@ export default function CharacterProfileView({
                   <p className="text-[11px] text-white/35 mt-1">
                     창작자 · {profile.creatorNickname}
                   </p>
+                )}
+                {/* [2026-08-05 난이도 배지 승격] 이름/역할 라인 하단 독립 슬롯 (풀블리드 위 blur) */}
+                {DIFFICULTY_META[profile.difficulty] && (
+                  <div className="mt-2.5">
+                    <DifficultyBadge difficulty={profile.difficulty} size="lg" blur />
+                  </div>
                 )}
 
                 {/* 반투명 시트 */}
@@ -1000,8 +1022,15 @@ export default function CharacterProfileView({
                       value={profile.age != null ? `${profile.age}세` : null}
                     />
                     <DossierRow label="역할" value={profile.role} />
-                    <DossierRow label="공략 난이도"
-                      value={DIFFICULTY_META[profile.difficulty]?.label?.replace("공략 ", "") || null} />
+                    {/* [2026-08-05 난이도 배지 승격] 텍스트 행 → 색 배지 (없으면 "기록 없음" 유지) */}
+                    <DossierRow
+                      label="공략 난이도"
+                      value={
+                        DIFFICULTY_META[profile.difficulty] ? (
+                          <DifficultyBadge difficulty={profile.difficulty} />
+                        ) : null
+                      }
+                    />
                     <DossierRow label="키" value={profile.height} />
                     <DossierRow label="좋아하는 것" value={profile.likes} />
                     <DossierRow label="싫어하는 것" value={profile.dislikes} />

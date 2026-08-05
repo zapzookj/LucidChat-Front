@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ArrowLeft, ArrowRight, Check, Sparkles, Users, User as UserIcon } from "lucide-react";
 import { sfx } from "../../utils/sfx";
+// [2026-08-05 난이도 배지 승격] 난이도 4색 단일 소스
+import { DIFFICULTY_META, difficultyFilledStars } from "../../utils/difficultyMeta";
 // [2026-08-04 페르소나] 카드 선택/관리 오버레이
 import PersonaManager from "../persona/PersonaManager";
 import {
@@ -383,16 +385,13 @@ function Step2HeroineSelect({ heroines, selected, onToggle }) {
               <div className="p-3">
                 <div className="font-medium text-white flex items-center gap-1.5">
                   {h.name}
-                  {/* [2026-08-04 난이도] 공략 난이도 미니 표기 */}
-                  {h.difficulty && h.difficulty !== "NORMAL" && (
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
-                      h.difficulty === "EASY"
-                        ? "bg-emerald-400/15 text-emerald-200 border-emerald-400/25"
-                        : h.difficulty === "EXTREME"
-                          ? "bg-rose-400/15 text-rose-200 border-rose-400/25"
-                          : "bg-orange-400/15 text-orange-200 border-orange-400/25"
-                    }`}>
-                      {h.difficulty === "EASY" ? "★" : h.difficulty === "HARD" ? "★★★" : "★★★★"}
+                  {/* [2026-08-04 난이도] 공략 난이도 미니 표기 — NORMAL 숨김 정책 유지
+                      [2026-08-05 난이도 배지 승격] 하드코딩 3색 → difficultyMeta 단일 소스 소비 */}
+                  {h.difficulty !== "NORMAL" && DIFFICULTY_META[h.difficulty] && (
+                    <span
+                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${DIFFICULTY_META[h.difficulty].badgeCls}`}
+                    >
+                      {difficultyFilledStars(h.difficulty)}
                     </span>
                   )}
                 </div>

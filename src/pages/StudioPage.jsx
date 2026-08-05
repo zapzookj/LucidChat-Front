@@ -24,6 +24,8 @@ import WorldDetailSheet from "../components/studio/WorldDetailSheet";
 import CharacterProfileView from "../components/CharacterProfileView";
 import BottomSheet from "../components/mobile/BottomSheet";
 import { sfx } from "../utils/sfx";
+// [2026-08-05 난이도 배지 승격] 난이도 4색 단일 소스
+import { DIFFICULTY_META, DIFFICULTY_ORDER, difficultyFilledStars } from "../utils/difficultyMeta";
 
 /**
  * [Studio v1] StudioPage — UGC 캐릭터 생성 스튜디오
@@ -1153,24 +1155,28 @@ export default function StudioPage() {
                 />
               </div>
             ))}
-            {/* [2026-08-04 난이도] 공략 난이도 — 스탯 상승 배율+성격 지시 이중 게이트 */}
+            {/* [2026-08-04 난이도] 공략 난이도 — 스탯 상승 배율+성격 지시 이중 게이트
+                [2026-08-05 난이도 배지 승격] 4색 단일 소스(difficultyMeta) 적용 — 선택 상태 = 해당 색 배경 */}
             <div>
               <label className="text-[11px] text-white/50 mb-1 block">공략 난이도</label>
               <div className="grid grid-cols-4 gap-1.5">
-                {[["EASY", "쉬움 ★"], ["NORMAL", "보통 ★★"], ["HARD", "어려움 ★★★"], ["EXTREME", "극악 ★★★★"]].map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setEditForm((p) => ({ ...p, difficulty: value }))}
-                    className={`py-2 rounded-lg text-[11px] font-medium border transition ${
-                      editForm.difficulty === value
-                        ? "bg-amber-500/15 border-amber-400/50 text-amber-200"
-                        : "bg-white/[0.04] border-white/10 text-white/45 hover:bg-white/[0.06]"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
+                {DIFFICULTY_ORDER.map((value) => {
+                  const meta = DIFFICULTY_META[value];
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setEditForm((p) => ({ ...p, difficulty: value }))}
+                      className={`py-2 rounded-lg text-[11px] font-medium border transition ${
+                        editForm.difficulty === value
+                          ? meta.selectedCls
+                          : "bg-white/[0.04] border-white/10 text-white/45 hover:bg-white/[0.06]"
+                      }`}
+                    >
+                      {meta.label} {difficultyFilledStars(value)}
+                    </button>
+                  );
+                })}
               </div>
             </div>
             {[
