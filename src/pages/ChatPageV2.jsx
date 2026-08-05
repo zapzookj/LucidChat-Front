@@ -1121,6 +1121,8 @@ const ChatPage = () => {
         try {
           const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=50`);
           const logs = (logsRes.data?.content || []).reverse();
+          // [Scene-Polish D] 씬 복원 K-윈도우 판정 입력 — 방 로그 총수(Spring Page.totalElements) 전달
+          sceneStage.notifyLogTotal(logsRes.data?.totalElements ?? logs.length);
           const expandedLogs = [];
           // [Bug-Restore] 방금 fetch한 v2Detail을 ctx로 명시 전달 — useCallback 클로저의 stale
           //   state(isV2=false, v2Room=null) 때문에 V1 분기로 추락하던 복원 분류 버그의 근본 수정.
@@ -1255,6 +1257,8 @@ const ChatPage = () => {
         }
 
         const logs = logsRes.data?.content || [];
+        // [Scene-Polish D] 씬 복원 K-윈도우 판정 입력 — 방 로그 총수(Spring Page.totalElements) 전달 (V1 폴백)
+        sceneStage.notifyLogTotal(logsRes.data?.totalElements ?? logs.length);
 
         // [Phase 4 Fix] 히스토리 페이지네이션 초기화
         setHistoryPage(1);

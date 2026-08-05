@@ -18,6 +18,8 @@ import api from "../api/axios";
  *   6. [Scene-Polish B] 수명주기: visible + show/hide/toggle + autoDismiss(감정 변화·장소 전환)
  *      — 완료 씬 영구 상주 폐지. 숨김은 '보관'이며 새 완료 씬 등록/수동 요청/토글로 복귀.
  *   7. [Scene-Polish C] goToTurn(ordinal) — 히스토리 클릭 → 로그 서수와 가장 가까운 씬으로 점프.
+ *   8. [Scene-Polish D] 재입장 복원 K-윈도우 판정 — 페이지 init이 notifyLogTotal(로그 총수)을 전달하면
+ *      마지막 완료 씬이 최근(RESTORE_RECENT_LOG_WINDOW 이내)일 때만 풀블리드 복원, 아니면 칩만("STALE").
  *
  * @param {string} roomId
  */
@@ -36,6 +38,13 @@ function isMinorEmotionShift(from, to) {
   );
 }
 
+// [Scene-Polish D · 종원 확정] 재입장 복원 '최근' 판정 K-윈도우 —
+// 마지막 완료 씬의 turnIndex ≥ (방 로그 총수 - 이 값) 이면 현재 진행 중인 장면으로 보고 풀블리드 복원,
+// 미만이면 지난 장면으로 보고 스탠딩 무대 + '지난 장면 보기' 칩만(dismissReason "STALE").
+// 1턴 ≈ 로그 2건(유저+캐릭터)이라 5 ≈ 2턴 반.
+// 튜닝 포인트: "새로고침하면 씬이 자꾸 접힌다"가 보고되면 값을 키운다.
+export const RESTORE_RECENT_LOG_WINDOW = 5;
+
 export default function useSceneIllustrations(roomId) {
   // { id, turnIndex, status, imageUrl } — 항상 id 오름차순 유지
   const [scenes, setScenes] = useState([]);
@@ -43,7 +52,7 @@ export default function useSceneIllustrations(roomId) {
   const [viewIndex, setViewIndex] = useState(null);
   // [Scene-Polish B] 씬 일러 표시 여부 — false여도 씬은 '보관'(scenes 유지), 스탠딩 무대로 복귀
   const [visible, setVisible] = useState(true);
-  // 마지막 숨김 사유: "MANUAL" | "EMOTION" | "LOCATION" | null — 칩 마이크로카피용
+  // 마지막 숨김 사유: "MANUAL" | "EMOTION" | "LOCATION" | "STALE" | null — 칩 마이크로카피용
   const [dismissReason, setDismissReason] = useState(null);
   // { timer, sceneId, ticks, tick } — 단일 폴링 타깃(가장 최근 비종결 씬)
   const pollRef = useRef(null);
@@ -57,6 +66,14 @@ export default function useSceneIllustrations(roomId) {
   const visibleRef = useRef(true);
   visibleRef.current = visible;
   const totalDisplayableRef = useRef(0);
+  // 직전 렌더의 완료 씬 수 — 신규 완료 auto-show 감지용 (복원 배치는 시드로 발화 억제, 아래 참조)
+  const prevTotalRef = useRef(0);
+
+  // ── [Scene-Polish D] 재입장 복원 K-윈도우 판정 refs ──
+  // logTotalRef: 페이지 init이 notifyLogTotal로 전달한 방 로그 총수 (null = 미도달 → 판정 보류)
+  // pendingRestoreRef: 복원 배치의 마지막 완료 씬 turnIndex — 로그 총수 도달 시 1회 판정 후 소거
+  const logTotalRef = useRef(null);
+  const pendingRestoreRef = useRef(null);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -121,17 +138,38 @@ export default function useSceneIllustrations(roomId) {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
 
+  /**
+   * [Scene-Polish D] 복원 표시 K-윈도우 판정 — 복원 배치(pendingRestoreRef)와 로그 총수(logTotalRef)가
+   * *모두* 도착한 시점에 1회 실행. 먼저 도착한 쪽은 no-op, 나중 도착이 판정을 트리거한다.
+   * 마지막 완료 씬의 turnIndex ≥ (로그 총수 - RESTORE_RECENT_LOG_WINDOW) → 현재 장면: visible=true.
+   * 미만 → 지난 장면: visible=false + dismissReason "STALE"(칩만).
+   * turnIndex 미보유(구버전 씬)는 판정 불가 — 종전 동작(표시)으로 fail-open.
+   */
+  const resolveRestoreVisibility = useCallback(() => {
+    const pending = pendingRestoreRef.current;
+    const logTotal = logTotalRef.current;
+    if (!pending || logTotal == null) return;
+    pendingRestoreRef.current = null;
+    const { lastTurnIndex } = pending;
+    const isRecent = lastTurnIndex == null || lastTurnIndex >= logTotal - RESTORE_RECENT_LOG_WINDOW;
+    setVisible(isRecent);
+    setDismissReason(isRecent ? null : "STALE");
+  }, []);
+
   // 방 입장 시 씬 히스토리 1회 복원
   useEffect(() => {
     if (!roomId) return undefined;
     let alive = true;
     setScenes([]);
     setViewIndex(null);
-    // [Scene-Polish B] 방 전환 — 수명주기 상태 리셋 (복원 씬은 기존처럼 기본 표시)
-    setVisible(true);
+    // [Scene-Polish B→D] 방 전환 — 수명주기 상태 리셋. 복원 씬 표시 여부는 K-윈도우 판정으로 결정하므로
+    // 로그 총수 도달 전에는 숨김으로 시작(판정 보류) — '무조건 풀블리드 재표시' 버그의 1차 원인 제거.
+    setVisible(false);
     setDismissReason(null);
     lastEmotionsRef.current = new Map();
     shownEmotionsRef.current = null;
+    logTotalRef.current = null;
+    pendingRestoreRef.current = null;
     (async () => {
       try {
         const res = await api.get("/illustrations/scenes", { params: { roomId } });
@@ -139,7 +177,17 @@ export default function useSceneIllustrations(roomId) {
         const list = (Array.isArray(res.data) ? res.data : [])
           .filter((s) => s && s.id != null)
           .sort((a, b) => a.id - b.id);
+        // [Scene-Polish D] prevTotalRef를 복원 배치의 완료 수로 시드 — 복원 setScenes의 total 0→N
+        // 점프가 신규 완료 auto-show effect를 오발화시키던 2차 원인 제거.
+        const displayableList = list.filter((s) => !!s.imageUrl);
+        prevTotalRef.current = displayableList.length;
         setScenes(list);
+        // 복원 배치에 완료 씬이 있으면 K-윈도우 판정 대기 등록 — 로그 총수 도달 시 1회 판정
+        const lastDone = displayableList[displayableList.length - 1];
+        if (lastDone) {
+          pendingRestoreRef.current = { lastTurnIndex: lastDone.turnIndex ?? null };
+          resolveRestoreVisibility();
+        }
         // 재입장 시 마지막 씬이 아직 생성 중이면 폴링 재개
         const last = list[list.length - 1];
         if (last && !TERMINAL_STATUSES.has(last.status)) startPolling(last.id);
@@ -152,7 +200,7 @@ export default function useSceneIllustrations(roomId) {
       alive = false;
       stopPolling();
     };
-  }, [roomId, startPolling, stopPolling]);
+  }, [roomId, startPolling, stopPolling, resolveRestoreVisibility]);
 
   /**
    * final_result의 sceneIllustration 등록.
@@ -333,6 +381,17 @@ export default function useSceneIllustrations(roomId) {
     autoDismiss("LOCATION");
   }, [autoDismiss]);
 
+  /**
+   * [Scene-Polish D] 방 로그 총수 통보 — 페이지 init의 로그 응답(Spring Page.totalElements)에서 호출.
+   * 복원 배치가 이미 대기 중이면 이 시점에 K-윈도우 판정이 1회 실행된다. (안정 콜백)
+   */
+  const notifyLogTotal = useCallback((logTotal) => {
+    const n = Number(logTotal);
+    if (!Number.isFinite(n) || n < 0) return;
+    logTotalRef.current = n;
+    resolveRestoreVisibility();
+  }, [resolveRestoreVisibility]);
+
   // 씬이 표시되거나 표시 씬이 바뀌면 그 시점의 감정을 기준선으로 스냅샷
   useEffect(() => {
     if (visible && current?.id != null) {
@@ -341,7 +400,8 @@ export default function useSceneIllustrations(roomId) {
   }, [visible, current?.id]);
 
   // 새 완료 씬 등록(SSE 폴링 완료·백필·타 탭 복구 포함) → 자동 표시 복귀
-  const prevTotalRef = useRef(0);
+  // [Scene-Polish D] 재입장 복원 배치는 prevTotalRef 시드(복원 effect 참조)로 여기서 발화하지 않는다
+  // — 복원 표시 여부는 오직 K-윈도우 판정(resolveRestoreVisibility)이 결정.
   useEffect(() => {
     if (total > prevTotalRef.current) {
       setVisible(true);
@@ -399,12 +459,14 @@ export default function useSceneIllustrations(roomId) {
     hide,
     toggle,
     autoDismiss,
-    /** 마지막 숨김 사유 — "MANUAL" | "EMOTION" | "LOCATION" | null */
+    /** 마지막 숨김 사유 — "MANUAL" | "EMOTION" | "LOCATION" | "STALE" | null */
     dismissReason,
     /** 감정 변화 신호 (화자 키, 감정 태그) — 페이지 감정 갱신 지점에서 호출 */
     notifyEmotion,
     /** 장소 전환 신호 — 페이지 장소 전환 핸들러에서 호출 */
     notifyLocationChange,
+    /** [Scene-Polish D] 방 로그 총수 통보 — 재입장 복원 K-윈도우 판정 입력 (페이지 init에서 호출) */
+    notifyLogTotal,
     /** [Scene-Polish C] 로그 ordinal 기준 씬 점프 (visible 복귀 포함) */
     goToTurn,
     /** [Scene-Polish C] 히스토리 마커용 완료 씬 목록 {id, turnIndex, imageUrl} */

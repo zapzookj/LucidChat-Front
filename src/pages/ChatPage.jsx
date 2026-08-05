@@ -970,6 +970,8 @@ const ChatPage = () => {
         }
 
         const logs = logsRes.data?.content || [];
+        // [Scene-Polish D] 씬 복원 K-윈도우 판정 입력 — 방 로그 총수(Spring Page.totalElements) 전달
+        sceneStage.notifyLogTotal(logsRes.data?.totalElements ?? logs.length);
 
         // [Phase 4 Fix] 히스토리 페이지네이션 초기화
         setHistoryPage(1);

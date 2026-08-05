@@ -56,6 +56,8 @@ export default function SceneIllustrationStage({ stage, portrait = false }) {
   // ── [Scene-Polish B] 숨김 상태 — 스탠딩 무대로 복귀, '씬 보기' 칩만 가장자리에 ──
   if (!visible) {
     const autoDismissed = dismissReason === "EMOTION" || dismissReason === "LOCATION";
+    // [Scene-Polish D] 재입장 K-윈도우 판정이 '지난 장면'으로 접은 경우 — 복귀보다 열람 뉘앙스의 카피
+    const stale = dismissReason === "STALE";
     return (
       <div className="absolute inset-0 pointer-events-none">
         <div className={topRightStack}>
@@ -71,9 +73,9 @@ export default function SceneIllustrationStage({ stage, portrait = false }) {
                        hover:bg-black/75 hover:border-sky-400/50 hover:text-sky-100 active:scale-95 transition"
           >
             <Images size={12} />
-            <span>{autoDismissed ? "장면 전환 — 씬 보기" : "씬 보기"}</span>
+            <span>{stale ? "지난 장면 보기" : autoDismissed ? "장면 전환 — 씬 보기" : "씬 보기"}</span>
             <span className="rounded-full bg-sky-500/20 px-1.5 py-0.5 text-[10px] tabular-nums text-sky-200">
-              {total}장 보관
+              {stale ? `${total}장` : `${total}장 보관`}
             </span>
           </motion.button>
           {statusChip}
