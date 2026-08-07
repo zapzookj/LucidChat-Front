@@ -234,6 +234,9 @@ const ChatPage = () => {
 
   // [2026-08-07 씬당 1회 + 리플레이 E5] 새 턴 시작(유저 발화·액션·오프닝·V1 폴백 경로 포함) →
   // 씬 재요청 잠금 해제 + 리플레이 자동 이탈(라이브 우선). 단일 심 — 전송 지점 개별 배선 불요.
+  // ※ 수용된 트레이드오프(리뷰 확정): '전송 시작' 시점 발제라 턴이 실패·롤백되면 서버 turnIndex
+  //   불변인데 프론트만 잠금 해제된다 — 이 경우 클릭 시 409 안내 후 availability 재조회로 재잠금
+  //   (무과금·자가치유). '새 로그 확정' 시점 해제는 init 복원과의 레이스가 더 위험해 채택하지 않음.
   useEffect(() => {
     if (isTyping || awaitingFinalResult) {
       sceneStage.notifyNewTurn();
@@ -4311,6 +4314,9 @@ const ChatPage = () => {
                 const { markersByMessageIndex } = buildSceneHistoryIndex(messages, sceneStage.historyScenes);
                 const jumpToScene = (ordinal) => {
                   sfx.click();
+                  // [리뷰픽스] 리플레이 중 마커 점프 무음 no-op 방지 — 일러 무대는 리플레이 중
+                  // 언마운트라, 점프 전에 라이브로 복귀해야 즉시 표시된다.
+                  replay.exit();
                   sceneStage.goToTurn(ordinal ?? Number.POSITIVE_INFINITY);
                   setShowHistory(false);
                 };
@@ -4752,7 +4758,8 @@ const ChatPage = () => {
       {/* ═══ [2026-07-31 에픽 B] 씬 일러 수동 요청 FAB — V2 유일한 씬 생성 경로 ═══ */}
       <SceneRequestButton
         stage={sceneStage}
-        visible={!showEndingCredits && !isTyping && introStep === 'none'}
+        // [리뷰픽스] 리플레이 중 숨김 — 과거 씬을 보며 누르면 '현재' 장면이 과금 렌더되는 오동작 차단
+        visible={!showEndingCredits && !isTyping && introStep === 'none' && !replay.isReplaying}
         onRequested={(cost) => setEnergy((prev) => Math.max(0, prev - cost))}
       />
 

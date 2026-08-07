@@ -320,6 +320,13 @@ export default function useSceneIllustrations(roomId) {
   const failed = !!lastScene && lastScene.status === "FAILED";
   const isViewingPast = viewIndex != null && effectiveIndex < latestIndex;
 
+  // [씬당 1회 · 리뷰픽스] 렌더 실패 시 잠금 해제 — 백엔드 가드는 FAILED를 제외(환불 완료·
+  // 같은 턴 재시도 허용)하므로 프론트 잠금도 동기 해제. 미해제 시 '일러 생성 실패' 칩과
+  // '그려진 장면이에요' 잠금이 동시에 뜨는 모순 UI + 재시도 창 영구 소실이었다.
+  useEffect(() => {
+    if (failed) setAlreadyDrawn(false);
+  }, [failed]);
+
   const canPrev = effectiveIndex > 0;
   const canNext = effectiveIndex >= 0 && effectiveIndex < latestIndex;
 
