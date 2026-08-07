@@ -225,22 +225,29 @@ export default function useSceneIllustrations(roomId) {
   const roomIdRef = useRef(roomId);
   roomIdRef.current = roomId;
 
+  // [2026-08-07 씬당 1회] 현재 턴에서 수동 씬을 이미 소비했는가 — 서버 availability가 권위,
+  // 요청 성공 시 즉시 true, 새 대화 턴(notifyNewTurn)에서 해제. FAB 비활성 판정 소스.
+  const [alreadyDrawn, setAlreadyDrawn] = useState(false);
+
   // [리뷰픽스] 기능 가용성 — FAB 노출 게이트 + 표기 비용의 단일 소스(하드코딩 5 드리프트 제거).
   // 기능 off(기본값)면 featureEnabled=false → 버튼 미노출(죽은 버튼 방지).
+  // [씬당 1회] roomId 스코프 재조회 — 방 진입/전환마다 alreadyDrawn 서버 판정을 함께 수신.
   const [availability, setAvailability] = useState({ featureEnabled: false, energyCost: 5 });
   useEffect(() => {
     let alive = true;
-    api.get("/illustrations/scenes/availability")
+    setAlreadyDrawn(false); // 방 전환 — 서버 판정 도달 전 낙관 해제
+    api.get("/illustrations/scenes/availability", roomId ? { params: { roomId } } : undefined)
       .then((res) => {
         if (!alive) return;
         setAvailability({
           featureEnabled: !!res.data?.enabled,
           energyCost: Number.isFinite(res.data?.energyCost) ? res.data.energyCost : 5,
         });
+        if (typeof res.data?.alreadyDrawn === "boolean") setAlreadyDrawn(res.data.alreadyDrawn);
       })
       .catch(() => { /* 미배포/오류 — 비노출 유지 */ });
     return () => { alive = false; };
-  }, []);
+  }, [roomId]);
 
   const request = useCallback(async () => {
     if (requestingRef.current) return { ok: false };
@@ -253,6 +260,8 @@ export default function useSceneIllustrations(roomId) {
       const res = await api.post("/illustrations/scenes/request", { roomId: Number(requestedRoomId) });
       if (roomIdRef.current !== requestedRoomId) return { ok: false }; // 방 전환됨 — 결과 폐기
       register(res.data); // upsert + 최신 복귀 + 폴링 시작
+      // [씬당 1회] 이 턴은 소비됨 — 새 대화 턴(notifyNewTurn)까지 재요청 차단
+      setAlreadyDrawn(true);
       // [Scene-Polish B] 수동 요청 = 명시적 의사 — 숨김 상태였어도 무대 복귀 (홀드 일러 + 생성중 칩)
       setVisible(true);
       setDismissReason(null);
@@ -274,6 +283,15 @@ export default function useSceneIllustrations(roomId) {
         } catch {
           /* 무해 — 재입장 시 복원 */
         }
+        // [씬당 1회] 409의 사유(인플라이트 vs 이미 소비)는 서버 availability가 권위 — 재조회로 동기화
+        try {
+          const availRes = await api.get("/illustrations/scenes/availability",
+            { params: { roomId: requestedRoomId } });
+          if (roomIdRef.current === requestedRoomId
+            && typeof availRes.data?.alreadyDrawn === "boolean") {
+            setAlreadyDrawn(availRes.data.alreadyDrawn);
+          }
+        } catch { /* 무해 */ }
       }
       setRequestError(msg);
       errorTimerRef.current = setTimeout(() => setRequestError(null), 4000);
@@ -382,6 +400,15 @@ export default function useSceneIllustrations(roomId) {
   }, [autoDismiss]);
 
   /**
+   * [2026-08-07 씬당 1회] 새 대화 턴 신호 — 페이지의 유저 전송(메시지/액션) 지점에서 호출.
+   * 새 로그가 쌓이면 서버 turnIndex가 달라져 재요청이 허용되므로 프론트 판정도 함께 해제.
+   * ※ visible 해제 신호(notifyEmotion/notifyLocationChange)와 의미가 다름 — 분리 유지.
+   */
+  const notifyNewTurn = useCallback(() => {
+    setAlreadyDrawn(false);
+  }, []);
+
+  /**
    * [Scene-Polish D] 방 로그 총수 통보 — 페이지 init의 로그 응답(Spring Page.totalElements)에서 호출.
    * 복원 배치가 이미 대기 중이면 이 시점에 K-윈도우 판정이 1회 실행된다. (안정 콜백)
    */
@@ -484,5 +511,11 @@ export default function useSceneIllustrations(roomId) {
     featureEnabled: availability.featureEnabled,
     /** [리뷰픽스] 표기 비용 — 백엔드 illustration.scene.energy-cost의 단일 소스 */
     energyCost: availability.energyCost,
+    /** [2026-08-07 씬당 1회] 현재 턴 수동 씬 소비 여부 — true면 FAB '이미 그렸어요' 비활성 */
+    alreadyDrawn,
+    /** [씬당 1회] 재요청 가능 여부 — FAB 활성 판정의 단일 소스 */
+    canRequest: availability.featureEnabled && !alreadyDrawn,
+    /** [씬당 1회] 새 대화 턴 신호 — 유저 전송 지점에서 호출(재요청 해제) */
+    notifyNewTurn,
   };
 }
