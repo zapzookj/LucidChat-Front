@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, useRef, useCallback } from "react";
+import { Fragment, useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
 import CharacterDisplay from "../components/CharacterDisplay";
@@ -61,6 +61,9 @@ import { extractLastSentence, subjectJosa } from "../utils/dialogueSanitizer";
 // [Scene-Polish C] 히스토리 클릭 → 씬 점프 (마커 행 + ordinal 매핑, V1/V2 공유)
 import SceneHistoryMarker from "../components/SceneHistoryMarker";
 import { buildSceneHistoryIndex } from "../utils/sceneHistoryMap";
+// [2026-08-07 디오라마 이식] 과거 씬 리플레이 — 히스토리 행 클릭 → 그 시점 씬 무대 재현 (V1/V2 공용)
+import useSceneReplay from "../hooks/useSceneReplay";
+import SceneReplayOverlay from "../components/SceneReplayOverlay";
 
 const ChatPage = () => {
   const { user, logout, refreshUser } = useAuth();
@@ -74,7 +77,10 @@ const ChatPage = () => {
   const [roomInfo, setRoomInfo] = useState(null);
   const [messages, setMessages] = useState([]);
   const initCalledRef = useRef(null); // [Phase 5 Fix] StrictMode 중복 init 방지 (roomId 기반)
-  
+
+  // [2026-08-07 디오라마 이식] 과거 씬 리플레이 — 라이브 상태는 불변, 렌더 지점 3-way 병합만
+  const replay = useSceneReplay(messages);
+
   // [컷신 상태]
   const [sceneQueue, setSceneQueue] = useState([]);
   const [currentScene, setCurrentScene] = useState(null);
@@ -222,6 +228,31 @@ const ChatPage = () => {
   // ─── [docs/09 A-2+A-3] 매턴 실시간 씬 일러 (백엔드 플래그 on 방에서만 데이터 존재) ───
   // 씬이 하나도 없는 방은 sceneStage.hasAnyScene=false → 무대 렌더 분기가 null → 회귀 제로
   const sceneStage = useSceneIllustrations(roomId);
+
+  // [2026-08-07 씬당 1회 + 리플레이 E5] 새 턴 시작(유저 발화·이벤트·지켜보기·시간넘기기·디렉터 응답) →
+  // 씬 재요청 잠금 해제 + 리플레이 자동 이탈(라이브 우선). 단일 심 — 전송 지점 개별 배선 불요.
+  useEffect(() => {
+    if (isTyping || awaitingFinalResult) {
+      sceneStage.notifyNewTurn();
+      replay.exit();
+    }
+  }, [isTyping, awaitingFinalResult, sceneStage.notifyNewTurn, replay.exit]);
+
+  // [2026-08-07 디오라마 이식] 리플레이 무대 뷰 — 라이브 state를 건드리지 않는 렌더 전용 파생.
+  //  화자 해석은 라이브 씬 effect와 동일 정책: 주연 씬=씬 감정, NPC·시스템 씬=감정 유지(E9/E10),
+  //  NPC는 실루엣. 복장은 영속 outfit(2026-08-07) 우선, 레거시 로그는 현재 복장 폴백.
+  const replayView = useMemo(() => {
+    if (!replay.isReplaying || !replay.scene) return null;
+    const sc = replay.scene;
+    const sys = !sc.speaker;
+    const isNpc = !sys && sc.speaker !== roomInfo?.characterName;
+    return {
+      scene: sc,
+      emotion: !sys && !isNpc ? sc.emotion : displayedEmotion,
+      outfit: sc.outfit || currentOutfit,
+      npcSpeaker: isNpc ? sc.speaker : null,
+    };
+  }, [replay.isReplaying, replay.scene, roomInfo?.characterName, displayedEmotion, currentOutfit]);
 
   // ─── [v3] 투명 디렉터 시스템 ───
   const [directorLoading, setDirectorLoading] = useState(false);          // 수동 디렉터 요청 로딩 중
@@ -630,6 +661,9 @@ const ChatPage = () => {
         hasInnerThought: (i === scenes.length - 1) ? !!resHasThought : false,
         thoughtUnlocked: false,
         innerThought: null,
+        // [리플레이 E6] 라이브 구간도 씬 감정·복장 보존 — 새로고침 전 리플레이 재현용
+        emotionTag: s.emotion || null,
+        outfit: s.outfit ?? null,
       };
     });
   }, [roomInfo]);
@@ -678,6 +712,8 @@ const ChatPage = () => {
             thoughtUnlocked: log.thoughtUnlocked || false,
             innerThought: log.innerThought || null,
             emotionTag: scene.emotion || log.emotionTag,
+            // [리플레이] 씬 컨텍스트 복장(2026-08-07 백엔드 영속) — 레거시 로그는 null
+            outfit: scene.outfit ?? null,
             // [Scene-Polish C] 방 내 절대 서수 — 히스토리 씬 마커 매핑 키 (씬별 분리돼도 원본 로그 서수 공유)
             ordinal: log.ordinal ?? null,
           };
@@ -2084,13 +2120,15 @@ const ChatPage = () => {
   };
 
   // 큐 자동 재생 (초기 진입 시)
+  // [리플레이 E2] 리플레이 중엔 라이브 큐 소비를 홀드 — 복귀 시 이 effect가 이어서 재생
   useEffect(() => {
+    if (replay.isReplaying) return;
     if (!currentScene && sceneQueue.length > 0) {
       const nextScene = sceneQueue[0];
       setCurrentScene(nextScene);
       setSceneQueue(prev => prev.slice(1));
     }
-  }, [sceneQueue, currentScene]);
+  }, [sceneQueue, currentScene, replay.isReplaying]);
 
   // ━━━ [Phase 5.1] 단건 메시지 삭제 핸들러 ━━━
   // [Bug #1 Fix] 씬 분리된 메시지의 전체 씬을 일괄 삭제 (parentLogId 기반)
@@ -2290,7 +2328,13 @@ const ChatPage = () => {
       if (olderLogs.length === 0) {
         setHasMoreHistory(false);
       } else {
-        setMessages(prev => [...olderLogs, ...prev]);
+        // [리플레이 E7] 과거 페이지도 씬별 분리 복원 — raw 로그가 그대로 붙으면 그 구간의
+        // 씬 마커 매핑·화자·감정·리플레이가 전부 뭉개지던 잠재 결함의 동반 픽스.
+        const expandedOlder = [];
+        for (const log of olderLogs) {
+          expandedOlder.push(...expandLogWithScenes(log));
+        }
+        setMessages(prev => [...expandedOlder, ...prev]);
         setHistoryPage(prev => prev + 1);
         setHasMoreHistory(olderLogs.length >= 50);
 
@@ -2305,7 +2349,7 @@ const ChatPage = () => {
     } finally {
       setHistoryLoading(false);
     }
-  }, [roomId, historyPage, hasMoreHistory, historyLoading]);
+  }, [roomId, historyPage, hasMoreHistory, historyLoading, expandLogWithScenes]);
 
   if (isLoading || !roomInfo) return <div className="h-full flex items-center justify-center bg-gray-900 text-white/30 animate-pulse">Loading Lucid Chat...</div>;
 
@@ -2372,20 +2416,23 @@ const ChatPage = () => {
       {/* ═══ 캐릭터 디스플레이 + 속마음 말풍선 ═══ */}
       <div className="absolute inset-0 z-0">
         <CharacterDisplay
-          emotion={displayedEmotion}
-          outfit={currentOutfit}
+          emotion={replayView ? replayView.emotion : displayedEmotion}
+          outfit={replayView ? replayView.outfit : currentOutfit}
           characterSlug={roomInfo?.characterSlug}
           defaultOutfit={roomInfo?.defaultOutfit}
           defaultImageUrl={roomInfo?.defaultImageUrl}
-          npcSpeaker={npcSpeaker}
-          isNpcActive={currentSpeaker !== null && currentSpeaker !== roomInfo?.characterName}
+          npcSpeaker={replayView ? replayView.npcSpeaker : npcSpeaker}
+          isNpcActive={replayView
+            ? !!replayView.npcSpeaker
+            : (currentSpeaker !== null && currentSpeaker !== roomInfo?.characterName)}
           portrait={isMobile}
         />
 
         {/* [docs/09 A-2+A-3] 씬 일러 상주 무대 — 완료 일러가 있으면 스탠딩 무대를 덮고,
             씬이 없는 방(백엔드 플래그 off/기존 방)은 null 렌더로 기존 무대 그대로.
-            속마음 버블·HUD·DialogueBox(z-20)는 이 레이어 위에서 그대로 동작. */}
-        <SceneIllustrationStage stage={sceneStage} portrait={isMobile} />
+            속마음 버블·HUD·DialogueBox(z-20)는 이 레이어 위에서 그대로 동작.
+            [리플레이] 리플레이 중엔 언마운트 — 스탠딩 재현이 주인공(일러는 마커 썸네일로 점프). */}
+        {!replay.isReplaying && <SceneIllustrationStage stage={sceneStage} portrait={isMobile} />}
 
         {/* [Phase 5.5-IT] 속마음 말풍선 — CharacterDisplay 위에 오버레이 */}
         <InnerThoughtBubble
@@ -2527,16 +2574,19 @@ const ChatPage = () => {
       </div>
       )}
 
+      {/* [2026-08-07 디오라마 이식] 리플레이 컨트롤 — 루트 레벨 마운트(딤 z-10 < 대사창 z-20 < 컨트롤 z-30) */}
+      <SceneReplayOverlay replay={replay} portrait={isMobile} />
+
       <DialogueBox
         mobile={isMobile}
         characterName={roomInfo?.characterName}
-        scene={currentScene}
+        scene={replayView ? replayView.scene : currentScene}
         onSend={handleSendMessage}
         isTyping={isTyping}
         affection={affection}
         energy={energy}
-        onNextScene={handleNextScene}
-        hasNextScene={sceneQueue.length > 0}
+        onNextScene={replayView ? replay.next : handleNextScene}
+        hasNextScene={replayView ? replay.canNext : sceneQueue.length > 0}
         nickname={userInfo.nickname}
         onTriggerEvent={handleTriggerEvent}
         boostMode={boostMode}
@@ -2552,15 +2602,16 @@ const ChatPage = () => {
         profileToggleRef={profileToggleRef}
         statChanges={latestStatChanges}
         // ── [Phase 5.5-Sep] 스토리 전용 props 모드 가드 ──
-        innerThought={isStoryMode ? currentInnerThought : null}
-        hasInnerThought={isStoryMode ? hasInnerThought : false}
+        // [리플레이 E13] 리플레이 중엔 속마음/이벤트 부가 UI 숨김 — 과거 씬은 열람 전용
+        innerThought={replayView ? null : (isStoryMode ? currentInnerThought : null)}
+        hasInnerThought={replayView ? false : (isStoryMode ? hasInnerThought : false)}
         thoughtUnlocked={isStoryMode ? thoughtUnlocked : false}
-        topicConcluded={isStoryMode ? topicConcluded : false}
-        eventStatus={isStoryMode ? eventStatus : null}
+        topicConcluded={replayView ? false : (isStoryMode ? topicConcluded : false)}
+        eventStatus={replayView ? null : (isStoryMode ? eventStatus : null)}
         isObserverEvent={isStoryMode ? isObserverEvent : false}
         onWatch={isStoryMode ? handleDirectorWatch : undefined}
         onTimeSkip={isStoryMode ? handleTimeSkip : undefined}
-        speaker={isStoryMode ? currentSpeaker : null}
+        speaker={replayView ? (replayView.scene.speaker || null) : (isStoryMode ? currentSpeaker : null)}
         awaitingFinalResult={awaitingFinalResult}
         freeEnergy={freeEnergy}
         paidEnergy={paidEnergy}
@@ -3362,25 +3413,31 @@ const ChatPage = () => {
                 }
 
                 // [Scene-Polish C] 씬 썸네일 마커 — 로그 ordinal ↔ 씬 turnIndex 매핑 (V1/V2 공유 유틸)
-                const { markersByMessageIndex, ordinalByMessageIndex } = buildSceneHistoryIndex(messages, sceneStage.historyScenes);
-                const canJumpToScene = sceneStage.historyScenes.length > 0;
+                const { markersByMessageIndex } = buildSceneHistoryIndex(messages, sceneStage.historyScenes);
                 const jumpToScene = (ordinal) => {
                   sfx.click();
                   sceneStage.goToTurn(ordinal ?? Number.POSITIVE_INFINITY);
                   setShowHistory(false);
                 };
+                // [2026-08-07 디오라마 이식] 행 클릭 = 그 시점 '씬 자체' 리플레이 (일러 점프는 마커 썸네일 전담).
+                //  씬 일러 유무 게이트(canJumpToScene) 분리 — 일러 0장 방에서도 리플레이는 동작.
+                const enterReplay = (idx2) => {
+                  sfx.click();
+                  if (replay.enter(idx2)) setShowHistory(false);
+                };
 
                 return messages.map((msg, idx) => {
-                // 이 메시지 직후에 꽂을 씬 마커 + 행 클릭 점프용 유효 서수 (씬이 없으면 전부 비활성)
+                // 이 메시지 직후에 꽂을 씬 마커 (일러 점프 전용)
                 const markerNodes = (markersByMessageIndex.get(idx) || []).map((sc) => (
                   <SceneHistoryMarker key={`scene-${sc.id}`} scene={sc} onJump={() => jumpToScene(sc.turnIndex)} />
                 ));
-                const jumpOrdinal = ordinalByMessageIndex[idx];
                 let row = null;
                 if (msg.role === 'SYSTEM') {
                     row = (
                         <div className="flex justify-center my-6">
-                            <div className="bg-gradient-to-r from-indigo-900/40 to-purple-900/40 border border-indigo-500/20 text-indigo-200 text-xs px-5 py-2.5 rounded-full backdrop-blur-sm shadow-lg flex items-center gap-2 max-w-[90%] text-center leading-relaxed">
+                            <div onClick={() => enterReplay(idx)}
+                                 title="이 장면 다시 보기"
+                                 className="bg-gradient-to-r from-indigo-900/40 to-purple-900/40 border border-indigo-500/20 text-indigo-200 text-xs px-5 py-2.5 rounded-full backdrop-blur-sm shadow-lg flex items-center gap-2 max-w-[90%] text-center leading-relaxed cursor-pointer hover:brightness-125 transition">
                                 <Sparkles size={14} className="text-yellow-300 shrink-0" />
                                 <span>{msg.cleanContent}</span>
                             </div>
@@ -3392,12 +3449,12 @@ const ChatPage = () => {
                             <span className="text-xs mb-1 px-2 text-red-400/70 flex items-center gap-1">
                                 <span>👤</span> {msg.speaker || "???"}
                             </span>
-                            <div className={`px-5 py-3 rounded-2xl max-w-[85%] text-sm leading-relaxed shadow-sm
+                            <div className="px-5 py-3 rounded-2xl max-w-[85%] text-sm leading-relaxed shadow-sm
                                             bg-gradient-to-br from-red-950/40 to-rose-950/30 text-red-100/80
-                                            rounded-tl-sm border border-red-500/10 ${canJumpToScene ? 'cursor-pointer hover:brightness-125 transition' : ''}`}
+                                            rounded-tl-sm border border-red-500/10 cursor-pointer hover:brightness-125 transition"
                                  style={{ fontStyle: msg.cleanContent?.startsWith('*') ? 'italic' : 'normal' }}
-                                 onClick={canJumpToScene ? () => jumpToScene(jumpOrdinal) : undefined}
-                                 title={canJumpToScene ? "이 시점의 씬 일러 보러 가기" : undefined}
+                                 onClick={() => enterReplay(idx)}
+                                 title="이 장면 다시 보기"
                             >
                                 {/* 나레이션(*로 감싸진)과 대사 분리 렌더링 */}
                                 {msg.cleanContent?.split('\n').map((line, li) => (
@@ -3421,11 +3478,11 @@ const ChatPage = () => {
                   <div className={`group flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
                     <span className={`text-xs mb-1 px-2 ${isMe ? 'text-pink-400' : 'text-indigo-400'}`}>{displayName}</span>
                     <div
-                      onClick={canJumpToScene ? () => jumpToScene(msg.ordinal ?? jumpOrdinal) : undefined}
-                      title={canJumpToScene ? "이 시점의 씬 일러 보러 가기" : undefined}
+                      onClick={() => enterReplay(idx)}
+                      title="이 장면 다시 보기"
                       className={`px-5 py-3 rounded-2xl max-w-[85%] text-sm leading-relaxed shadow-sm ${
                     isMe ? 'bg-pink-600 text-white rounded-tr-sm' : 'bg-[#2a2a35] text-gray-100 rounded-tl-sm border border-white/5'
-                    } ${canJumpToScene ? 'cursor-pointer hover:brightness-110 transition' : ''}`}>
+                    } cursor-pointer hover:brightness-110 transition`}>
                         {/* [Feature #1] 나레이션/대사 분리 렌더링 — *...* 패턴 파싱 */}
                         {msg.cleanContent?.split('\n').map((line, li) => {
                           // 라인 전체가 *...*로 감싸진 경우 → 순수 나레이션 (기존 동작 유지)
