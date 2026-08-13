@@ -3202,39 +3202,35 @@ const ChatPage = () => {
         worldId={isV2 ? v2Room?.worldId : null}
       />
 
-      {/* ================= Intro Cinematic Overlay ================= */}
+      {/* ================= Intro — 경량 페이드 (§G-12: '문' 영상 교체) =================
+          영상은 UGC 월드 전부가 동일 폴백(2단 404)이라 플랫폼 스케일과 충돌 — 빛이 스며드는
+          페이드로 교체. 오프닝 레이턴시 마스킹(openingReady 게이트·스킵 UI)은 그대로 보존. */}
       <AnimatePresence>
           {introStep === 'door' && (
-              <motion.div 
+              <motion.div
                   initial={{ opacity: 1 }}
-                  exit={{ opacity: 0 }} 
-                  transition={{ duration: 1.5 }} // 천천히 페이드 아웃
-                  className="absolute inset-0 z-[999] bg-black flex flex-col items-center justify-center"
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 1.2 }}
+                  className="absolute inset-0 z-[999] bg-black flex items-center justify-center cursor-pointer"
+                  onClick={handleIntroVideoEnd}
               >
-                  <video 
-                      autoPlay playsInline 
-                      onEnded={handleIntroVideoEnd} 
-                      onClick={handleIntroVideoEnd}
-                      onError={(e) => {
-                        // [Phase 5] 캐릭터별 비디오 404 → 레거시 경로 폴백 → 그래도 실패 시 스킵
-                        const legacy = assetUrl("/videos/intro_door.mp4");
-                        if (!e.target.src.endsWith(legacy.split("/").pop())) { // ⬅️ endsWith 비교 안전화
-                          console.warn("🎬 [Intro] Character video not found, trying legacy path");
-                          e.target.src = legacy;
-                        } else {
-                          console.warn("🎬 [Intro] Legacy video also missing, skipping intro");
-                          handleIntroVideoEnd();
-                        }
-                      }}
-                      className="w-full h-full object-cover"
-                    >
-                      <source 
-                        src={assetUrl(isV2
-                          ? `/videos/worlds/${String(v2Room?.worldId || "").toLowerCase()}/intro.mp4`
-                          : `/videos/characters/${roomInfo?.characterSlug || "airi"}/intro.mp4`)}  
-                        type="video/mp4" 
-                      />
-                    </video>
+                  <motion.div
+                      className="absolute inset-0"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: [0, 0.55, 0.85] }}
+                      transition={{ duration: 2.0, times: [0, 0.6, 1], ease: "easeInOut" }}
+                      style={{ background: "radial-gradient(58% 42% at 50% 50%, rgba(178,160,255,0.33), rgba(90,80,160,0.12) 55%, transparent 78%)" }}
+                      onAnimationComplete={handleIntroVideoEnd}
+                  />
+                  <motion.div
+                      className="relative text-center pointer-events-none"
+                      initial={{ opacity: 0, scale: 0.96 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 1.1, delay: 0.25 }}
+                  >
+                      <div className="text-white/85 text-xl tracking-[0.4em] font-light">✦</div>
+                      <div className="mt-3 text-white/55 text-[13px] tracking-[0.35em]">꿈으로 건너가는 중</div>
+                  </motion.div>
                   <div className="absolute bottom-10 w-full flex justify-center">
                       {openingReady ? (
                         <button
@@ -3244,7 +3240,7 @@ const ChatPage = () => {
                           스킵 ▶
                         </button>
                       ) : (
-                        <span className="text-white/30 text-xs tracking-widest animate-pulse cursor-pointer">CLICK TO SKIP</span>
+                        <span className="text-white/30 text-xs tracking-widest animate-pulse">CLICK TO SKIP</span>
                       )}
                   </div>
               </motion.div>

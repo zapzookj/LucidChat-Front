@@ -351,7 +351,12 @@ const ExploreCard = ({ item, index, onClick }) => (
 //  메인 컴포넌트
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-export default function StudioPage() {
+/**
+ * [블록 A] embedded — 로비 셸 임베드 모드(2안 확정). true면 셸이 탑바·탭바를 제공하므로
+ * 자체 탑바(로비로/로고/에너지)를 숨기고 높이를 셸 콘텐츠 영역(h-full)에 맞춘다.
+ * URL은 /studio 그대로 — 라우트가 셸 Layout Route 하위로 편입됐을 뿐이다.
+ */
+export default function StudioPage({ embedded = false }) {
   const navigate = useNavigate();
   const routerLocation = useLocation();
   const { user } = useAuth();
@@ -620,7 +625,7 @@ export default function StudioPage() {
   const displayNickname = userInfo?.nickname ?? user?.nickname ?? "";
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-stone-950">
+    <div className={`relative w-full overflow-hidden bg-stone-950 ${embedded ? "h-full rounded-t-3xl" : "h-screen"}`}>
       {/* ═══ 배경 ═══ */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute inset-0 bg-gradient-to-br from-amber-950 via-stone-950 to-orange-950" />
@@ -630,7 +635,8 @@ export default function StudioPage() {
         <div className="absolute bottom-0 inset-x-0 h-1/3 bg-gradient-to-t from-stone-950 to-transparent" />
       </div>
 
-      {/* ═══ Topbar — TheaterPortalPage와 동일 폼팩터 ═══ */}
+      {/* ═══ Topbar — TheaterPortalPage와 동일 폼팩터 (셸 임베드 시 셸 탑바가 대체) ═══ */}
+      {!embedded && (
       <div className="relative z-20 flex items-center justify-between px-5 sm:px-8 py-4">
         <div className="flex items-center gap-3">
           <motion.button
@@ -677,9 +683,10 @@ export default function StudioPage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* ═══ 본문 — 스크롤 가능 ═══ */}
-      <div className="relative z-10 flex-1 overflow-y-auto custom-scrollbar h-[calc(100%-80px)]">
+      <div className={`relative z-10 flex-1 overflow-y-auto custom-scrollbar ${embedded ? "h-full" : "h-[calc(100%-80px)]"}`}>
         <div className="max-w-6xl mx-auto px-5 sm:px-8 py-6 sm:py-10">
           {/* ─── 페이지 헤더 ─── */}
           <motion.div

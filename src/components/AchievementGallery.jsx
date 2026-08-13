@@ -11,7 +11,9 @@ import { sfx } from "../utils/sfx";
 //  우표 컬렉션 스타일로 표시.
 //
 //  Props:
-//    onClose — 갤러리 닫기 콜백
+//    onClose    — 갤러리 닫기 콜백
+//    userScope  — [블록 A 보관함] true면 방 무관 유저 스코프 API(/achievements/gallery) 사용.
+//                 기존 방 URL 경로는 챗 내 열람 호환으로 유지(roomId는 localStorage).
 // ═══════════════════════════════════════════════════════════════
 
 // 업적 카테고리 컬러
@@ -32,7 +34,7 @@ const CATEGORY_STYLES = {
   },
 };
 
-const AchievementGallery = ({ onClose }) => {
+const AchievementGallery = ({ onClose, userScope = false }) => {
   const [gallery, setGallery] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedAchievement, setSelectedAchievement] = useState(null);
@@ -44,8 +46,13 @@ const AchievementGallery = ({ onClose }) => {
   useEffect(() => {
     const fetchGallery = async () => {
       try {
+        // [블록 A] 보관함(유저 스코프)은 방 컨텍스트가 없다 — 전역 갤러리 API 사용.
+        //   구 로비의 '수집품'은 localStorage.roomId 의존이라 방 미진입 신규에게 항상 실패했다.
         const roomId = localStorage.getItem("roomId");
-        const res = await api.get(`/achievements/rooms/${roomId}/gallery`);
+        const path = userScope || !roomId
+          ? "/achievements/gallery"
+          : `/achievements/rooms/${roomId}/gallery`;
+        const res = await api.get(path);
         setGallery(res.data);
       } catch (err) {
         console.error("Failed to fetch achievements", err);
@@ -54,7 +61,7 @@ const AchievementGallery = ({ onClose }) => {
       }
     };
     fetchGallery();
-  }, []);
+  }, [userScope]);
 
   if (loading) {
     return (

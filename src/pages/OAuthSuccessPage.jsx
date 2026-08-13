@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "../api/axios";
 import { motion } from "framer-motion";
+import { resolvePostLoginPath } from "../utils/postLogin";
 
 /**
  * [Phase 5] OAuth 콜백 페이지 — 완전 재작성
@@ -52,8 +53,10 @@ const OAuthSuccessPage = () => {
         //    여기서 필드를 솎아내면 그 필드들이 영구 undefined로 남아 광범위한 게이팅 버그 발생.
         handleOAuthLogin(token, res.data);
 
-        // 4. 로비로 이동
-        navigate("/", { replace: true });
+        // 4. [블록 A] 딥링크 복원 — 게스트가 고른 인연과의 방 생성 직행 / 원래 목적지 복귀 /
+        //    빈손 신규면 '첫 만남' 온보딩. 복원할 것이 없으면 로비.
+        const dest = await resolvePostLoginPath();
+        navigate(dest, { replace: true });
 
       } catch (err) {
         console.error("[OAuth] Failed to fetch user info:", err);

@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Lock, User, ChevronDown, ChevronUp } from "lucide-react";
 import { assetUrl } from "../utils/assetUrl";
 import { sfx } from "../utils/sfx";
+import { resolvePostLoginPath } from "../utils/postLogin";
 
 /**
  * [Phase 5] 로그인 페이지 — 소셜 로그인 중심 재설계
@@ -61,7 +62,11 @@ const LoginPage = () => {
     setIsLoading(true);
     try {
       const success = await login(formData.username, formData.password);
-      if (success) navigate("/");
+      if (success) {
+        // [블록 A] 딥링크 복원 — OAuth 경로와 동일한 사후 처리 (첫 만남 게이트 포함)
+        const dest = await resolvePostLoginPath();
+        navigate(dest, { replace: true });
+      }
       else setError("아이디 또는 비밀번호를 확인해주세요.");
     } catch (err) {
       setError(err.response?.data?.message || "오류가 발생했습니다.");
