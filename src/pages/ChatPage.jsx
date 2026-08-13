@@ -813,6 +813,19 @@ const ChatPage = () => {
     }
   }, [introStep]);
 
+  // [리뷰 P2] 인트로 페이드 auto-dismiss는 첫인사(sceneQueue) 준비 후에만 — 고정 타이머로
+  //   먼저 걷으면 init(LLM 첫인사 생성) 지연 동안 빈 DialogueBox가 노출된다(레이턴시 마스크
+  //   무력화). 준비되면 짧은 여유 후 dismiss, 실패/지연 대비 폴백 타임아웃.
+  useEffect(() => {
+    if (introStep !== 'door') return;
+    if (sceneQueue.length > 0) {
+      const t = setTimeout(() => setIntroStep('none'), 600);
+      return () => clearTimeout(t);
+    }
+    const fallback = setTimeout(() => setIntroStep('none'), 12000);
+    return () => clearTimeout(fallback);
+  }, [introStep, sceneQueue.length]);
+
   useEffect(() => {
     localStorage.setItem("bgmVolume", String(bgmVolume));
   }, [bgmVolume]);

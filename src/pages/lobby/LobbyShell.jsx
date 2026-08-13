@@ -11,6 +11,7 @@ import useDeviceProfile from "../../hooks/useDeviceProfile";
 import LucidStore from "../../components/LucidStore";
 import HelpButton from "../../components/HelpButton";
 import GuestLoginGate from "../../components/lobby/GuestLoginGate";
+import { savePendingAction } from "../../utils/postLogin";
 import { assetUrl } from "../../utils/assetUrl";
 import { TwinkleStar, ShootingStar, isNightTime } from "./lobbyShared";
 
@@ -38,8 +39,12 @@ export default function LobbyShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, refreshUser } = useAuth();
-  const { isMobile } = useDeviceProfile();
+  const { isMobile, width } = useDeviceProfile();
   const guest = !user;
+  // [리뷰 P1] 좁은 데스크톱(768~1023)은 상단 탭+우측 클러스터가 704px 폭을 초과해
+  //   설정/도움말이 화면 밖으로 잘렸다. lg(1024) 미만은 하단 탭바로 통일해 오버플로우를 근본 제거.
+  const showTopTabs = width >= 1024;
+  const showBottomBar = width < 1024;
 
   const [userInfo, setUserInfo] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -181,9 +186,11 @@ export default function LobbyShell() {
       {/* ═══ 셸 골격 ═══ */}
       <div className="relative z-10 flex flex-col h-full">
         {/* ── Top Bar ── */}
-        <header className="flex items-center justify-between px-5 sm:px-8 pt-4 pb-2 flex-shrink-0">
+        <header className="relative flex items-center justify-between px-5 sm:px-8 pt-4 pb-2 flex-shrink-0">
+          {/* [리뷰 P2] 헤더 밴드 전용 스크림 — 주간 배경(밝음) 위 탭·닉네임 대비 확보 */}
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-[68px] bg-gradient-to-b from-black/45 to-transparent" />
           <motion.button
-            className="flex items-center gap-2.5"
+            className="relative flex items-center gap-2.5 flex-shrink-0"
             onClick={() => navigate("/")}
             whileHover={{ scale: 1.03 }}
             aria-label="정거장으로"
@@ -194,17 +201,17 @@ export default function LobbyShell() {
             </span>
           </motion.button>
 
-          {/* 데스크톱 상단 탭 */}
-          {!isMobile && (
-            <nav className="flex items-center gap-1 bg-black/25 backdrop-blur-md rounded-full p-1 border border-white/10">
+          {/* 데스크톱(lg+) 상단 탭 — 좁은 폭은 하단 탭바가 대신함 */}
+          {showTopTabs && (
+            <nav className="relative flex items-center gap-1 bg-black/35 backdrop-blur-md rounded-full p-1 border border-white/10 shadow-lg">
               {TABS.map((t) => (
                 <button
                   key={t.key}
                   onClick={() => handleTab(t)}
                   className={`px-4 py-1.5 rounded-full text-sm transition-colors duration-200 ${
                     activeTab === t.key
-                      ? "bg-violet-400/25 text-white font-semibold"
-                      : "text-white/50 hover:text-white/85"
+                      ? "bg-violet-400/30 text-white font-semibold"
+                      : "text-white/65 hover:text-white drop-shadow"
                   }`}
                 >
                   {t.label}
@@ -213,7 +220,7 @@ export default function LobbyShell() {
             </nav>
           )}
 
-          <div className="flex items-center gap-2.5 sm:gap-3.5">
+          <div className="relative flex items-center gap-2.5 sm:gap-3.5 flex-shrink min-w-0">
             {!guest && (
               <div className="flex items-center gap-1.5 bg-black/20 backdrop-blur-md rounded-full px-3 py-1.5 border border-white/10 text-amber-300">
                 <Zap size={14} />
@@ -221,8 +228,8 @@ export default function LobbyShell() {
               </div>
             )}
             {!guest && (
-              <div className="hidden sm:flex items-center gap-1.5 text-white/60 text-sm">
-                <User size={14} /><span>{displayNickname}</span>
+              <div className="hidden sm:flex items-center gap-1.5 text-white/70 text-sm drop-shadow min-w-0">
+                <User size={14} className="flex-shrink-0" /><span className="truncate max-w-[7rem]">{displayNickname}</span>
               </div>
             )}
             {!guest && (
@@ -254,23 +261,22 @@ export default function LobbyShell() {
         </header>
 
         {/* ── 탭 콘텐츠 ── */}
-        <main className={`flex-1 overflow-y-auto custom-scrollbar ${isMobile ? "pb-[calc(76px+env(safe-area-inset-bottom))]" : "pb-8"}`}>
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.25 }}
-              className="h-full"
-            >
-              <Outlet context={outletContext} />
-            </motion.div>
-          </AnimatePresence>
+        {/* [리뷰 P2] 단일 Outlet에 AnimatePresence(mode=wait)+exit를 걸면 잔류하는 exit 래퍼가
+            *도착* 탭을 재생해 이중 페이드가 났다. exit를 없애고 key remount 시 enter만 재생. */}
+        <main className={`flex-1 overflow-y-auto custom-scrollbar ${showBottomBar ? "pb-[calc(76px+env(safe-area-inset-bottom))]" : "pb-8"}`}>
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
+            className="h-full"
+          >
+            <Outlet context={outletContext} />
+          </motion.div>
         </main>
 
-        {/* ── 모바일 하단 탭바 ── */}
-        {isMobile && (
+        {/* ── 하단 탭바 (모바일 + 좁은 데스크톱) ── */}
+        {showBottomBar && (
           <nav className="fixed bottom-0 left-0 right-0 z-30 flex items-stretch gap-1 px-3 pt-2 pb-[calc(10px+env(safe-area-inset-bottom))] bg-[#0c0c18]/85 backdrop-blur-xl border-t border-white/10">
             {TABS.map((t) => {
               const on = activeTab === t.key;
@@ -318,7 +324,13 @@ export default function LobbyShell() {
             guest={guest}
             onClose={() => setShowSettings(false)}
             onLogout={handleLogout}
-            onLogin={() => { setShowSettings(false); navigate("/login"); }}
+            onLogin={() => {
+              // [리뷰 P2] 설정발 로그인은 '현재 위치 복귀'가 의도 — 신선한 route 액션으로
+              //   덮어써 이전 게이트/보호경로가 남긴 묵은 startChat·목적지 소비를 차단.
+              setShowSettings(false);
+              savePendingAction({ type: "route", path: location.pathname });
+              navigate("/login");
+            }}
             bgmOn={bgmOn}
             onToggleBgm={toggleBgm}
           />

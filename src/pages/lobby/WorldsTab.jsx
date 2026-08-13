@@ -92,7 +92,21 @@ export default function WorldsTab() {
         </div>
       )}
 
-      {worlds !== null && (
+      {/* [리뷰 P2] 공식·UGC 모두 비었을 때(빈 목록 또는 fetch 실패) 죽은 화면 방지 */}
+      {worlds !== null && officialCards.length === 0 && ugcCards.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 text-white/35">
+          <Sparkles size={30} className="mb-3 opacity-40" />
+          <p className="text-sm">아직 열린 세계관이 없어요</p>
+          <button
+            onClick={() => navigate("/")}
+            className="mt-3 px-4 py-2 rounded-full text-xs font-bold text-slate-900 bg-gradient-to-r from-violet-300 to-sky-300 hover:from-violet-200 hover:to-sky-200 transition-colors"
+          >
+            정거장에서 인연 만나기
+          </button>
+        </div>
+      )}
+
+      {worlds !== null && officialCards.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {officialCards.map((w) => (
             <WorldCard

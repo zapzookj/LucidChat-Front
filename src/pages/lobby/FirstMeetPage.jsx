@@ -78,7 +78,11 @@ export default function FirstMeetPage() {
         <div className="absolute inset-0 bg-[radial-gradient(80%_60%_at_50%_0%,rgba(36,29,69,0.55),transparent_70%)]" />
       </div>
 
-      <div className="relative z-10 h-full overflow-y-auto custom-scrollbar flex flex-col items-center justify-center px-6 py-10">
+      {/* [리뷰 P2] 스크롤 컨테이너(overflow)와 센터링(justify-center)을 분리 —
+          한 요소가 둘 다이면 짧은 뷰포트에서 상단(H1)이 스크롤로 도달 불가해진다.
+          바깥=스크롤, 안쪽=min-h-full 센터링. */}
+      <div className="relative z-10 h-full overflow-y-auto custom-scrollbar">
+      <div className="min-h-full flex flex-col items-center justify-center px-5 sm:px-6 py-10">
         <motion.h1
           className="text-xl sm:text-2xl font-bold text-white tracking-wide text-center"
           initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
@@ -101,7 +105,9 @@ export default function FirstMeetPage() {
         )}
 
         {feed !== null && (
-          <div className="flex gap-3 sm:gap-5">
+          // [리뷰 P1] 3카드 고정폭(w-36=144px×3)이 모든 폰(342px)을 초과해 양옆이 잘렸다.
+          //   폭 상한을 둔 유동폭(flex-1 + max-w)으로 3장이 항상 나란히 들어오게 한다.
+          <div className="flex gap-2.5 sm:gap-5 w-full max-w-md sm:max-w-none sm:w-auto justify-center">
             {picks.map((c, i) => {
               const diff = DIFFICULTY_META[c.difficulty];
               const on = c.characterId === selectedId;
@@ -109,7 +115,7 @@ export default function FirstMeetPage() {
                 <motion.button
                   key={c.characterId}
                   onClick={() => setSelectedId(c.characterId)}
-                  className={`relative w-36 sm:w-44 rounded-2xl overflow-hidden border text-left transition-all duration-300 ${
+                  className={`relative flex-1 min-w-0 max-w-[8.5rem] sm:flex-none sm:w-44 sm:max-w-none rounded-2xl overflow-hidden border text-left transition-all duration-300 ${
                     on
                       ? "border-violet-300/70 shadow-[0_0_36px_rgba(147,130,255,0.35)] scale-[1.03]"
                       : "border-white/12 opacity-75 hover:opacity-100"
@@ -119,7 +125,7 @@ export default function FirstMeetPage() {
                   transition={{ delay: 0.2 + i * 0.12, type: "spring", stiffness: 160, damping: 20 }}
                   whileTap={{ scale: 0.97 }}
                 >
-                  <div className="relative h-44 sm:h-52 bg-gradient-to-b from-indigo-900/50 to-slate-900 overflow-hidden">
+                  <div className="relative h-40 sm:h-52 bg-gradient-to-b from-indigo-900/50 to-slate-900 overflow-hidden">
                     {(c.thumbnailUrl || c.defaultImageUrl) && (
                       <img src={c.thumbnailUrl || c.defaultImageUrl} alt={c.name} className="w-full h-full object-cover object-top" draggable={false} />
                     )}
@@ -160,6 +166,7 @@ export default function FirstMeetPage() {
         >
           먼저 둘러볼게요
         </motion.button>
+      </div>
       </div>
     </div>
   );

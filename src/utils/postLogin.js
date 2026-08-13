@@ -11,10 +11,13 @@ import api from "../api/axios";
  *   { type: "route", path }                            — 원래 가려던 화면으로 복귀
  */
 const KEY = "lucid:pendingAction";
+// [리뷰 P2] 만료 규칙 — 로그인 페이지에서 이탈했다가 한참 뒤 다른 진입점으로 로그인하면
+//   묵은 액션이 소비돼 엉뚱한 곳(방 생성 포함)으로 착지했다. 짧은 TTL로 누수 차단.
+const TTL_MS = 10 * 60 * 1000;
 
 export function savePendingAction(action) {
   try {
-    sessionStorage.setItem(KEY, JSON.stringify(action));
+    sessionStorage.setItem(KEY, JSON.stringify({ action, ts: Date.now() }));
   } catch {
     /* sessionStorage 불가 환경 — 복원 없이 로그인만 진행 */
   }
@@ -23,7 +26,17 @@ export function savePendingAction(action) {
 export function peekPendingAction() {
   try {
     const raw = sessionStorage.getItem(KEY);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // 구/신 포맷 호환: {action, ts} 래핑이 정상, 과거 평면 객체는 액션 자체로 간주
+    if (parsed && typeof parsed === "object" && "action" in parsed && "ts" in parsed) {
+      if (Date.now() - parsed.ts > TTL_MS) {
+        clearPendingAction();
+        return null;
+      }
+      return parsed.action;
+    }
+    return parsed;
   } catch {
     return null;
   }
