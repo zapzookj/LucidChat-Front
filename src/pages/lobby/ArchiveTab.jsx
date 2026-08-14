@@ -1,46 +1,134 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { useNavigate, useOutletContext } from "react-router-dom";
-import { AnimatePresence, motion } from "framer-motion";
-import { Sparkles, ChevronRight, Trophy, Images, UserRound, Archive } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
 import api from "../../api/axios";
 import { fetchMyTheaterSessions } from "../../api/TheaterLobbyApi";
 import AchievementGallery from "../../components/AchievementGallery";
-import IllustrationGalleryPage from "../../pages/IllustrationGalleryPage";
+import IllustrationGalleryPage from "../IllustrationGalleryPage";
 import PersonaManager from "../../components/persona/PersonaManager";
-import { DialogueRoomCard, TheaterSessionCard } from "./lobbyShared";
+import { assetUrl } from "../../utils/assetUrl";
+import { formatRelativeTime } from "./lobbyShared";
+import {
+  LobbyContainer, PageHead, ModeBadge, fallbackGrad,
+  SkeletonRow, EmptyState, ErrorState, RATE_LIMIT_MSG,
+} from "./lobbyUi";
 
 /**
- * [블록 A] 보관함 탭 — 기억의 끈 + 페르소나 + 수집품 통합 (docs/14 §B 확정).
- * 흩어져 있던 세 입구(비활성 메뉴·깨진 수집품·챗 속 갤러리)가 한 곳에 모인다.
+ * [블록 A R2] 보관함 탭 — 인탭 세그먼트 단일 체계 (디자인 정본: aichat
+ * docs/15_assets/lobby_redesign_mockup.html '보관함' 화면 · 설계 문서 §5 확정).
  *
- * - 기억의 끈: Dialogue+Theater 세션 통합 리스트 + 극장 아카이브 최초 연결
- * - 페르소나: 카드 갤러리/빌더(PersonaManager) — 내용물은 블록 B(렌즈 5축)가 교체 예정
- * - 수집품: 업적(유저 스코프 신설 API — 구 방 스코프 의존 결함 해소) + 일러스트 갤러리
+ * 구 R1의 3종 혼재 표현(페르소나 모달·업적 드로어·일러스트 풀스크린)을 전부 걷어내고
+ * 대화 기록 / 페르소나 / 업적 / 일러스트 4세그가 같은 자리에서 전환된다.
+ *  - /archive?tab=talk|persona|ach|illust 동기화 — 뒤로가기로 세그 복원
+ *  - 대화 기록: Dialogue(/lobby/rooms) + Theater(fetchMyTheaterSessions) 병합,
+ *    lastActiveAt 내림차순. 극장 아카이브는 팬 하단 조용한 링크로 병합.
+ *  - 페르소나/업적/일러스트: 각 컴포넌트 embedded 모드(크롬 제거)로 데이터 배선 계승
+ *  - 상태(로딩/빈/오류)는 정본 '상태' 화면 매트릭스 — 오류는 세그 영역만 교체 + 재시도
+ *
+ * 게스트는 셸에서 탭 클릭 시점에 로그인 시트로 차단된다(화면 진입 없음).
  */
+
+const SEGMENTS = [
+  { key: "talk",    label: "대화 기록" },
+  { key: "persona", label: "페르소나" },
+  { key: "ach",     label: "업적" },
+  { key: "illust",  label: "일러스트" },
+];
+const SEG_KEYS = new Set(SEGMENTS.map((s) => s.key));
+
 export default function ArchiveTab() {
   const navigate = useNavigate();
   const { enterRoom } = useOutletContext();
+  const [searchParams, setSearchParams] = useSearchParams();
 
+  const rawTab = searchParams.get("tab");
+  const tab = SEG_KEYS.has(rawTab) ? rawTab : "talk";
+
+  return (
+    <LobbyContainer>
+      <PageHead
+        title="보관함"
+        desc="나눈 대화와 수집한 순간들, 내 페르소나까지 한곳에 모았어요."
+      />
+
+      {/* ── 세그먼트 컨트롤 (알약형 — 목업 .seg) ── */}
+      <div
+        role="tablist"
+        aria-label="보관함 분류"
+        className="flex gap-1 mt-6 p-1 rounded-full bg-white/[0.035] border border-white/[0.09] w-full sm:w-fit"
+      >
+        {SEGMENTS.map((s) => {
+          const on = tab === s.key;
+          return (
+            <button
+              key={s.key}
+              role="tab"
+              id={`archive-tab-${s.key}`}
+              aria-selected={on}
+              aria-controls={`archive-pane-${s.key}`}
+              onClick={() => { if (tab !== s.key) setSearchParams({ tab: s.key }); }}
+              className={`flex-1 sm:flex-none px-0 sm:px-5 py-2 rounded-full text-lb-meta font-semibold transition-colors duration-150 ${
+                on ? "bg-violet-400/[0.16] text-white" : "text-lobby-tx1 hover:text-white"
+              }`}
+            >
+              {s.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── 세그먼트 팬 — 활성 세그만 마운트 (전환 페이드는 셸 담당, 추가 모션 금지) ── */}
+      <div
+        role="tabpanel"
+        id={`archive-pane-${tab}`}
+        aria-labelledby={`archive-tab-${tab}`}
+        className="mt-6"
+      >
+        {tab === "talk" && <TalkPane navigate={navigate} enterRoom={enterRoom} />}
+        {tab === "persona" && <PersonaManager embedded />}
+        {tab === "ach" && <AchievementGallery embedded userScope />}
+        {tab === "illust" && <IllustrationGalleryPage embedded />}
+      </div>
+    </LobbyContainer>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  대화 기록 팬 — Dialogue + Theater 병합 리스트 (목업 .rrow)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function TalkPane({ navigate, enterRoom }) {
+  const [status, setStatus] = useState("loading"); // loading | ready | error | rate(429)
   const [rooms, setRooms] = useState([]);
   const [theaterSessions, setTheaterSessions] = useState([]);
-  const [loaded, setLoaded] = useState(false);
-  const [showAchievements, setShowAchievements] = useState(false);
-  const [showIllustrations, setShowIllustrations] = useState(false);
-  const [showPersona, setShowPersona] = useState(false);
-  const [storeCharacters, setStoreCharacters] = useState([]);
+  const [reloadKey, setReloadKey] = useState(0); // 재시도 트리거 (이펙트 내 동기 setState 회피)
 
-  const load = useCallback(async () => {
-    const [r, t] = await Promise.all([
-      api.get("/lobby/rooms").then((res) => res.data).catch(() => []),
-      fetchMyTheaterSessions().catch(() => []),
-    ]);
-    setRooms(r || []);
-    setTheaterSessions(t || []);
-    setLoaded(true);
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const [r, t] = await Promise.allSettled([
+        api.get("/lobby/rooms").then((res) => res.data),
+        fetchMyTheaterSessions(),
+      ]);
+      if (!alive) return;
+      // 부분 실패 허용 — 양쪽 다 실패했을 때만 세그 영역 오류(정본 상태 매트릭스)
+      if (r.status === "rejected" && t.status === "rejected") {
+        const rate = [r.reason, t.reason].some((e) => e?.response?.status === 429);
+        setStatus(rate ? "rate" : "error");
+        return;
+      }
+      setRooms(r.status === "fulfilled" ? r.value || [] : []);
+      setTheaterSessions(t.status === "fulfilled" ? t.value || [] : []);
+      setStatus("ready");
+    })();
+    return () => { alive = false; };
+  }, [reloadKey]);
 
-  const mergedRooms = useMemo(() => {
+  const retry = () => {
+    setStatus("loading");
+    setReloadKey((k) => k + 1);
+  };
+
+  const entries = useMemo(() => {
     const all = [
       ...(rooms || []).map((r) => ({ ...r, type: "DIALOGUE" })),
       ...(theaterSessions || []).map((s) => ({ ...s, type: "THEATER" })),
@@ -49,162 +137,133 @@ export default function ArchiveTab() {
     return all;
   }, [rooms, theaterSessions]);
 
-  const handleContinue = (roomId, type, chatMode) => {
-    if (type === "THEATER") return enterRoom(`/theater/${roomId}`);
-    localStorage.setItem("roomId", roomId);
-    enterRoom(chatMode === "STORY" ? `/v2/chat/${roomId}` : `/chat/${roomId}`);
+  const handleOpen = (entry) => {
+    if (entry.type === "THEATER") return enterRoom(`/theater/${entry.roomId}`);
+    localStorage.setItem("roomId", entry.roomId);
+    enterRoom(entry.chatMode === "STORY" ? `/v2/chat/${entry.roomId}` : `/chat/${entry.roomId}`);
   };
 
-  // 일러 갤러리의 캐릭터 필터용 목록 (lazy)
-  const openIllustrations = async () => {
-    setShowIllustrations(true);
-    if (storeCharacters.length === 0) {
-      try { setStoreCharacters((await api.get("/lobby/characters")).data); } catch { /* 필터만 영향 */ }
-    }
-  };
+  if (status === "loading") {
+    return (
+      <div>
+        {Array.from({ length: 4 }).map((_, i) => <SkeletonRow key={i} />)}
+      </div>
+    );
+  }
+
+  if (status === "error" || status === "rate") {
+    return <ErrorState message={status === "rate" ? RATE_LIMIT_MSG : undefined} onRetry={retry} />;
+  }
+
+  // 극장 아카이브 — 조용한 링크(대화 기록에 병합된 극장의 지난 관람 입구)
+  const theaterArchiveLink = (
+    <div className="mt-1 flex justify-end">
+      <button
+        onClick={() => navigate("/theater/archive")}
+        className="py-1 text-lb-meta text-lobby-tx2 hover:text-violet-300 transition-colors"
+      >
+        극장 아카이브 ›
+      </button>
+    </div>
+  );
+
+  if (entries.length === 0) {
+    return (
+      <div>
+        <EmptyState
+          title="아직 나눈 대화가 없어요"
+          desc="첫 이야기를 시작하면 여기에 기록돼요"
+          ctaLabel="캐릭터 만나러 가기"
+          onCta={() => navigate("/")}
+        />
+        {theaterArchiveLink}
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-8">
-      <div className="mt-2 mb-4">
-        <h1 className="text-lg font-bold text-white flex items-center gap-2">
-          <Archive size={18} className="text-violet-300" />
-          보관함
-          <span className="text-xs font-medium text-white/30 tracking-[0.2em] uppercase ml-1">Archive</span>
-        </h1>
-        <p className="text-xs text-white/35 mt-1">당신의 이야기와 기억이 쌓이는 곳이에요.</p>
-      </div>
-
-      {/* ── 페르소나 · 수집품 카드 행 ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-7">
-        <SectionCard
-          Icon={UserRound}
-          tint="violet"
-          title="페르소나"
-          sub="이야기 속의 '나'를 매만져요"
-          onClick={() => setShowPersona(true)}
+    <div>
+      {entries.map((entry) => (
+        <TalkRow
+          key={`${entry.type}-${entry.roomId}`}
+          entry={entry}
+          onOpen={() => handleOpen(entry)}
         />
-        <SectionCard
-          Icon={Trophy}
-          tint="amber"
-          title="업적"
-          sub="해금한 순간들의 우표 컬렉션"
-          onClick={() => setShowAchievements(true)}
-        />
-        <SectionCard
-          Icon={Images}
-          tint="sky"
-          title="일러스트"
-          sub="함께한 장면들의 갤러리"
-          onClick={openIllustrations}
-        />
-      </div>
-
-      {/* ── 기억의 끈 ── */}
-      <div className="flex items-end justify-between mb-3">
-        <h2 className="text-sm font-bold tracking-[0.12em] text-violet-200/80 flex items-center gap-2">
-          <Sparkles size={14} className="text-violet-300" />
-          기억의 끈
-          <span className="text-[10px] text-white/25 tracking-[0.2em] uppercase">Continue</span>
-        </h2>
-        <button
-          onClick={() => navigate("/theater/archive")}
-          className="flex items-center gap-0.5 text-[12px] text-white/40 hover:text-white/75 transition-colors"
-        >
-          극장 아카이브 <ChevronRight size={13} />
-        </button>
-      </div>
-
-      {!loaded && (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="rounded-xl bg-white/[0.03] border border-white/5 h-20 animate-pulse" />
-          ))}
-        </div>
-      )}
-
-      {loaded && mergedRooms.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-14 text-white/30">
-          <Sparkles size={32} className="mb-3 opacity-40" />
-          <p className="text-sm">아직 시작한 이야기가 없어요</p>
-          <button
-            onClick={() => navigate("/")}
-            className="mt-3 px-4 py-2 rounded-full text-xs font-bold text-slate-900 bg-gradient-to-r from-violet-300 to-sky-300 hover:from-violet-200 hover:to-sky-200 transition-colors"
-          >
-            정거장에서 인연 만나기
-          </button>
-        </div>
-      )}
-
-      {loaded && mergedRooms.length > 0 && (
-        <div className="space-y-3 max-w-2xl">
-          {mergedRooms.map((entry) =>
-            entry.type === "THEATER" ? (
-              <TheaterSessionCard
-                key={`T-${entry.roomId}`}
-                session={entry}
-                onSelect={(id) => handleContinue(id, "THEATER")}
-              />
-            ) : (
-              <DialogueRoomCard
-                key={`D-${entry.roomId}`}
-                room={entry}
-                onSelect={(id, chatMode) => handleContinue(id, "DIALOGUE", chatMode)}
-              />
-            )
-          )}
-        </div>
-      )}
-
-      {/* ── 오버레이 ── */}
-      <AnimatePresence>
-        {showAchievements && (
-          <motion.div
-            className="fixed inset-y-0 right-0 w-full md:w-[440px] z-[70] bg-slate-950/97 backdrop-blur-xl border-l border-white/10 flex flex-col"
-            initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }}
-            transition={{ type: "spring", stiffness: 280, damping: 30 }}
-          >
-            <AchievementGallery userScope onClose={() => setShowAchievements(false)} />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <IllustrationGalleryPage
-        isOpen={showIllustrations}
-        onClose={() => setShowIllustrations(false)}
-        characters={storeCharacters}
-      />
-
-      <PersonaManager open={showPersona} onClose={() => setShowPersona(false)} />
+      ))}
+      {theaterArchiveLink}
     </div>
   );
 }
 
-const TINTS = {
-  violet: "border-violet-300/25 hover:border-violet-300/50 text-violet-300 from-violet-400/10",
-  amber:  "border-amber-300/25 hover:border-amber-300/50 text-amber-300 from-amber-400/10",
-  sky:    "border-sky-300/25 hover:border-sky-300/50 text-sky-300 from-sky-400/10",
-};
+/** 대화 기록 행 — 44px 원형 썸네일 + 이름·모드 배지 + 보조 줄 + 상대시간 */
+function TalkRow({ entry, onOpen }) {
+  const theater = entry.type === "THEATER";
+  const story = !theater && entry.chatMode === "STORY";
 
-function SectionCard({ Icon, tint, title, sub, onClick }) {
-  const cls = TINTS[tint] || TINTS.violet;
+  const name = theater
+    ? (entry.worldDisplayName || "극장 세션")
+    : (entry.characterName || "캐릭터");
+
+  const thumbUrl = theater
+    ? entry.leadHeroineThumbnailUrl ||
+      (entry.leadHeroineSlug ? assetUrl(`/characters/${entry.leadHeroineSlug}/thumb.jpg`) : null)
+    : entry.characterThumbnailUrl || null;
+
+  const mode = theater ? "THEATER" : story ? "STORY" : "SANDBOX";
+
+  // 배지 서픽스 — 목업: "스토리 · 2장" / "극장 · 관람 중" (응답에 있을 때만)
+  const suffix = theater
+    ? (entry.endingReached ? undefined : "관람 중")
+    : story && entry.currentChapter
+      ? `${entry.currentChapter}장`
+      : undefined;
+
+  // 보조 줄 — 스토리/극장은 진행 정보, 자유는 관계 태그(있으면)
+  let sub = null;
+  if (theater) {
+    sub = entry.endingReached
+      ? (entry.endingTitle || "엔딩에 도달했어요")
+      : [
+          `${entry.currentAct ?? 1}막 ${entry.currentChapter ?? 1}장 진행 중`,
+          entry.leadHeroineName,
+        ].filter(Boolean).join(" · ");
+  } else if (story) {
+    sub = entry.endingReached
+      ? (entry.endingTitle || "엔딩에 도달했어요")
+      : entry.currentChapter
+        ? `${entry.currentChapter}장 진행 중`
+        : entry.dynamicRelationTag || null;
+  } else {
+    sub = entry.dynamicRelationTag || null;
+  }
+
   return (
-    <motion.button
-      onClick={onClick}
-      className={`relative rounded-2xl border bg-white/[0.03] px-4 py-4 text-left overflow-hidden transition-colors duration-200 ${cls}`}
-      whileHover={{ y: -2 }}
-      whileTap={{ scale: 0.985 }}
+    <button
+      onClick={onOpen}
+      className="w-full flex items-center gap-4 px-[18px] py-3.5 mb-3 rounded-2xl text-left bg-white/[0.035] border border-white/[0.09] hover:border-violet-400/45 hover:bg-white/[0.06] transition-colors duration-150"
     >
-      <div className={`absolute inset-0 bg-gradient-to-br to-transparent opacity-60 ${cls.split(" ").pop()}`} />
-      <div className="relative flex items-center gap-3">
-        <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-black/25 border border-white/10">
-          <Icon size={18} />
+      {/* 그라데이션을 항상 뒤에 깔아 이미지 404 시 폴백으로 강등 */}
+      <span className={`relative w-11 h-11 rounded-full overflow-hidden flex-none flex items-center justify-center ${fallbackGrad(name)}`}>
+        <span className="absolute inset-0 flex items-center justify-center text-[15px] font-bold text-white/85">{name?.[0] ?? ""}</span>
+        {thumbUrl && (
+          <img
+            src={thumbUrl} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false}
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        )}
+      </span>
+      <span className="block flex-1 min-w-0">
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="text-lb-card font-bold text-white truncate">{name}</span>
+          <span className="flex-none"><ModeBadge mode={mode} suffix={suffix} /></span>
         </span>
-        <div className="min-w-0">
-          <div className="text-[14px] font-bold text-white">{title}</div>
-          <div className="text-[11px] text-white/40 truncate">{sub}</div>
-        </div>
-        <ChevronRight size={15} className="ml-auto text-white/25" />
-      </div>
-    </motion.button>
+        {sub && (
+          <span className="block text-lb-meta text-lobby-tx1 truncate mt-0.5">{sub}</span>
+        )}
+      </span>
+      <span className="text-lb-meta text-lobby-tx2 flex-none">
+        {formatRelativeTime(entry.lastActiveAt)}
+      </span>
+    </button>
   );
 }

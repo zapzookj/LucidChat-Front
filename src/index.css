@@ -4,6 +4,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* [블록 A R2] 전역 포커스 링 — 키보드 내비게이션 (디자인 정본 구현 계약) */
+:is(a, button, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.55);
+}
+
 html, body {
   margin: 0;
   padding: 0;

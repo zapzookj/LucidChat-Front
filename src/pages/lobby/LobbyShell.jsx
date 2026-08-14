@@ -2,8 +2,8 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Zap, User, Settings, X, LogOut, LogIn, Volume2, VolumeX, Gem,
-  Sparkles, Globe2, Palette, Archive as ArchiveIcon,
+  Zap, X, LogOut, LogIn, Volume2, VolumeX,
+  Home, BookOpen, Palette, Archive as ArchiveIcon,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../api/axios";
@@ -13,24 +13,28 @@ import HelpButton from "../../components/HelpButton";
 import GuestLoginGate from "../../components/lobby/GuestLoginGate";
 import { savePendingAction } from "../../utils/postLogin";
 import { assetUrl } from "../../utils/assetUrl";
-import { TwinkleStar, ShootingStar, isNightTime } from "./lobbyShared";
+import { getPrefGender, hasAnsweredPref, setPrefGender } from "../../utils/preference";
+import { TwinkleStar, ShootingStar } from "./lobbyShared";
 
 /**
- * [블록 A] Lucid Station 셸 — 플랫폼형 로비의 상주 레이아웃(A′ 확정안, docs/14 §B).
+ * [블록 A R2] 로비 셸 — 재설계 정본(aichat docs/15_assets/lobby_redesign_mockup.html) 구현.
  *
- * <p>탭 4개(정거장/세계관/스튜디오/보관함)가 IA의 전부다. 모바일=하단 탭바(세이프에어리어),
- * 데스크톱=상단 탭. 자식 라우트(Outlet)가 탭 콘텐츠 — 스튜디오도 셸 임베드(2안 확정,
- * 2026-08-13 종원)라 탭바가 상주하고 URL(/studio)은 유지된다.
+ * <p>탭 4(기능형 라벨 확정): 홈 / 스토리 / 스튜디오 / 보관함. 데스크톱(≥1024)=탑바 중앙 탭,
+ * 그 미만=하단 탭바. 배경은 사진 에셋 대신 토큰 배경(#0b0b10)+보라 글로우+별 파티클 —
+ * 에셋 유무와 무관하게 완성형으로 보이는 것이 설계 목표.
  *
- * <p>게스트(비로그인)도 셸에 진입한다 — 탐색은 전부 허용, 행동은 requireLogin 게이트.
- * 사운드 정책: 로비 BGM은 설정 옵트인(기본 꺼짐), 호버·클릭 SFX 없음.
+ * <p>게스트 게이트 규칙(단일 선언): 탐색 전부 열림, 행동 시점에만 로그인 시트.
+ * 보관함·스튜디오 탭은 게스트 클릭 시 시트(업적 API도 인증 필수).
+ *
+ * <p>보존: BGM 옵트인(lucid:lobbyBgm) · enterRoom 페이드 · postLogin 딥링크 체계 ·
+ * 설정발 로그인의 pendingAction 덮어쓰기 · 사운드 정책(호버/클릭 SFX 금지).
  */
 
 const TABS = [
-  { key: "home",    path: "/",        label: "정거장",   sub: "Station", Icon: Sparkles,    guestOk: true },
-  { key: "worlds",  path: "/worlds",  label: "세계관",   sub: "Worlds",  Icon: Globe2,      guestOk: true },
-  { key: "studio",  path: "/studio",  label: "스튜디오", sub: "Studio",  Icon: Palette,     guestOk: false },
-  { key: "archive", path: "/archive", label: "보관함",   sub: "Archive", Icon: ArchiveIcon, guestOk: false },
+  { key: "home",    path: "/",        label: "홈",       Icon: Home,        guestOk: true },
+  { key: "story",   path: "/story",   label: "스토리",   Icon: BookOpen,    guestOk: true },
+  { key: "studio",  path: "/studio",  label: "스튜디오", Icon: Palette,     guestOk: false },
+  { key: "archive", path: "/archive", label: "보관함",   Icon: ArchiveIcon, guestOk: false },
 ];
 
 const BGM_OPT_KEY = "lucid:lobbyBgm"; // "on"만 재생 — 기본 꺼짐(옵트인)
@@ -39,12 +43,18 @@ export default function LobbyShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, refreshUser } = useAuth();
-  const { isMobile, width } = useDeviceProfile();
+  const { isMobile } = useDeviceProfile();
   const guest = !user;
-  // [리뷰 P1] 좁은 데스크톱(768~1023)은 상단 탭+우측 클러스터가 704px 폭을 초과해
-  //   설정/도움말이 화면 밖으로 잘렸다. lg(1024) 미만은 하단 탭바로 통일해 오버플로우를 근본 제거.
-  const showTopTabs = width >= 1024;
-  const showBottomBar = width < 1024;
+  // 탭 배치는 라이브 뷰포트 폭 기준 — useDeviceProfile.width는 프로필 변경 시에만
+  // 리렌더되어 1024px 경계 리사이즈를 놓친다(R1 크리틱 확정 결함). 직접 추적.
+  const [vw, setVw] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setVw(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  const showTopTabs = vw >= 768;
+  const showBottomBar = vw < 768;
 
   const [userInfo, setUserInfo] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -69,7 +79,7 @@ export default function LobbyShell() {
   }, [guest]);
   useEffect(() => { refreshUserInfo(); }, [refreshUserInfo]);
 
-  // ── 로비 BGM — 옵트인일 때만 로드/재생 (docs/14 §B: 기본 제거·설정 옵트인) ──
+  // ── 로비 BGM — 옵트인일 때만 로드/재생 ──
   useEffect(() => {
     if (!bgmOn) {
       if (bgmRef.current) { bgmRef.current.pause(); bgmRef.current = null; }
@@ -122,7 +132,7 @@ export default function LobbyShell() {
   // ── 게스트 행동 게이트 ──
   const requireLogin = useCallback((gateSpec) => setGate(gateSpec || { action: null }), []);
 
-  // ── 상점 (멤버 전용 — 시크릿 상품 대상 캐릭터 목록 lazy 로드) ──
+  // ── 상점 (멤버 전용 — 에너지 필 클릭으로 진입) ──
   const openStore = useCallback(async (tab = "energy") => {
     if (guest) {
       setGate({ action: { type: "route", path: location.pathname }, title: "로그인이 필요해요", message: "충전과 구독은 로그인 후 이용할 수 있어요." });
@@ -136,13 +146,14 @@ export default function LobbyShell() {
   }, [guest, location.pathname, storeCharacters.length]);
 
   const handleTab = (tab) => {
+    if (activeTab === tab.key) return; // 동일 URL 히스토리 중복 push 방지
     if (guest && !tab.guestOk) {
       setGate({
         action: { type: "route", path: tab.path },
         title: tab.key === "studio" ? "스튜디오는 로그인 후 열려요" : "보관함은 로그인 후 열려요",
         message: tab.key === "studio"
-          ? "나만의 인연을 만들려면 로그인이 필요해요."
-          : "기억의 끈과 수집품은 당신의 이야기가 쌓이는 곳이에요.",
+          ? "나만의 캐릭터를 만들려면 로그인이 필요해요."
+          : "나눈 대화와 수집한 순간들이 여기에 모여요.",
       });
       return;
     }
@@ -158,9 +169,8 @@ export default function LobbyShell() {
 
   const displayEnergy = userInfo?.energy ?? user?.energy ?? 0;
   const displayNickname = userInfo?.nickname ?? user?.nickname ?? "";
-  const stars = useMemo(() => Array.from({ length: 60 }, () => ({ left: `${Math.random() * 100}%`, top: `${Math.random() * 60}%` })), []);
-  const shootingStars = useMemo(() => [0, 4.5, 9, 14.5, 20].map((delay) => ({ delay, startX: Math.random() * 80, startY: Math.random() * 35 })), []);
-  const lobbyBg = isNightTime() ? assetUrl("/backgrounds/bg_lobby_night.png") : assetUrl("/backgrounds/bg_lobby_day.png");
+  const stars = useMemo(() => Array.from({ length: 36 }, () => ({ left: `${Math.random() * 100}%`, top: `${Math.random() * 45}%` })), []);
+  const shootingStars = useMemo(() => [3, 11, 21].map((delay) => ({ delay, startX: Math.random() * 80, startY: Math.random() * 30 })), []);
 
   const outletContext = useMemo(() => ({
     guest, user, userInfo, refreshUserInfo, refreshUser,
@@ -168,14 +178,17 @@ export default function LobbyShell() {
   }), [guest, user, userInfo, refreshUserInfo, refreshUser, requireLogin, openStore, enterRoom, isMobile]);
 
   return (
-    <div className="relative w-full h-full overflow-hidden select-none">
-      {/* ═══ 배경 — 자각몽 정거장 ═══ */}
-      <div className="absolute inset-0">
-        <img src={lobbyBg} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false} />
-        <div className="absolute inset-0 bg-black/30" />
-        {isNightTime() && stars.map((style, i) => <TwinkleStar key={i} style={style} />)}
-        {isNightTime() && shootingStars.map((s, i) => <ShootingStar key={i} {...s} />)}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0b0b14]/90 via-[#0b0b14]/40 to-transparent" />
+    <div className="relative w-full h-full overflow-hidden select-none bg-lobby-bg">
+      {/* ═══ 배경 — 토큰 배경 + 보라 글로우 + 별 (에셋 무의존) ═══ */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div
+          className="absolute inset-0"
+          style={{ background: "radial-gradient(1200px 500px at 50% -8%, rgba(139,110,247,0.14), transparent 60%)" }}
+        />
+        <div className="absolute inset-0 opacity-50">
+          {stars.map((style, i) => <TwinkleStar key={i} style={style} />)}
+          {shootingStars.map((s, i) => <ShootingStar key={i} {...s} />)}
+        </div>
       </div>
 
       {/* ═══ 입장 페이드아웃 ═══ */}
@@ -185,84 +198,88 @@ export default function LobbyShell() {
 
       {/* ═══ 셸 골격 ═══ */}
       <div className="relative z-10 flex flex-col h-full">
-        {/* ── Top Bar ── */}
-        <header className="relative flex items-center justify-between px-5 sm:px-8 pt-4 pb-2 flex-shrink-0">
-          {/* [리뷰 P2] 헤더 밴드 전용 스크림 — 주간 배경(밝음) 위 탭·닉네임 대비 확보 */}
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-[68px] bg-gradient-to-b from-black/45 to-transparent" />
-          <motion.button
-            className="relative flex items-center gap-2.5 flex-shrink-0"
-            onClick={() => navigate("/")}
-            whileHover={{ scale: 1.03 }}
-            aria-label="정거장으로"
-          >
-            <img src={assetUrl("/logo_icon.png")} alt="" className="h-7 sm:h-8 drop-shadow-lg" onError={(e) => { e.target.style.display = "none"; }} />
-            <span className="text-lg sm:text-xl font-bold text-white tracking-[0.12em] drop-shadow-lg">
-              LUCID <span className="text-violet-300/90">STATION</span>
-            </span>
-          </motion.button>
-
-          {/* 데스크톱(lg+) 상단 탭 — 좁은 폭은 하단 탭바가 대신함 */}
-          {showTopTabs && (
-            <nav className="relative flex items-center gap-1 bg-black/35 backdrop-blur-md rounded-full p-1 border border-white/10 shadow-lg">
-              {TABS.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => handleTab(t)}
-                  className={`px-4 py-1.5 rounded-full text-sm transition-colors duration-200 ${
-                    activeTab === t.key
-                      ? "bg-violet-400/30 text-white font-semibold"
-                      : "text-white/65 hover:text-white drop-shadow"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </nav>
-          )}
-
-          <div className="relative flex items-center gap-2.5 sm:gap-3.5 flex-shrink min-w-0">
-            {!guest && (
-              <div className="flex items-center gap-1.5 bg-black/20 backdrop-blur-md rounded-full px-3 py-1.5 border border-white/10 text-amber-300">
-                <Zap size={14} />
-                <span className="text-sm font-semibold text-white">{displayEnergy}</span>
-              </div>
-            )}
-            {!guest && (
-              <div className="hidden sm:flex items-center gap-1.5 text-white/70 text-sm drop-shadow min-w-0">
-                <User size={14} className="flex-shrink-0" /><span className="truncate max-w-[7rem]">{displayNickname}</span>
-              </div>
-            )}
-            {!guest && (
-              <button
-                onClick={() => openStore("energy")}
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-black/20 backdrop-blur-md border border-white/10 text-amber-400/70 hover:text-amber-300 hover:bg-black/40 transition-colors duration-200"
-                aria-label="상점"
-              >
-                <Gem size={14} />
-              </button>
-            )}
-            {!guest && <HelpButton />}
-            {guest && (
-              <button
-                onClick={() => setGate({ action: { type: "route", path: location.pathname }, title: "다시 오신 걸 환영해요", message: "로그인하면 당신의 이야기가 이어져요." })}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-semibold text-slate-900 bg-gradient-to-r from-violet-300 to-sky-300 hover:from-violet-200 hover:to-sky-200 transition-colors shadow-[0_2px_16px_rgba(147,130,255,0.3)]"
-              >
-                <LogIn size={13} /> 로그인
-              </button>
-            )}
+        {/* ── Top Bar — 로고 좌 · 탭 중앙(≥1024) · 클러스터 우 ── */}
+        <header className="flex-shrink-0">
+          <div className="relative max-w-[1200px] mx-auto h-16 px-4 sm:px-8 flex items-center justify-between gap-3">
             <button
-              onClick={() => setShowSettings(true)}
-              className="w-8 h-8 flex items-center justify-center rounded-full bg-black/20 backdrop-blur-md border border-white/10 text-white/50 hover:text-white hover:bg-black/40 transition-colors duration-200"
-              aria-label="설정"
+              className="flex items-center gap-2 flex-shrink-0"
+              onClick={() => navigate("/")}
+              aria-label="홈으로"
             >
-              <Settings size={14} />
+              <span className="text-violet-300 text-[15px]">✦</span>
+              <span className="text-base font-extrabold text-white tracking-[0.14em]">LUCID</span>
             </button>
+
+            {showTopTabs && (
+              <nav
+                // 센터 고정은 ≥1024만 — 768~1023은 일반 flex 흐름(우측 클러스터와 충돌 방지)
+                className={vw >= 1024 ? "absolute left-1/2 -translate-x-1/2 flex items-center gap-1" : "flex items-center gap-1"}
+                aria-label="주 메뉴"
+              >
+                {TABS.map((t) => {
+                  const on = activeTab === t.key;
+                  return (
+                    <button
+                      key={t.key}
+                      onClick={() => handleTab(t)}
+                      aria-current={on ? "page" : undefined}
+                      className={`relative px-[18px] py-2 rounded-xl text-lb-card font-semibold transition-colors duration-150 ${
+                        on ? "text-white" : "text-lobby-tx1 hover:text-white"
+                      }`}
+                    >
+                      {t.label}
+                      {on && (
+                        <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-[18px] h-[2.5px] rounded-full bg-gradient-to-r from-violet-300 to-sky-300" />
+                      )}
+                    </button>
+                  );
+                })}
+              </nav>
+            )}
+
+            <div className="flex items-center gap-2.5 flex-shrink min-w-0">
+              {!guest && (
+                <button
+                  onClick={() => openStore("energy")}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-white/[0.09] bg-white/[0.035] hover:border-white/[0.16] transition-colors"
+                  aria-label="에너지 충전"
+                >
+                  <Zap size={13} className="text-amber-400" />
+                  <span className="text-lb-meta font-semibold text-white">{displayEnergy}</span>
+                </button>
+              )}
+              {!guest && <HelpButton />}
+              {!guest && (
+                <button
+                  onClick={() => setShowSettings(true)}
+                  className="w-[34px] h-[34px] rounded-full border border-white/[0.16] bg-gradient-to-br from-[#7c6bd6] to-[#4a9cc9] flex items-center justify-center text-[13px] font-bold text-white"
+                  aria-label="설정"
+                  title={displayNickname}
+                >
+                  {displayNickname?.[0] ?? "·"}
+                </button>
+              )}
+              {guest && (
+                <button
+                  onClick={() => setGate({ action: { type: "route", path: location.pathname }, title: "다시 오신 걸 환영해요", message: "로그인하면 나눈 이야기가 이어져요." })}
+                  className="px-4 py-2 rounded-full text-lb-meta font-semibold text-lobby-tx1 border border-white/[0.09] hover:text-white hover:border-white/[0.16] transition-colors"
+                >
+                  로그인
+                </button>
+              )}
+              {guest && (
+                <button
+                  onClick={() => setGate({ action: { type: "route", path: location.pathname }, title: "3초면 시작할 수 있어요", message: "소셜 계정으로 바로 시작해요." })}
+                  className="px-5 py-2 rounded-full text-lb-meta font-bold text-slate-900 bg-gradient-to-r from-violet-300 to-sky-300 hover:-translate-y-px hover:shadow-[0_4px_20px_rgba(167,139,250,0.35)] transition-all"
+                >
+                  시작하기
+                </button>
+              )}
+            </div>
           </div>
         </header>
 
-        {/* ── 탭 콘텐츠 ── */}
-        {/* [리뷰 P2] 단일 Outlet에 AnimatePresence(mode=wait)+exit를 걸면 잔류하는 exit 래퍼가
-            *도착* 탭을 재생해 이중 페이드가 났다. exit를 없애고 key remount 시 enter만 재생. */}
+        {/* ── 탭 콘텐츠 — enter-only 페이드(이중 페이드 회귀 방지) ── */}
         <main className={`flex-1 overflow-y-auto custom-scrollbar ${showBottomBar ? "pb-[calc(76px+env(safe-area-inset-bottom))]" : "pb-8"}`}>
           <motion.div
             key={activeTab}
@@ -275,22 +292,23 @@ export default function LobbyShell() {
           </motion.div>
         </main>
 
-        {/* ── 하단 탭바 (모바일 + 좁은 데스크톱) ── */}
+        {/* ── 하단 탭바 (<1024) ── */}
         {showBottomBar && (
-          <nav className="fixed bottom-0 left-0 right-0 z-30 flex items-stretch gap-1 px-3 pt-2 pb-[calc(10px+env(safe-area-inset-bottom))] bg-[#0c0c18]/85 backdrop-blur-xl border-t border-white/10">
+          <nav className="fixed bottom-0 left-0 right-0 z-30 flex items-stretch gap-1 px-3 pt-2 pb-[calc(10px+env(safe-area-inset-bottom))] bg-lobby-bg/90 backdrop-blur-xl border-t border-white/[0.09]" aria-label="주 메뉴">
             {TABS.map((t) => {
               const on = activeTab === t.key;
               return (
                 <button
                   key={t.key}
                   onClick={() => handleTab(t)}
+                  aria-current={on ? "page" : undefined}
                   className={`flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-xl min-h-[48px] transition-colors duration-200 ${
-                    on ? "bg-violet-400/15 text-violet-200" : "text-white/40"
+                    on ? "text-white" : "text-lobby-tx2"
                   }`}
                   aria-label={t.label}
                 >
-                  <t.Icon size={18} className={on ? "" : "opacity-70"} />
-                  <span className={`text-[10px] tracking-wide ${on ? "font-bold" : "font-medium"}`}>{t.label}</span>
+                  <t.Icon size={18} className={on ? "text-violet-300" : "opacity-70"} />
+                  <span className={`text-[10.5px] tracking-wide ${on ? "font-bold" : "font-medium"}`}>{t.label}</span>
                 </button>
               );
             })}
@@ -325,8 +343,8 @@ export default function LobbyShell() {
             onClose={() => setShowSettings(false)}
             onLogout={handleLogout}
             onLogin={() => {
-              // [리뷰 P2] 설정발 로그인은 '현재 위치 복귀'가 의도 — 신선한 route 액션으로
-              //   덮어써 이전 게이트/보호경로가 남긴 묵은 startChat·목적지 소비를 차단.
+              // 설정발 로그인은 '현재 위치 복귀'가 의도 — 신선한 route 액션으로
+              // 덮어써 이전 게이트/보호경로가 남긴 묵은 startChat·목적지 소비를 차단.
               setShowSettings(false);
               savePendingAction({ type: "route", path: location.pathname });
               navigate("/login");
@@ -340,8 +358,18 @@ export default function LobbyShell() {
   );
 }
 
-// ── 설정 모달 — BGM 옵트인 + 로그아웃/로그인 ──
+// ── 설정 모달 — BGM 옵트인 + 선호 캐릭터 + 로그아웃/로그인 ──
 function SettingsModal({ guest, onClose, onLogout, onLogin, bgmOn, onToggleBgm }) {
+  // 선호 캐릭터(개인화 정렬 v1) — 온보딩 1단계와 같은 저장소. "설정에서 바꿀 수 있어요" 카피의 실체.
+  const [pref, setPref] = useState(() => (hasAnsweredPref() ? (getPrefGender() ?? "ALL") : null));
+  const pickPref = (v) => { setPrefGender(v); setPref(v); };
+
+  const PREFS = [
+    { v: "FEMALE", label: "여성" },
+    { v: "MALE",   label: "남성" },
+    { v: "ALL",    label: "모두" },
+  ];
+
   return (
     <motion.div className="fixed inset-0 z-[80] flex items-center justify-center px-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <motion.div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
@@ -356,6 +384,7 @@ function SettingsModal({ guest, onClose, onLogout, onLogin, bgmOn, onToggleBgm }
           <h3 className="text-base font-bold text-white tracking-wide">설정</h3>
           <button onClick={onClose} className="text-white/40 hover:text-white transition-colors duration-200" aria-label="닫기"><X size={16} /></button>
         </div>
+
         <button
           onClick={onToggleBgm}
           className="w-full flex items-center justify-between p-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/5 hover:border-white/10 transition-colors duration-200 mb-3"
@@ -368,6 +397,27 @@ function SettingsModal({ guest, onClose, onLogout, onLogin, bgmOn, onToggleBgm }
             {bgmOn ? "ON" : "OFF"}
           </span>
         </button>
+
+        {!guest && (
+          <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 mb-3">
+            <p className="text-sm text-white/70">선호 캐릭터</p>
+            <p className="text-[11px] text-white/35 mt-0.5">추천 순서에 반영돼요</p>
+            <div className="flex gap-1.5 mt-2.5">
+              {PREFS.map(({ v, label }) => (
+                <button
+                  key={v}
+                  onClick={() => pickPref(v)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    pref === v ? "bg-violet-400/25 text-violet-100" : "bg-white/[0.04] text-white/45 hover:text-white/70"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {guest ? (
           <button
             onClick={onLogin}

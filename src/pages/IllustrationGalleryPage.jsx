@@ -1,29 +1,41 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+// eslint-disable-next-line no-unused-vars -- motion은 <motion.div> JSX 멤버로 사용(jsx-uses-vars 미설정 오탐)
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Download, X, Image, Filter, Sparkles } from 'lucide-react';
+import { ArrowLeft, Download, X, Image, Sparkles } from 'lucide-react';
 import api from '../api/axios';
 import { sfx } from '../utils/sfx';
+import { EmptyState, ErrorState } from './lobby/lobbyUi';
 
 /**
- * [Phase 5.5-Illust] 일러스트 갤러리 페이지
+ * [Phase 5.5-Illust] 일러스트 갤러리
  *
  * 유저가 실시간 생성한 모든 캐릭터 일러스트를 열람.
- * - 전체/캐릭터별 필터
- * - 썸네일 그리드 → 클릭 시 풀스크린 뷰어
- * - 다운로드 링크
+ * - 썸네일 그리드 → 클릭 시 풀스크린 뷰어(다운로드 링크)
  *
- * 진입점: AchievementGallery 또는 설정 모달에서 링크
+ * 모드 2종:
+ * - 풀스크린 모드(기존 하위호환 — ChatPage/ChatPageV2): isOpen/onClose/characters(필터 탭)
+ * - embedded 모드 [블록 A R2]: 보관함 '일러스트' 세그먼트 인탭 그리드
+ *   (디자인 정본: aichat docs/15_assets/lobby_redesign_mockup.html '보관함' 화면).
+ *   페이지 크롬(헤더·필터 탭) 없이 4:3 타일 + 하단 스크림 + 캡션만.
+ *   로딩/빈/오류는 lobbyUi 상태 3종(정본 '상태' 화면 카피). 뷰어는 그대로 재사용.
  */
 
-const IllustrationGalleryPage = ({ isOpen, onClose, characters = [] }) => {
+const IllustrationGalleryPage = ({ isOpen = false, onClose, characters = [], embedded = false }) => {
+  const navigate = useNavigate();
   const [illustrations, setIllustrations] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [selectedChar, setSelectedChar] = useState(null); // null = 전체
+  const [loadError, setLoadError] = useState(false);
+  const [selectedChar, setSelectedChar] = useState(null); // null = 전체 (풀스크린 모드 전용 필터)
   const [viewerImage, setViewerImage] = useState(null); // 풀스크린 뷰어
+
+  // 로비 인탭에서는 클릭 SFX 금지 (사운드 정책)
+  const uiClick = () => { if (!embedded) sfx.click(); };
 
   // ━━━ 갤러리 로드 ━━━
   const loadGallery = useCallback(async (characterId) => {
     setLoading(true);
+    setLoadError(false);
     try {
       const params = characterId ? { characterId } : {};
       const res = await api.get('/illustrations/gallery', { params });
@@ -31,17 +43,121 @@ const IllustrationGalleryPage = ({ isOpen, onClose, characters = [] }) => {
     } catch (err) {
       console.error('Gallery load failed:', err);
       setIllustrations([]);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (isOpen) {
-      loadGallery(selectedChar);
+    if (embedded || isOpen) {
+      loadGallery(embedded ? null : selectedChar);
     }
-  }, [isOpen, selectedChar, loadGallery]);
+  }, [embedded, isOpen, selectedChar, loadGallery]);
 
+  // ━━━ 풀스크린 뷰어 (양 모드 공용 — fixed 오버레이) ━━━
+  const viewerOverlay = (
+    <AnimatePresence>
+      {viewerImage && (
+        <motion.div
+          className="fixed inset-0 z-[300] bg-black flex items-center justify-center"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={() => { uiClick(); setViewerImage(null); }}
+        >
+          <button
+            className="absolute top-5 right-5 z-10 w-10 h-10 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center text-white/70 hover:text-white"
+            onClick={() => { uiClick(); setViewerImage(null); }}
+          >
+            <X size={20} />
+          </button>
+
+          <motion.img
+            src={viewerImage.imageUrl}
+            alt={`${viewerImage.characterName} illustration`}
+            className="max-w-full max-h-full object-contain"
+            initial={{ scale: 0.9 }}
+            animate={{ scale: 1 }}
+            exit={{ scale: 0.9 }}
+            onClick={(e) => e.stopPropagation()}
+          />
+
+          {/* 하단 정보 */}
+          <div className="absolute bottom-0 left-0 right-0 p-5 bg-gradient-to-t from-black/90 to-transparent">
+            <div className="flex items-end justify-between">
+              <div>
+                <p className="text-white font-bold">{viewerImage.characterName}</p>
+                <p className="text-white/40 text-xs mt-0.5">
+                  {viewerImage.createdAt?.split('T')[0]}
+                  {viewerImage.emotion && ` · ${viewerImage.emotion}`}
+                </p>
+              </div>
+              <a
+                href={viewerImage.imageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/10 text-white/80 text-xs hover:bg-white/20 transition"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Download size={14} />
+                다운로드
+              </a>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
+  // ═══════════ 인탭 모드 (보관함 '일러스트' 세그먼트) ═══════════
+  if (embedded) {
+    return (
+      <div>
+        {loading ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="aspect-[4/3] rounded-xl border border-white/[0.09] bg-white/[0.05] animate-pulse" />
+            ))}
+          </div>
+        ) : loadError ? (
+          <ErrorState onRetry={() => loadGallery(null)} />
+        ) : illustrations.length === 0 ? (
+          <EmptyState
+            title="수집한 장면이 아직 없어요"
+            desc="이야기 속 특별한 순간이 그림으로 남아요"
+            ctaLabel="캐릭터 만나러 가기"
+            onCta={() => navigate('/')}
+          />
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {illustrations.map((illust) => (
+              <button
+                key={illust.id}
+                onClick={() => setViewerImage(illust)}
+                className="relative aspect-[4/3] rounded-xl overflow-hidden border border-white/[0.09] hover:border-violet-400/45 transition-colors"
+              >
+                <img
+                  src={illust.imageUrl}
+                  alt={`${illust.characterName} 일러스트`}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  loading="lazy"
+                  draggable={false}
+                />
+                <span className="absolute inset-x-0 bottom-0 h-[60%] bg-gradient-to-b from-transparent to-black/70" />
+                <span className="absolute left-2.5 right-2.5 bottom-2 text-lb-meta font-semibold text-white/[0.92] truncate text-left">
+                  {illust.characterName}{illust.emotion ? ` — ${illust.emotion}` : ''}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        {viewerOverlay}
+      </div>
+    );
+  }
+
+  // ═══════════ 풀스크린 모드 (기존 사용처 하위호환 — ChatPage/ChatPageV2) ═══════════
   if (!isOpen) return null;
 
   return (
@@ -157,58 +273,7 @@ const IllustrationGalleryPage = ({ isOpen, onClose, characters = [] }) => {
           )}
         </div>
 
-        {/* ═══ 풀스크린 뷰어 ═══ */}
-        <AnimatePresence>
-          {viewerImage && (
-            <motion.div
-              className="fixed inset-0 z-[300] bg-black flex items-center justify-center"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => { sfx.click(); setViewerImage(null); }}
-            >
-              <button
-                className="absolute top-5 right-5 z-10 w-10 h-10 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center text-white/70 hover:text-white"
-                onClick={() => { sfx.click(); setViewerImage(null); }}
-              >
-                <X size={20} />
-              </button>
-
-              <motion.img
-                src={viewerImage.imageUrl}
-                alt={`${viewerImage.characterName} illustration`}
-                className="max-w-full max-h-full object-contain"
-                initial={{ scale: 0.9 }}
-                animate={{ scale: 1 }}
-                exit={{ scale: 0.9 }}
-                onClick={(e) => e.stopPropagation()}
-              />
-
-              {/* 하단 정보 */}
-              <div className="absolute bottom-0 left-0 right-0 p-5 bg-gradient-to-t from-black/90 to-transparent">
-                <div className="flex items-end justify-between">
-                  <div>
-                    <p className="text-white font-bold">{viewerImage.characterName}</p>
-                    <p className="text-white/40 text-xs mt-0.5">
-                      {viewerImage.createdAt?.split('T')[0]}
-                      {viewerImage.emotion && ` · ${viewerImage.emotion}`}
-                    </p>
-                  </div>
-                  <a
-                    href={viewerImage.imageUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/10 text-white/80 text-xs hover:bg-white/20 transition"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Download size={14} />
-                    다운로드
-                  </a>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {viewerOverlay}
       </motion.div>
     </AnimatePresence>
   );

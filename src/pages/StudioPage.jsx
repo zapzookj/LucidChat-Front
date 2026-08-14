@@ -26,6 +26,8 @@ import BottomSheet from "../components/mobile/BottomSheet";
 import { sfx } from "../utils/sfx";
 // [2026-08-05 난이도 배지 승격] 난이도 4색 단일 소스
 import { DIFFICULTY_META, DIFFICULTY_ORDER, difficultyFilledStars } from "../utils/difficultyMeta";
+// [블록 A R2] 셸 임베드 크롬 정합 — 로비 공용 페이지 헤드 재사용
+import { PageHead } from "./lobby/lobbyUi";
 
 /**
  * [Studio v1] StudioPage — UGC 캐릭터 생성 스튜디오
@@ -625,8 +627,11 @@ export default function StudioPage({ embedded = false }) {
   const displayNickname = userInfo?.nickname ?? user?.nickname ?? "";
 
   return (
-    <div className={`relative w-full overflow-hidden bg-stone-950 ${embedded ? "h-full rounded-t-3xl" : "h-screen"}`}>
-      {/* ═══ 배경 ═══ */}
+    // [블록 A R2] embedded = 셸이 배경(bg-lobby-bg + 글로우 + 별)·탑바·스크롤을 제공 —
+    // 자체 배경/자체 높이/자체 스크롤러 없이 콘텐츠만 렌더(잔존 자체 크롬 제거, 설계 문서 §5).
+    <div className={embedded ? "relative w-full" : "relative w-full overflow-hidden bg-stone-950 h-screen"}>
+      {/* ═══ 배경 — 비임베드 전용 (임베드는 셸 배경 사용) ═══ */}
+      {!embedded && (
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute inset-0 bg-gradient-to-br from-amber-950 via-stone-950 to-orange-950" />
         {stars.map((style, i) => (
@@ -634,6 +639,7 @@ export default function StudioPage({ embedded = false }) {
         ))}
         <div className="absolute bottom-0 inset-x-0 h-1/3 bg-gradient-to-t from-stone-950 to-transparent" />
       </div>
+      )}
 
       {/* ═══ Topbar — TheaterPortalPage와 동일 폼팩터 (셸 임베드 시 셸 탑바가 대체) ═══ */}
       {!embedded && (
@@ -685,10 +691,15 @@ export default function StudioPage({ embedded = false }) {
       </div>
       )}
 
-      {/* ═══ 본문 — 스크롤 가능 ═══ */}
-      <div className={`relative z-10 flex-1 overflow-y-auto custom-scrollbar ${embedded ? "h-full" : "h-[calc(100%-80px)]"}`}>
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-6 sm:py-10">
-          {/* ─── 페이지 헤더 ─── */}
+      {/* ═══ 본문 — 임베드: 셸 main이 스크롤 담당 · 비임베드: 자체 스크롤 ═══ */}
+      <div className={embedded ? "relative z-10" : "relative z-10 flex-1 overflow-y-auto custom-scrollbar h-[calc(100%-80px)]"}>
+        <div className={embedded ? "max-w-[1200px] mx-auto px-5 sm:px-8" : "max-w-6xl mx-auto px-5 sm:px-8 py-6 sm:py-10"}>
+          {/* ─── 페이지 헤더 — 임베드: 로비 공용 PageHead(카피는 목업 원문) ─── */}
+          {embedded ? (
+            <div className="mb-12">
+              <PageHead title="스튜디오" desc="나만의 캐릭터와 세계를 만드는 공간이에요." />
+            </div>
+          ) : (
           <motion.div
             className="text-center mb-10"
             initial={{ opacity: 0, y: -10 }}
@@ -711,6 +722,7 @@ export default function StudioPage({ embedded = false }) {
               몇 문장이면 충분해요. 스튜디오가 살아 숨쉬는 캐릭터로 빚어냅니다
             </p>
           </motion.div>
+          )}
 
           {/* ─── 로딩 ─── */}
           {mineLoading && (

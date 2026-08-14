@@ -13,10 +13,10 @@ import OAuthSuccessPage from "./pages/OAuthSuccessPage";
 import StudioPage from "./pages/StudioPage";
 // [World Builder v1] UGC 세계관 빌더
 import StudioWorldPage from "./pages/StudioWorldPage";
-// [블록 A] 플랫폼형 로비 — 셸(탭 4) + 탭 콘텐츠 + 첫 만남 온보딩
+// [블록 A R2] 플랫폼형 로비 — 셸(탭 4: 홈/스토리/스튜디오/보관함) + 탭 콘텐츠 + 첫 만남 온보딩
 import LobbyShell from "./pages/lobby/LobbyShell";
 import HomeTab from "./pages/lobby/HomeTab";
-import WorldsTab from "./pages/lobby/WorldsTab";
+import StoryTab from "./pages/lobby/StoryTab";
 import ArchiveTab from "./pages/lobby/ArchiveTab";
 import FirstMeetPage from "./pages/lobby/FirstMeetPage";
 import { savePendingAction } from "./utils/postLogin";
@@ -56,7 +56,9 @@ function App() {
           {/* ═══ 플랫폼형 로비 셸 — 게스트 진입 허용 ═══ */}
           <Route element={<LobbyShell />}>
             <Route path="/" element={<HomeTab />} />
-            <Route path="/worlds" element={<WorldsTab />} />
+            {/* [R2] 세계관 탭 → '스토리' 개명 (기능형 라벨 확정) — 구 경로는 리다이렉트 */}
+            <Route path="/story" element={<StoryTab />} />
+            <Route path="/worlds" element={<Navigate to="/story" replace />} />
             <Route
               path="/archive"
               element={

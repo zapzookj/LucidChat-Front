@@ -1,8 +1,11 @@
+// eslint-disable-next-line no-unused-vars -- motion은 <motion.div> JSX 멤버로 사용(jsx-uses-vars 미설정 오탐)
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useEffect } from "react";
-import { Award, Lock, Sparkles, X, ChevronLeft } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { Award, Lock, Sparkles, ChevronLeft } from "lucide-react";
 import api from "../api/axios";
 import { sfx } from "../utils/sfx";
+import { EmptyState, ErrorState } from "../pages/lobby/lobbyUi";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4.4] AchievementGallery — 업적 수집 갤러리
@@ -11,9 +14,13 @@ import { sfx } from "../utils/sfx";
 //  우표 컬렉션 스타일로 표시.
 //
 //  Props:
-//    onClose    — 갤러리 닫기 콜백
+//    onClose    — 갤러리 닫기 콜백 (모달/드로어 모드 전용)
 //    userScope  — [블록 A 보관함] true면 방 무관 유저 스코프 API(/achievements/gallery) 사용.
 //                 기존 방 URL 경로는 챗 내 열람 호환으로 유지(roomId는 localStorage).
+//    embedded   — [블록 A R2] true면 보관함 '업적' 세그먼트 인탭 그리드
+//                 (디자인 정본: aichat docs/15_assets/lobby_redesign_mockup.html '보관함' 화면).
+//                 드로어 크롬(헤더·프로그레스 바) 없이 타일만 — 잠김은 opacity-45+grayscale.
+//                 기존 챗 드로어 사용처(ChatPage/ChatPageV2)는 그대로 하위호환.
 // ═══════════════════════════════════════════════════════════════
 
 // 업적 카테고리 컬러
@@ -34,35 +41,140 @@ const CATEGORY_STYLES = {
   },
 };
 
-const AchievementGallery = ({ onClose, userScope = false }) => {
+const AchievementGallery = ({ onClose, userScope = false, embedded = false }) => {
+  const navigate = useNavigate();
   const [gallery, setGallery] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [selectedAchievement, setSelectedAchievement] = useState(null);
 
   useEffect(() => {
-    sfx.wooshLight();
-  }, []);
+    // 로비 인탭은 무음 (사운드 정책 — 호버/클릭/전환 SFX 금지)
+    if (!embedded) sfx.wooshLight();
+  }, [embedded]);
 
-  useEffect(() => {
-    const fetchGallery = async () => {
-      try {
-        // [블록 A] 보관함(유저 스코프)은 방 컨텍스트가 없다 — 전역 갤러리 API 사용.
-        //   구 로비의 '수집품'은 localStorage.roomId 의존이라 방 미진입 신규에게 항상 실패했다.
-        const roomId = localStorage.getItem("roomId");
-        const path = userScope || !roomId
-          ? "/achievements/gallery"
-          : `/achievements/rooms/${roomId}/gallery`;
-        const res = await api.get(path);
-        setGallery(res.data);
-      } catch (err) {
-        console.error("Failed to fetch achievements", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchGallery();
+  const fetchGallery = useCallback(async () => {
+    setLoading(true);
+    setLoadError(false);
+    try {
+      // [블록 A] 보관함(유저 스코프)은 방 컨텍스트가 없다 — 전역 갤러리 API 사용.
+      //   구 로비의 '수집품'은 localStorage.roomId 의존이라 방 미진입 신규에게 항상 실패했다.
+      const roomId = localStorage.getItem("roomId");
+      const path = userScope || !roomId
+        ? "/achievements/gallery"
+        : `/achievements/rooms/${roomId}/gallery`;
+      const res = await api.get(path);
+      setGallery(res.data);
+    } catch (err) {
+      console.error("Failed to fetch achievements", err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
   }, [userScope]);
 
+  useEffect(() => { fetchGallery(); }, [fetchGallery]);
+
+  // ── 업적 상세 모달 (모달/인탭 공용 — 인탭에서는 fixed 오버레이) ──
+  const detailModal = (
+    <AnimatePresence>
+      {selectedAchievement && (
+        <motion.div
+          className={`${embedded ? "fixed z-[80]" : "absolute z-50"} inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm`}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={() => setSelectedAchievement(null)}
+        >
+          <motion.div
+            className="bg-gray-900/95 border border-white/10 rounded-2xl p-8 max-w-xs w-full mx-6 text-center space-y-4"
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.8, opacity: 0 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="text-5xl block">{selectedAchievement.icon}</span>
+            <h3 className="text-lg font-bold text-amber-200">{selectedAchievement.titleKo}</h3>
+            <p className="text-xs text-white/30 tracking-wider">{selectedAchievement.title}</p>
+            <p className="text-sm text-white/50 leading-relaxed">{selectedAchievement.description}</p>
+            {selectedAchievement.unlockedAt && (
+              <p className="text-[10px] text-white/20 mt-2">
+                획득: {new Date(selectedAchievement.unlockedAt).toLocaleDateString("ko-KR")}
+              </p>
+            )}
+            <button
+              onClick={() => setSelectedAchievement(null)}
+              className="mt-4 px-6 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white/50 hover:bg-white/10 transition"
+            >
+              닫기
+            </button>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+
+  // ═══════════ 인탭 모드 (보관함 '업적' 세그먼트) ═══════════
+  if (embedded) {
+    if (loading) {
+      return (
+        <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-white/[0.09] px-3.5 py-4">
+              <div className="w-10 h-10 mx-auto mb-2 rounded-full bg-white/[0.07] animate-pulse" />
+              <div className="h-3 rounded bg-white/[0.07] animate-pulse" />
+              <div className="h-2.5 w-3/5 mx-auto mt-1.5 rounded bg-white/[0.05] animate-pulse" />
+            </div>
+          ))}
+        </div>
+      );
+    }
+    if (loadError || !gallery) return <ErrorState onRetry={fetchGallery} />;
+    if ((gallery.unlocked?.length ?? 0) === 0) {
+      return (
+        <EmptyState
+          title="첫 업적이 기다리고 있어요"
+          desc="대화를 시작하면 하나씩 열려요"
+          ctaLabel="캐릭터 만나러 가기"
+          onCta={() => navigate("/")}
+        />
+      );
+    }
+    return (
+      <div>
+        <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(150px,1fr))]">
+          {gallery.unlocked.map((a) => (
+            <button
+              key={a.code}
+              onClick={() => setSelectedAchievement(a)}
+              className="rounded-xl border border-white/[0.09] bg-white/[0.035] px-3.5 py-4 text-center hover:border-violet-400/45 transition-colors"
+            >
+              <span className="w-10 h-10 mx-auto mb-2 rounded-full flex items-center justify-center text-[17px] bg-gradient-to-br from-violet-300/[0.14] to-sky-300/[0.10] border border-violet-400/25">
+                {a.icon}
+              </span>
+              <span className="block text-lb-meta font-bold text-white truncate">{a.titleKo}</span>
+              <span className="block text-lb-badge text-lobby-tx2 mt-0.5 truncate">{a.description}</span>
+            </button>
+          ))}
+          {(gallery.locked || []).map((a) => (
+            <div
+              key={a.code}
+              className="rounded-xl border border-white/[0.09] bg-white/[0.035] px-3.5 py-4 text-center opacity-45"
+            >
+              <span className="w-10 h-10 mx-auto mb-2 rounded-full flex items-center justify-center text-[17px] bg-white/[0.035] border border-white/[0.09] grayscale">
+                🔒
+              </span>
+              <span className="block text-lb-meta font-bold text-white">???</span>
+              <span className="block text-lb-badge text-lobby-tx2 mt-0.5">아직 잠겨 있어요</span>
+            </div>
+          ))}
+        </div>
+        {detailModal}
+      </div>
+    );
+  }
+
+  // ═══════════ 드로어 모드 (기존 사용처 하위호환 — ChatPage/ChatPageV2) ═══════════
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -87,7 +199,7 @@ const AchievementGallery = ({ onClose, userScope = false }) => {
 
   const renderBadge = (achievement, isLocked = false) => {
     const style = CATEGORY_STYLES[achievement.type] || CATEGORY_STYLES.SPECIAL;
-    
+
     return (
       <motion.button
         key={achievement.code}
@@ -216,42 +328,7 @@ const AchievementGallery = ({ onClose, userScope = false }) => {
         )}
       </div>
 
-      {/* 업적 상세 모달 */}
-      <AnimatePresence>
-        {selectedAchievement && (
-          <motion.div
-            className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setSelectedAchievement(null)}
-          >
-            <motion.div
-              className="bg-gray-900/95 border border-white/10 rounded-2xl p-8 max-w-xs w-full mx-6 text-center space-y-4"
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.8, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <span className="text-5xl block">{selectedAchievement.icon}</span>
-              <h3 className="text-lg font-bold text-amber-200">{selectedAchievement.titleKo}</h3>
-              <p className="text-xs text-white/30 tracking-wider">{selectedAchievement.title}</p>
-              <p className="text-sm text-white/50 leading-relaxed">{selectedAchievement.description}</p>
-              {selectedAchievement.unlockedAt && (
-                <p className="text-[10px] text-white/20 mt-2">
-                  획득: {new Date(selectedAchievement.unlockedAt).toLocaleDateString("ko-KR")}
-                </p>
-              )}
-              <button
-                onClick={() => setSelectedAchievement(null)}
-                className="mt-4 px-6 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-white/50 hover:bg-white/10 transition"
-              >
-                닫기
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {detailModal}
     </div>
   );
 };

@@ -45,7 +45,29 @@ export default {
       fontFamily: {
         sans: ['"Pretendard"', '"Noto Sans KR"', 'sans-serif'],
       },
+      // [블록 A R2] 로비 디자인 토큰 — 정본: aichat docs/15_assets/lobby_redesign_mockup.html
+      //   타입 스케일(데스크톱): 26/22/19/17/15/12.5/11 · 간격 리듬: 4 8 12 16 24 32 48 64
+      //   대비 규칙: lobby-tx2는 12.5px 이상 전용, 그 미만 보조 텍스트는 lobby-tx1.
+      fontSize: {
+        "lb-hero":  ["26px",  { lineHeight: "1.3",  fontWeight: "800" }],
+        "lb-page":  ["22px",  { lineHeight: "1.3",  fontWeight: "800" }],
+        "lb-title": ["19px",  { lineHeight: "1.35", fontWeight: "800" }],
+        "lb-sec":   ["17px",  { lineHeight: "1.4",  fontWeight: "700" }],
+        "lb-card":  ["15px",  { lineHeight: "1.45" }],
+        "lb-meta":  ["12.5px",{ lineHeight: "1.55" }],
+        "lb-badge": ["11px",  { lineHeight: "1.3" }],
+      },
       colors: {
+        lobby: {
+          bg: "#0b0b10",
+          tx0: "#f2f2f7",
+          tx1: "#b6b6c6",
+          tx2: "#8b8ba3",
+          easy: "#34d399",
+          normal: "#60a5fa",
+          hard: "#fb923c",
+          extreme: "#f87171",
+        },
         mode: {
           story: {
             from: "#fbbf24",     // amber-400

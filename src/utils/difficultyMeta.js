@@ -36,7 +36,7 @@ export const DIFFICULTY_META = {
     selectedCls: "bg-orange-500/25 border-orange-400/60 text-orange-100",
   },
   EXTREME: {
-    label: "극악",
+    label: "극한",
     stars: "★★★★",
     badgeCls: "bg-rose-400/20 text-rose-100 border-rose-300/60",
     selectedCls: "bg-rose-500/25 border-rose-400/60 text-rose-100",
