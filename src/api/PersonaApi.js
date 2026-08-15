@@ -1,23 +1,39 @@
 import api from "./axios";
 
 /**
- * [2026-08-04 페르소나 풀 패키지] 페르소나 카드 API.
- * 카드 = {personaId, name, gender, personaText, charm, wit, boldness, intellect, empathy}
- * 방 생성 시 userPersonaId로 전달하면 본문·스탯·성별이 방에 스냅샷된다(카드 수정 소급 불변).
+ * [블록 B 페르소나] 활성 프로필 + 저장 카드(세이브 슬롯) API.
+ *
+ * 개념 역전: "카드 라이브러리에서 골라 쓰기" → "항상 존재하는 단일 활성 프로필 + 카드=저장 슬롯".
+ * 프로필 = {personaId, name, age, gender, personaText, allure, friendliness, trust, charisma, mystique}
+ * 방 생성은 서버가 현재 프로필을 자동 스냅샷한다(피커·userPersonaId 전달 불필요, 소급 불변).
+ * 렌즈 5축: 축당 0~10, 총점 25(전 유저 공통·무료). 슬롯: 무료 3장/구독 10장(서버 계약).
  */
 
-export async function fetchPersonas() {
+export async function fetchProfile() {
+  const res = await api.get("/personas/profile");
+  return res.data;
+}
+
+export async function updateProfile(payload) {
+  const res = await api.patch("/personas/profile", payload);
+  return res.data;
+}
+
+/** @returns {{cards: Array, slotLimit: number, slotUsed: number}} */
+export async function fetchPersonaCards() {
   const res = await api.get("/personas");
   return res.data;
 }
 
-export async function createPersona(payload) {
-  const res = await api.post("/personas", payload);
+/** 현재 프로필을 카드로 저장 — 슬롯 초과 시 402(무료→구독 유도) / 400(구독 상한). */
+export async function saveProfileAsCard() {
+  const res = await api.post("/personas");
   return res.data;
 }
 
-export async function updatePersona(personaId, payload) {
-  const res = await api.patch(`/personas/${personaId}`, payload);
+/** 카드를 프로필로 로드(카드는 보존) — 갱신된 프로필 반환. */
+export async function loadPersonaCard(personaId) {
+  const res = await api.post(`/personas/${personaId}/load`);
   return res.data;
 }
 
@@ -25,9 +41,21 @@ export async function deletePersona(personaId) {
   await api.delete(`/personas/${personaId}`);
 }
 
+/** 인식 렌즈 5축 — "캐릭터가 나를 어떻게 인식하는가" (키는 서버 계약과 동일). */
+export const LENS_FIELDS = [
+  ["allure", "매력", "끌린다"],
+  ["friendliness", "친근함", "편하다"],
+  ["trust", "신뢰감", "믿는다"],
+  ["charisma", "카리스마", "어려워한다"],
+  ["mystique", "신비", "궁금해한다"],
+];
+
+export const LENS_AXIS_MAX = 10;
+export const LENS_TOTAL_MAX = 25;
+
 /**
- * 아키타입 갤러리 — 큐레이션 프리셋(접근성 핵심: 한 탭으로 롤플레이 시작).
- * 스탯은 0(무료 기본) — 분배는 구독 티어 게이트라 카드 저장 시 유저가 조정.
+ * 아키타입 갤러리 — 소개(자유 서술) 빠른 채우기 템플릿(한 탭 시작).
+ * 렌즈 배분은 건드리지 않는다(소개·이름·성별만 제안).
  */
 export const PERSONA_ARCHETYPES = [
   {

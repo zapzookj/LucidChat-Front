@@ -1,8 +1,9 @@
 import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Lock, Unlock, Crown, Moon, ArrowRight } from "lucide-react";
+import { Lock, Unlock, Crown, Moon, ArrowRight, UserRound } from "lucide-react";
 import api from "../api/axios";
 import AdultVerificationModal from "./AdultVerificationModal";
+import { fetchProfile, updateProfile } from "../api/PersonaApi";
 import { sfx } from "../utils/sfx";
 
 /**
@@ -11,6 +12,8 @@ import { sfx } from "../utils/sfx";
  * [Flow]
  * 1. CHECK_ADULT    → isAdult=false면 인증 모달
  * 2. CHECK_ACCESS   → API로 접근 권한 확인
+ * 2.5 PERSONA_AGE   → [블록 B] 페르소나 프로필 나이<19(미설정 포함)면 수정 제안 모달
+ *                     (UX는 부드럽게, 게이트는 서버 하드 — 수정 없인 활성 불가)
  * 3. NEED_PURCHASE  → 상점 유도
  * 4. GRANTED        → 시크릿 모드 활성화
  *
@@ -37,9 +40,14 @@ const SecretModeFlow = ({
   userInfo,
   characterId, // eslint-disable-line no-unused-vars  -- V1 호환용, 무시됨
 }) => {
-  const [step, setStep] = useState("idle"); // idle | check_adult | check_access | need_purchase | granted
+  const [step, setStep] = useState("idle"); // idle | check_adult | check_access | persona_age | need_purchase | granted
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [accessStatus, setAccessStatus] = useState(null);
+  // [블록 B] 페르소나 나이 수정 제안 — 프로필 드래프트
+  const [profileDraft, setProfileDraft] = useState(null);
+  const [ageInput, setAgeInput] = useState("");
+  const [ageSaving, setAgeSaving] = useState(false);
+  const [ageError, setAgeError] = useState(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -84,11 +92,51 @@ const SecretModeFlow = ({
           onGranted?.();
           onClose();
         }, 1500);
+      } else if (data.accessReason === "PERSONA_UNDERAGE") {
+        // [블록 B] 페르소나 나이 게이트 — 수정 제안 모달로 (서버가 하드 차단 중)
+        setStep("persona_age");
+        await loadProfileForAgeEdit();
       } else {
         setStep("need_purchase");
       }
     } catch {
       setStep("need_purchase");
+    }
+  };
+
+  // [블록 B 리뷰픽스] 프로필 로드 실패가 데드엔드가 되지 않게 — 에러 표시 + 재시도 가능
+  const loadProfileForAgeEdit = async () => {
+    setAgeError(null);
+    try {
+      const profile = await fetchProfile();
+      setProfileDraft(profile);
+      setAgeInput(profile?.age ?? "");
+    } catch {
+      setProfileDraft(null);
+      setAgeError("프로필을 불러오지 못했어요. 다시 시도해 주세요.");
+    }
+  };
+
+  // [블록 B] 프로필 나이만 수정하고 접근 재확인
+  const handleAgeSave = async () => {
+    if (ageSaving || !profileDraft) return;
+    setAgeSaving(true);
+    setAgeError(null);
+    try {
+      await updateProfile({
+        name: profileDraft.name,
+        age: ageInput === "" ? null : Number(ageInput),
+        gender: profileDraft.gender,
+        personaText: profileDraft.personaText,
+        allure: profileDraft.allure, friendliness: profileDraft.friendliness,
+        trust: profileDraft.trust, charisma: profileDraft.charisma, mystique: profileDraft.mystique,
+      });
+      setStep("check_access");
+      await checkAccess();
+    } catch (e) {
+      setAgeError(e?.response?.data?.message || "나이 수정에 실패했어요.");
+    } finally {
+      setAgeSaving(false);
     }
   };
 
@@ -150,6 +198,49 @@ const SecretModeFlow = ({
                     transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                   />
                   <p className="text-white/60 text-sm">접근 권한을 확인하는 중...</p>
+                </div>
+              )}
+
+              {/* [블록 B] Persona age gate — 수정 제안 (서버가 하드 차단 중) */}
+              {step === "persona_age" && (
+                <div className="text-center">
+                  <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto mb-5">
+                    <UserRound size={28} className="text-amber-400" />
+                  </div>
+
+                  <h3 className="text-lg font-bold text-white mb-2">성인 페르소나가 필요해요</h3>
+                  <p className="text-white/50 text-sm mb-5 leading-relaxed">
+                    시크릿 모드는 성인 페르소나로만 이용할 수 있어요.<br />
+                    프로필의 나이를 수정할까요?
+                  </p>
+
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <input
+                      type="number" min={1} max={120}
+                      value={ageInput}
+                      placeholder="나이"
+                      onChange={(e) => setAgeInput(e.target.value)}
+                      className="w-24 bg-white/[0.06] border border-white/15 rounded-xl px-3 py-2.5 text-center text-white text-sm outline-none focus:border-amber-400/60"
+                    />
+                    <span className="text-white/40 text-sm">세</span>
+                  </div>
+                  {ageError && <p className="text-rose-300 text-xs mb-2">{ageError}</p>}
+
+                  {/* [리뷰픽스] 프로필 로드 실패 시 버튼이 재시도로 전환 — 무피드백 데드엔드 방지 */}
+                  <button
+                    onClick={profileDraft ? handleAgeSave : loadProfileForAgeEdit}
+                    disabled={ageSaving || (profileDraft && ageInput === "")}
+                    className="w-full py-3 rounded-xl text-sm font-bold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white transition disabled:opacity-40"
+                  >
+                    {ageSaving ? "수정 중…" : profileDraft ? "나이 수정하고 계속" : "프로필 다시 불러오기"}
+                  </button>
+
+                  <button
+                    onClick={() => { sfx.click(); onClose?.(); }}
+                    className="mt-4 text-white/30 text-xs hover:text-white/50 transition"
+                  >
+                    나중에 하기
+                  </button>
                 </div>
               )}
 

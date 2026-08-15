@@ -31,14 +31,14 @@ export default function StoryV2ResetModal({ onCancel, onConfirm }) {
             className="p-3 bg-stone-800 hover:bg-stone-700 rounded text-left transition"
           >
             <div className="font-medium text-white">스토리만 초기화</div>
-            <div className="text-xs text-stone-400 mt-0.5">페르소나는 유지됩니다.</div>
+            <div className="text-xs text-stone-400 mt-0.5">시작 시점의 페르소나 스냅샷을 그대로 유지합니다.</div>
           </button>
           <button
             onClick={() => onConfirm(true)}
             className="p-3 bg-stone-800 hover:bg-stone-700 rounded text-left transition"
           >
-            <div className="font-medium text-white">스토리 + 페르소나 초기화</div>
-            <div className="text-xs text-stone-400 mt-0.5">완전히 새로 시작합니다.</div>
+            <div className="font-medium text-white">현재 프로필로 새로 시작</div>
+            <div className="text-xs text-stone-400 mt-0.5">지금의 내 프로필(이름·소개·렌즈)을 다시 적용해 완전히 새로 시작합니다.</div>
           </button>
           <button
             onClick={onCancel}

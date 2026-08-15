@@ -4,20 +4,21 @@ import { X, ArrowLeft, ArrowRight, Check, Sparkles, Users, User as UserIcon } fr
 import { sfx } from "../../utils/sfx";
 // [2026-08-05 난이도 배지 승격] 난이도 4색 단일 소스
 import { DIFFICULTY_META, difficultyFilledStars } from "../../utils/difficultyMeta";
-// [2026-08-04 페르소나] 카드 선택/관리 오버레이
+// [블록 B 페르소나] '시작 전 프로필 편집' 오버레이
 import PersonaManager from "../persona/PersonaManager";
 import {
   fetchCreateContext,
   createStoryV2Room,
 } from "../../api/StoryV2Api";
+import { fetchProfile, LENS_FIELDS } from "../../api/PersonaApi";
 
 /**
  * [Story V2] CreateFlow — 3 step (시작 장소는 LLM이 오프닝에서 자율 확정)
  *
  * step 1: World 확인 (선택한 World의 전체 시놉시스)
  * step 2: 히로인 선택 (1~3명)
- * step 3: 페르소나 (사전 정의 또는 자유 입력)
-  * → submit: createStoryV2Room
+ * step 3: 내 프로필 확인 — [블록 B] 피커 없이 현재 프로필 자동 적용(+시작 전 편집 진입점 1개)
+  * → submit: createStoryV2Room (서버가 현재 프로필을 스냅샷)
  *
  * Props:
  *   worldId    — 진입한 World ID
@@ -29,7 +30,7 @@ import {
  *   confirm 모달 → overwriteExisting=true로 재호출
  */
 export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetHeroineIds = null }) {
-  // [Phase 7-V2 Pivot] presetHeroineIds 전달 시 (통합 로비에서 히로인 선택 완료) → step 3(페르소나)부터 시작
+  // [Phase 7-V2 Pivot] presetHeroineIds 전달 시 (통합 로비에서 히로인 선택 완료) → step 3(프로필)부터 시작
   const hasPreset = Array.isArray(presetHeroineIds) && presetHeroineIds.length > 0;
   const MIN_STEP = hasPreset ? 3 : 1;   // 뒤로가기 하한
   const [step, setStep] = useState(hasPreset ? 3 : 1);
@@ -41,34 +42,23 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
   // step 2: 히로인 선택 (preset 있으면 초기값으로 주입)
   const [selectedHeroineIds, setSelectedHeroineIds] = useState(hasPreset ? presetHeroineIds : []);
 
-  // step 3: 페르소나
-  const [personaMode, setPersonaMode] = useState("preset"); // "preset" | "free" | "card"
-  const [selectedPresetKey, setSelectedPresetKey] = useState(null);
-  const [freePersonaText, setFreePersonaText] = useState("");
-  // [2026-08-04 페르소나] 카드 선택 — 본문·스탯·성별이 방에 스냅샷된다
-  const [selectedCard, setSelectedCard] = useState(null);
-  const [cardPickerOpen, setCardPickerOpen] = useState(false);
-  // [Phase 7-V2 Pivot] 닉네임 — 페르소나 단계에서 함께 확정
-  const [nickname, setNickname] = useState("");
+  // step 3: [블록 B] 현재 프로필 요약 + '시작 전 편집' 진입점
+  const [profile, setProfile] = useState(null);
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
 
   // [UX1] step 4(시작 장소) 제거 — 세계관+페르소나를 종합해 LLM이 오프닝에서 자연스럽게 확정.
 
   // 409 conflict 처리
   const [conflictPayload, setConflictPayload] = useState(null);
 
-  // 초기 데이터 로드
+  // 초기 데이터 로드 — 월드 컨텍스트 + 현재 프로필(서버 자동 적용분 미리보기)
   useEffect(() => {
     setLoading(true);
     setError(null);
-    fetchCreateContext(worldId)
-      .then((ctx) => {
+    Promise.all([fetchCreateContext(worldId), fetchProfile()])
+      .then(([ctx, prof]) => {
         setContext(ctx);
-        if (ctx.personaPresets?.length > 0) {
-          setSelectedPresetKey(ctx.personaPresets[0].presetKey);
-        } else {
-          // [에픽 A] UGC 월드는 프리셋 없음(자유 텍스트만) — preset 모드에 갇히지 않게 전환
-          setPersonaMode("free");
-        }
+        setProfile(prof);
       })
       .catch((e) => {
         console.error("[V2-CreateFlow] context load failed", e);
@@ -79,13 +69,7 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
 
   // step 진행 조건
   const canProceedStep2 = selectedHeroineIds.length >= 1 && selectedHeroineIds.length <= 3;
-  const canProceedStep3 = useMemo(() => {
-    // [Phase 7-V2 Pivot] 닉네임 필수
-    if (!nickname.trim()) return false;
-    if (personaMode === "preset") return !!selectedPresetKey;
-    if (personaMode === "card") return !!selectedCard;   // [페르소나] 카드 선택 필수
-    return freePersonaText.trim().length > 0;
-  }, [personaMode, selectedPresetKey, freePersonaText, nickname, selectedCard]);
+  const canProceedStep3 = useMemo(() => !!profile, [profile]);
 
   const goNext = () => {
     if (step === 1) {
@@ -126,7 +110,7 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
     });
   };
 
-  // 방 생성
+  // 방 생성 — [블록 B] 페르소나·닉네임은 서버가 현재 프로필을 자동 스냅샷
   const submitCreate = async (overwriteExisting) => {
     setSubmitting(true);
     setError(null);
@@ -134,11 +118,6 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
       worldId,
       heroineIds: selectedHeroineIds,
       // [UX1] startLocationKey 미전송 — 백엔드 기본(첫 selectable) 시작, 오프닝 LLM이 location_change로 확정
-      nickname: nickname.trim(),   // [Phase 7-V2 Pivot] 닉네임 전달
-      personaText: personaMode === "free" ? freePersonaText.trim() : null,
-      selectedPersonaPresetKey: personaMode === "preset" ? selectedPresetKey : null,
-      // [2026-08-04 페르소나] 카드 모드 — 서버가 본문·스탯·성별 스냅샷(personaText보다 우선)
-      userPersonaId: personaMode === "card" ? selectedCard?.personaId : null,
       overwriteExisting,
     };
     try {
@@ -149,8 +128,6 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
       if (e.response?.status === 409) {
         // 기존 방 존재 — confirm 후 재호출
         setConflictPayload(payload);
-      } else if (e.response?.status === 402) {
-        setError("자유 페르소나는 프리미엄 기능입니다.");
       } else {
         console.error("[V2-CreateFlow] create failed", e);
         setError(e.response?.data?.message || "방 생성에 실패했습니다.");
@@ -249,20 +226,10 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
                 />
               )}
               {step === 3 && (
-                <Step3Persona
+                <Step3Profile
                   key="s3"
-                  presets={context.personaPresets}
-                  hasFreeUnlock={context.hasFreePersonaUnlock}
-                  personaMode={personaMode}
-                  setPersonaMode={setPersonaMode}
-                  selectedPresetKey={selectedPresetKey}
-                  setSelectedPresetKey={setSelectedPresetKey}
-                  freePersonaText={freePersonaText}
-                  setFreePersonaText={setFreePersonaText}
-                  selectedCard={selectedCard}
-                  setCardPickerOpen={setCardPickerOpen}
-                  nickname={nickname}
-                  setNickname={setNickname}
+                  profile={profile}
+                  onEdit={() => { sfx.click(0.2); setProfileEditorOpen(true); }}
                 />
               )}
             </AnimatePresence>
@@ -303,11 +270,11 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
           />
         )}
 
-        {/* [2026-08-04 페르소나] 카드 선택/관리 — onSelect로 카드 확정 */}
+        {/* [블록 B 페르소나] '시작 전 프로필 편집' — 저장/로드 시 요약 즉시 갱신 */}
         <PersonaManager
-          open={cardPickerOpen}
-          onClose={() => setCardPickerOpen(false)}
-          onSelect={(card) => { setSelectedCard(card); setCardPickerOpen(false); }}
+          open={profileEditorOpen}
+          onClose={() => setProfileEditorOpen(false)}
+          onProfileChange={(p) => setProfile(p)}
         />
       </motion.div>
     </AnimatePresence>
@@ -417,21 +384,11 @@ function Step2HeroineSelect({ heroines, selected, onToggle }) {
 //  Step 3 — 페르소나
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function Step3Persona({
-  presets,
-  hasFreeUnlock,
-  personaMode,
-  setPersonaMode,
-  selectedPresetKey,
-  setSelectedPresetKey,
-  freePersonaText,
-  setFreePersonaText,
-  nickname,
-  setNickname,
-  // [2026-08-04 페르소나] 카드 모드
-  selectedCard,
-  setCardPickerOpen,
-}) {
+function Step3Profile({ profile, onEdit }) {
+  // [블록 B] 피커 제거 — 서버가 현재 프로필을 자동 스냅샷하므로 여기서는 확인+편집 진입점만
+  const lensTotal = profile
+    ? LENS_FIELDS.reduce((s, [k]) => s + (Number(profile[k]) || 0), 0)
+    : 0;
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -439,133 +396,47 @@ function Step3Persona({
       exit={{ opacity: 0, x: -20 }}
     >
       <h2 className="text-xl font-bold text-amber-200 mb-1 flex items-center gap-2">
-        <UserIcon size={20} /> 나의 페르소나
+        <UserIcon size={20} /> 내 프로필로 시작
       </h2>
-      <p className="text-sm text-stone-400 mb-4">이 세계에서 너는 누구인가</p>
+      <p className="text-sm text-stone-400 mb-4">
+        이 세계에는 지금의 프로필이 그대로 들어가요 — 시작 후에는 바꿀 수 없어요.
+      </p>
 
-      {/* [Phase 7-V2 Pivot] 닉네임 입력 — 페르소나와 함께 확정 */}
-      <div className="mb-5">
-        <label className="block text-xs text-stone-400 mb-1.5">닉네임 <span className="text-amber-400">*</span></label>
-        <div className="relative">
-          <input
-            type="text"
-            value={nickname}
-            maxLength={20}
-            onChange={(e) => { if (e.target.value.length <= 20) setNickname(e.target.value); }}
-            placeholder="이 세계에서 불릴 이름"
-            className={`w-full bg-stone-800 text-white rounded px-4 py-2.5 pr-12 focus:outline-none focus:ring-2 transition
-              ${nickname.trim() ? 'focus:ring-amber-400' : 'ring-1 ring-rose-500/40 focus:ring-rose-500/60'}`}
-          />
-          {nickname.length > 0 && (
-            <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium
-              ${nickname.length >= 20 ? 'text-rose-400' : 'text-stone-500'}`}>
-              {nickname.length}/20
+      {profile ? (
+        <div className="p-4 rounded border-2 border-amber-400/60 bg-stone-800 space-y-2.5">
+          <div className="flex items-baseline gap-2">
+            <span className="font-bold text-white">{profile.name}</span>
+            <span className="text-xs text-stone-400">
+              {profile.gender === "FEMALE" ? "여성" : "남성"}{profile.age ? ` · ${profile.age}세` : " · 나이 미설정"}
             </span>
-          )}
-        </div>
-        {!nickname.trim() && (
-          <p className="text-[11px] text-rose-400/70 mt-1">닉네임을 입력해야 진행할 수 있습니다.</p>
-        )}
-      </div>
-
-      {/* 페르소나 탭 */}
-      <div className="border-t border-stone-700/50 pt-4">
-        <label className="block text-xs text-stone-400 mb-2">페르소나</label>
-        <div className="flex gap-2 mb-4">
-          <button
-            onClick={() => setPersonaMode("preset")}
-            className={`flex-1 py-2 rounded text-sm font-medium transition ${
-              personaMode === "preset"
-                ? "bg-amber-500 text-black"
-                : "bg-stone-800 text-stone-400 hover:bg-stone-700"
-            }`}
-          >
-            사전 정의
-          </button>
-          <button
-            onClick={() => setPersonaMode("free")}
-            className={`flex-1 py-2 rounded text-sm font-medium transition ${
-              personaMode === "free"
-                ? "bg-amber-500 text-black"
-                : "bg-stone-800 text-stone-400 hover:bg-stone-700"
-            }`}
-          >
-            자유 입력 {!hasFreeUnlock && "🔒"}
-          </button>
-          {/* [2026-08-04 페르소나] 내 카드 — 본문·스탯·성별 일괄 스냅샷 */}
-          <button
-            onClick={() => { setPersonaMode("card"); if (!selectedCard) setCardPickerOpen(true); }}
-            className={`flex-1 py-2 rounded text-sm font-medium transition ${
-              personaMode === "card"
-                ? "bg-sky-500 text-black"
-                : "bg-stone-800 text-stone-400 hover:bg-stone-700"
-            }`}
-          >
-            내 카드
-          </button>
-        </div>
-      </div>
-
-      {personaMode === "card" && (
-        <div className="space-y-2">
-          {selectedCard ? (
-            <div className="p-3 rounded border-2 border-sky-400 bg-stone-800">
-              <div className="font-medium text-white text-sm">{selectedCard.name}</div>
-              <p className="text-xs text-stone-400 mt-1 line-clamp-2">{selectedCard.personaText}</p>
-              <div className="text-[10px] text-sky-300/70 mt-1.5">
-                스탯 {selectedCard.charm + selectedCard.wit + selectedCard.boldness + selectedCard.intellect + selectedCard.empathy}p — 본문·스탯·성별이 함께 적용됩니다
-              </div>
-            </div>
+          </div>
+          {profile.personaText ? (
+            <p className="text-xs text-stone-400 line-clamp-3 whitespace-pre-wrap">{profile.personaText}</p>
           ) : (
-            <p className="text-xs text-stone-500">카드를 선택해 주세요.</p>
+            <p className="text-xs text-stone-500">소개가 비어 있어요 — 편집에서 채울 수 있어요.</p>
           )}
-          <button
-            onClick={() => setCardPickerOpen(true)}
-            className="w-full py-2 rounded text-xs font-medium bg-stone-800 text-stone-300 hover:bg-stone-700 transition"
-          >
-            {selectedCard ? "다른 카드 선택 / 관리" : "카드 선택하기"}
-          </button>
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {LENS_FIELDS.map(([key, label]) => (
+              <span key={key}
+                className="text-[10px] px-2 py-0.5 rounded-full bg-stone-700/60 text-stone-300">
+                {label} {Number(profile[key]) || 0}
+              </span>
+            ))}
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300">
+              렌즈 {lensTotal}p
+            </span>
+          </div>
         </div>
+      ) : (
+        <p className="text-xs text-stone-500">프로필을 불러오는 중…</p>
       )}
 
-      {personaMode === "preset" && (
-        <div className="space-y-2">
-          {presets.map((p) => (
-            <button
-              key={p.presetKey}
-              onClick={() => setSelectedPresetKey(p.presetKey)}
-              className={`block w-full text-left p-3 rounded border-2 transition ${
-                selectedPresetKey === p.presetKey
-                  ? "border-amber-400 bg-stone-800"
-                  : "border-transparent bg-stone-800/50 hover:bg-stone-800"
-              }`}
-            >
-              <div className="font-medium text-white">{p.name}</div>
-              <div className="text-sm text-stone-400 mt-1 whitespace-pre-wrap">{p.description}</div>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {personaMode === "free" && (
-        <div>
-          {!hasFreeUnlock ? (
-            <div className="p-4 bg-stone-800/50 rounded text-center">
-              <p className="text-stone-300 mb-2">자유 페르소나는 프리미엄 기능입니다.</p>
-              <p className="text-xs text-stone-500">결제 후 모든 월드에서 사용 가능합니다.</p>
-            </div>
-          ) : (
-            <textarea
-              value={freePersonaText}
-              onChange={(e) => setFreePersonaText(e.target.value)}
-              placeholder="이 세계에서 당신의 역할, 성격, 배경 등을 자유롭게 입력하세요. (최대 500자)"
-              maxLength={500}
-              rows={8}
-              className="w-full p-3 bg-stone-800 text-white rounded resize-none focus:outline-none focus:ring-2 focus:ring-amber-400"
-            />
-          )}
-        </div>
-      )}
+      <button
+        onClick={onEdit}
+        className="mt-3 w-full py-2.5 rounded text-xs font-medium bg-stone-800 text-stone-300 hover:bg-stone-700 transition"
+      >
+        시작 전 프로필 편집
+      </button>
     </motion.div>
   );
 }

@@ -27,7 +27,8 @@ const AdultVerificationModal = ({ isOpen, onClose, onVerified }) => {
 
     try {
       // Step 1: Get crypto token from backend
-      const { data } = await axios.get('/api/v1/verify/token');
+      // [docs/13 C-1 픽스] axios 인스턴스 baseURL에 /api/v1이 이미 포함 — 재부착하면 404
+      const { data } = await axios.get('/verify/token');
       const { requestNo, tokenVersionId, encData, integrityValue } = data;
 
       // Step 2: Open NICE popup
@@ -71,7 +72,7 @@ const AdultVerificationModal = ({ isOpen, onClose, onVerified }) => {
           window.removeEventListener('message', handleMessage);
 
           try {
-            const result = await axios.post('/api/v1/verify/success', {
+            const result = await axios.post('/verify/success', {
               requestNo: requestNo,
               encData: event.data.encData,
               tokenVersionId: tokenVersionId,

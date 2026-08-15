@@ -1025,11 +1025,8 @@ const ChatPage = () => {
   const handleUpdateProfile = async () => {
     setIsSavingProfile(true);
     try {
-      // [Bug #3 Fix] 닉네임은 유저 레벨, 페르소나는 방 레벨로 분리
-      await Promise.all([
-        api.patch("/users/update", { nickname: userInfo.nickname }),
-        api.patch(`/chat/rooms/${roomId}/persona`, { persona: roomPersona })
-      ]);
+      // [블록 B] 방 단위 페르소나 편집 제거 — 페르소나는 시작 시점 프로필 스냅샷(중도 교체 불가)
+      await api.patch("/users/update", { nickname: userInfo.nickname });
       showToast("프로필이 성공적으로 저장되었습니다.", "success");
     } catch (err) {
       console.error(err);
@@ -2165,6 +2162,8 @@ const ChatPage = () => {
       // 리로드 — 초기 상태로 리셋
       const detail = await fetchStoryV2RoomDetail(roomId);
       setV2Room(detail);
+      // [블록 B 리뷰픽스] '현재 프로필로 새로 시작' 시 설정창 스냅샷 표시도 즉시 갱신
+      setRoomPersona(detail.userPersona || "");
       setCurrentScene(null);
       setSceneQueue([]);
       setMessages([]);
@@ -4009,70 +4008,23 @@ const ChatPage = () => {
                             </div>
                             
                             <div className="relative">
-                                <label className="block text-xs text-gray-500 mb-1 flex justify-between">
-                                    My Persona
-                                    {isSubscriber
-                                      ? <Crown size={12} className="text-indigo-400"/>
-                                      : <Lock size={12} className="text-gray-500"/>
-                                    }
-                                </label>
-                                {/* [Phase 7-V2 Pivot] V2는 CreateFlow에서 페르소나 확정 → read-only 표시 */}
-                                {isV2 ? (
-                                  <div className="w-full min-h-[8rem] bg-white/[0.03] border border-white/10 rounded-lg px-4 py-3 text-white/80 leading-relaxed whitespace-pre-wrap">
-                                    {roomPersona ? (
-                                      <>
-                                        {roomPersona}
-                                        <div className="mt-3 pt-3 border-t border-white/5 text-[10px] text-amber-300/60 uppercase tracking-wider">
-                                          스토리 진행 중 · 페르소나 잠김
-                                        </div>
-                                      </>
-                                    ) : (
-                                      <span className="text-white/30 italic">(페르소나 미설정)</span>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <div className="relative">
-                                    <textarea 
-                                        value={roomPersona}
-                                        maxLength={500}
-                                        onChange={(e) => {
-                                          if (e.target.value.length <= 500) setRoomPersona(e.target.value);
-                                        }}
-                                        disabled={!isSubscriber} 
-                                        className={`w-full h-32 bg-white/5 border rounded-lg px-4 py-3 pr-14 text-white outline-none resize-none transition custom-scrollbar leading-relaxed
-                                            ${!isSubscriber
-                                                ? 'border-white/10 opacity-50 cursor-not-allowed grayscale'
-                                                : roomPersona.length >= 500
-                                                    ? 'border-rose-500/50 focus:border-rose-500/70 bg-indigo-900/5'
-                                                    : 'border-indigo-500/30 focus:border-indigo-500/60 bg-indigo-900/5'
-                                            }`}
-                                        placeholder={
-                                            isSubscriber 
-                                            ? "이 캐릭터와의 대화에서 사용할 나의 설정을 적어주세요.\n(캐릭터마다 다른 페르소나를 설정할 수 있습니다.)" 
-                                            : "🔒 루시드 패스를 구독하면 페르소나를 설정할 수 있습니다."
-                                        }
-                                    />
-                                    {isSubscriber && roomPersona.length > 0 && (
-                                      <span className={`absolute right-3 bottom-2 text-[10px] font-medium
-                                        ${roomPersona.length >= 500 ? 'text-rose-400' : roomPersona.length >= 400 ? 'text-amber-400/60' : 'text-white/20'}`}>
-                                        {roomPersona.length}/500
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                                {!isV2 && !isSubscriber && (
-                                  <button
-                                    onClick={() => {
-                                      setShowSettings(false);
-                                      setStoreInitialTab("pass");
-                                      setShowStore(true);
-                                    }}
-                                    className="mt-2 w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-indigo-600/10 border border-indigo-500/20 text-indigo-300 text-xs font-medium hover:bg-indigo-600/20 transition"
-                                  >
-                                    <Crown size={12} />
-                                    루시드 패스로 해금하기
-                                  </button>
-                                )}
+                                <label className="block text-xs text-gray-500 mb-1">이 이야기의 내 페르소나</label>
+                                {/* [블록 B] 방 페르소나 = 시작 시점 프로필 스냅샷(모드 무관 read-only) — 편집은 보관함 > 페르소나 */}
+                                <div className="w-full min-h-[8rem] bg-white/[0.03] border border-white/10 rounded-lg px-4 py-3 text-white/80 leading-relaxed whitespace-pre-wrap">
+                                  {roomPersona ? (
+                                    <>
+                                      {roomPersona}
+                                      <div className="mt-3 pt-3 border-t border-white/5 text-[10px] text-amber-300/60 uppercase tracking-wider">
+                                        진행 중 · 시작 시점 스냅샷
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <span className="text-white/30 italic">(시작할 때의 프로필 소개가 비어 있었어요)</span>
+                                  )}
+                                </div>
+                                <p className="mt-1.5 text-[10px] text-white/25">
+                                  프로필을 바꾸면 새 이야기부터 반영됩니다. (보관함 › 페르소나)
+                                </p>
                             </div>
 
                             {/* [Phase 7-V2 Pivot] V2는 Save 버튼 비활성 — 페르소나/닉네임이 read-only */}
