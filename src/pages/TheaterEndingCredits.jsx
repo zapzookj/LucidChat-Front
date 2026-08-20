@@ -4,7 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import {
   Crown, Heart, Star, Home, Film, Clock, Sparkles, Share2
 } from "lucide-react";
-import { triggerTheaterEnding } from "../api/TheaterFinalityApi";
+import { triggerTheaterEnding, fetchTheaterEnding } from "../api/TheaterFinalityApi";
 import { sfx } from "../utils/sfx";
 
 /**
@@ -92,7 +92,10 @@ export default function TheaterEndingCredits() {
     let alive = true;
     (async () => {
       try {
-        const result = await triggerTheaterEnding(Number(roomId));
+        // [블록 D · 극장 엔딩 부활] 저장된 엔딩 우선 — 없을 때만 발동(POST).
+        //   기존에는 진입할 때마다 발동 API를 재호출해서 "엔딩 다시 보기"가 항상 400이었다.
+        const saved = await fetchTheaterEnding(Number(roomId));
+        const result = saved ?? await triggerTheaterEnding(Number(roomId));
         if (alive) setEnding(result);
       } catch (e) {
         console.error("[Theater] Ending failed:", e);

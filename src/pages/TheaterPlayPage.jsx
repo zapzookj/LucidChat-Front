@@ -384,6 +384,15 @@ export default function TheaterPlayPage() {
     const report = chapterReport;
     setChapterReport(null);
     setLocationBranchRequested(false);
+
+    // [블록 D · 극장 엔딩 부활] 마지막 Act의 마지막 Chapter를 끝냈으면 엔딩으로.
+    //   이 분기가 없어서 극장 엔딩이 정상 플레이로 도달 불가였다 —
+    //   ACT_4 Ch4를 넘겨도 챕터가 무한 증가하고 인터미션이 영구 소멸했다.
+    if (report?.endingReady) {
+      navigate(`/theater/${numericRoomId}/ending`);
+      return;
+    }
+
     if (report?.leadsToIntermission) {
       navigate(`/theater/${numericRoomId}/intermission`);
       return;

@@ -11,6 +11,20 @@ export async function triggerTheaterEnding(roomId) {
   return res.data;
 }
 
+/**
+ * [블록 D · 극장 엔딩 부활] 저장된 엔딩 재조회 — 없으면 null.
+ * 발동(POST)과 감상(GET)을 분리해야 아카이브에서 몇 번이든 다시 볼 수 있다.
+ */
+export async function fetchTheaterEnding(roomId) {
+  try {
+    const res = await api.get(`/theater/rooms/${roomId}/ending`);
+    return res.data;
+  } catch (e) {
+    if (e?.response?.status === 404) return null;
+    throw e;
+  }
+}
+
 // ━━━ 세이브 / 로드 ━━━
 
 export async function fetchSaveSlots(roomId) {

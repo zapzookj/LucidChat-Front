@@ -280,7 +280,12 @@ export default function TheaterChapterReportModal({
                 whileHover={{ scale: 1.03 }}
                 className="flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500 text-white font-bold shadow-xl shadow-violet-500/25 hover:from-indigo-400 hover:via-violet-400 hover:to-purple-400 transition-colors"
               >
-                {report.leadsToIntermission ? (
+                {/* [블록 D · 극장 엔딩 부활] endingReady면 다음 챕터가 아니라 엔딩으로 간다.
+                    기존에는 마지막 Act의 마지막 Chapter를 끝내도 "Chapter 5 시작"이 떴다 —
+                    엔딩 신호가 없어서 챕터가 무한 증가하는 상태였다. */}
+                {report.endingReady ? (
+                  <>🎬 엔딩 보기</>
+                ) : report.leadsToIntermission ? (
                   <>☕ 인터미션으로</>
                 ) : (
                   <>Chapter {report.chapterNumber + 1} 시작</>
