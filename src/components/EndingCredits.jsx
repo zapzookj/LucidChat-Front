@@ -687,7 +687,7 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange, characterName = 
                 </motion.div>
               ))}
 
-              {/* ── 동적 관계 & BPM ── */}
+              {/* ── 동적 관계 ── */}
               <motion.div
                 className="flex items-center justify-between pt-3 border-t"
                 style={{ borderColor: `${accentColor}15` }}
@@ -707,23 +707,6 @@ const EndingCredits = ({ endingData, onComplete, onSceneChange, characterName = 
                 </span>
               </motion.div>
 
-              <motion.div
-                className="flex items-center justify-between"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={revealTransition(0.6, 1.9)}
-              >
-                <div className="flex items-center gap-2">
-                  <Activity className="w-4 h-4" style={{ color: `${accentColor}99` }} />
-                  <span className={`text-xs ${subtitleColor}`} style={{ fontFamily: "'Noto Sans KR', sans-serif" }}>
-                    마지막 심박수
-                  </span>
-                </div>
-                <span className={`text-sm ${textColor}`}
-                      style={{ fontFamily: "'Noto Serif KR', serif" }}>
-                  {endingData.stats.finalBpm || 65} BPM
-                </span>
-              </motion.div>
 
               {/* ── 5종 스탯 바 차트 ── */}
               <motion.div

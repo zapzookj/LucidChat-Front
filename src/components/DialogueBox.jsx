@@ -1,8 +1,9 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Send, Heart, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity, MessageSquare, Eye, Clock, EyeIcon, Gem, MessageCircle, ChevronUp, FastForward, MapPin, User } from "lucide-react";
+import { Send, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity, MessageSquare, Eye, Clock, EyeIcon, Gem, MessageCircle, ChevronUp, FastForward, MapPin, User } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { sanitizeScene } from "../utils/dialogueSanitizer";
 import { sfx } from "../utils/sfx";
+import { derivePulse } from "../utils/relationNarrative";
 
 /**
  * [Phase 5.5-Fix] DialogueBox
@@ -10,26 +11,11 @@ import { sfx } from "../utils/sfx";
  * 변경점:
  * 1. [Fix #1] 에너지 UI 분리 — freeEnergy/paidEnergy 별도 표시 (paidEnergy > 0일 때)
  * 2. [Fix #5] 이벤트 진행 중 뱃지 + 속마음 토글 → 네임 플레이트 옆으로 이동 (에너지 UI와 겹침 해소)
- * 3. [Fix #4 동기화] BPM 툴팁에 현재 구간 하이라이트
+ * 3. [블록 D · §G-8] 심박 숫자 폐지 → emotion 파생 박동 인디케이터
  *
  * ⚠️ 대사 출력 로직(타이핑/씬 전환)은 원본과 100% 동일 — 수정 없음
  */
 
-// ── 자립형 HeartPulse (외부 import 없이 동작) ──
-const HeartPulse = ({ bpm, size = 18 }) => {
-  const interval = 60 / Math.max(bpm, 60);
-  const heartColor = bpm >= 140 ? "#ff2d55" : bpm >= 110 ? "#ff6b9d" : bpm >= 85 ? "#f472b6" : "#f9a8d4";
-
-  return (
-    <motion.div
-      animate={{ scale: [1, 1.25, 1, 1.1, 1] }}
-      transition={{ duration: interval, repeat: Infinity, ease: "easeInOut", times: [0, 0.15, 0.35, 0.5, 1] }}
-    >
-      <Heart size={size} fill={heartColor} color={heartColor}
-        style={{ filter: `drop-shadow(0 0 ${bpm > 100 ? 6 : 3}px ${heartColor}80)` }} />
-    </motion.div>
-  );
-};
 
 // ── 자립형 스탯 변화 팝업 ──
 const STAT_META = {
@@ -203,14 +189,9 @@ const ThoughtToggleTabs = ({ activeTab, onTabChange }) => (
 
 
 // ═══════════════════════════════════════════════════════════════
-//  [Fix #4 동기화] BPM 구간 정의
+//  스탯 변화 팝업 메타
 // ═══════════════════════════════════════════════════════════════
 
-const BPM_RANGES = [
-  { min: 60, max: 85, label: "평온", color: "#f9a8d4" },
-  { min: 86, max: 120, label: "두근거림", color: "#f472b6" },
-  { min: 121, max: 180, label: "쿵쾅거림", color: "#ef4444" },
-];
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -248,7 +229,7 @@ function SystemTurnCue() {
 //   기존 상태창(onOpenStatusPanel = BiometricStatusPanel)으로 상세를 노출한다.
 // ═══════════════════════════════════════════════════════════════
 const MobileInfoBar = ({
-  bpm, energy, hasPaidEnergy, displayPaidEnergy, boostMode, onOpenStatusPanel, statChanges, toggleRef,
+  pulse, energy, hasPaidEnergy, displayPaidEnergy, boostMode, onOpenStatusPanel, statChanges, toggleRef,
   onOpenProfile = null, // [Profile v1] 프로필 진입점 (미전달 시 비노출 — V2 등 기존 호출 byte-identical)
   profileToggleRef = null, // [Profile v2] 프로필 패널 excludeRef — 바깥 mousedown 깜빡임 방지
 }) => (
@@ -274,11 +255,12 @@ const MobileInfoBar = ({
     )}
     <button
       onClick={onOpenStatusPanel}
-      aria-label="심박수 상세"
+      aria-label={`심박 · ${pulse.label} — 상태창 열기`}
       className="flex items-center gap-1.5 h-10 px-3 rounded-full bg-black/60 backdrop-blur-md border border-rose-500/40 text-white active:scale-95 transition"
     >
-      <Heart size={14} fill="#f472b6" color="#f472b6" />
-      <span className="text-sm font-bold tabular-nums">{bpm}</span>
+      <span className="lucid-pulse-dot w-2.5 h-2.5 rounded-full"
+        style={{ background: pulse.color, boxShadow: `0 0 9px ${pulse.color}`, animationDuration: `${pulse.beatSec}s` }} />
+      <span className="text-xs font-extrabold">{pulse.label}</span>
     </button>
     <button
       onClick={onOpenStatusPanel}
@@ -311,14 +293,13 @@ const DialogueBox = ({
   onNextScene,
   hasNextScene,
   nickname,
-  onTriggerEvent,
   boostMode = false,
   isSubscriber = false,
   freeEnergyMax = 30,
   chatMode = "SANDBOX",
   onOpenStore,
   // ── [Phase 5.5-v3] 기존 props ──
-  bpm = 65,
+  emotion = null,   // [블록 D · §G-8] 박동 파생 입력 (구 bpm prop 대체)
   onOpenStatusPanel,
   statusToggleRef = null, // [폴리싱 #8] 상태창 토글 버튼 ref — BiometricStatusPanel excludeRef와 연결
   // [Profile v1] 캐릭터 프로필 진입점 (additive — 미전달 시 버튼 비노출, V2 동작 불변)
@@ -491,8 +472,8 @@ const DialogueBox = ({
   const noEnergy = energy <= 0;
   const lowEnergy = energy < energyCost && energy > 0;
 
-  // BPM 게이지 퍼센트 (60~180 → 0~100%)
-  const bpmPercent = Math.min(100, Math.max(0, ((bpm - 60) / 120) * 100));
+  // [블록 D · §G-8] 박동 — LLM 숫자가 아니라 직전 턴 emotion에서 파생
+  const pulse = derivePulse(emotion);
 
   // [Phase 5.5-Sep] 속마음: 스토리 모드 전용
   const showThoughtTabs = isStoryMode && thoughtUnlocked && innerThought;
@@ -510,8 +491,6 @@ const DialogueBox = ({
   const displayFreeEnergy = freeEnergy !== null ? freeEnergy : energy;
   const displayPaidEnergy = paidEnergy || 0;
 
-  // [Fix #4 동기화] 현재 BPM 구간
-  const currentBpmRange = BPM_RANGES.find(r => bpm >= r.min && bpm <= r.max);
 
   return (
     <div className={`absolute bottom-0 w-full z-20 flex justify-center select-none ${mobile ? "p-3 pb-safe-4" : "p-4 pb-8"}`}>
@@ -520,7 +499,7 @@ const DialogueBox = ({
         {/* ═══ 상단 정보바 ═══ */}
         {mobile ? (
           <MobileInfoBar
-            bpm={bpm}
+            pulse={pulse}
             energy={energy}
             hasPaidEnergy={hasPaidEnergy}
             displayPaidEnergy={displayPaidEnergy}
@@ -584,52 +563,19 @@ const DialogueBox = ({
             </button>
           </div>
 
-          {/* ━━━ BPM 심박수 바 ━━━ */}
-          <div className="relative group cursor-help">
-            <div className="flex items-center gap-3 bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-rose-500/40 shadow-[0_0_15px_rgba(244,114,182,0.3)] hover:bg-black/80 transition-colors">
-              <HeartPulse bpm={bpm} size={20} />
-              <div className="flex flex-col w-12">
-                <span className="text-[10px] text-rose-400 font-bold uppercase leading-none mb-0.5">심박수</span>
-                <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                  <motion.div
-                    className="h-full rounded-full"
-                    style={{ background: bpm >= 120 ? "linear-gradient(90deg, #f472b6, #ef4444)" : "linear-gradient(90deg, #f9a8d4, #f472b6)" }}
-                    animate={{ width: `${bpmPercent}%` }}
-                    transition={{ duration: 0.5, ease: "easeOut" }}
-                  />
-                </div>
-              </div>
-              <span className="text-sm font-bold text-white ml-1 tabular-nums">{bpm}</span>
-            </div>
-
-            {/* [Fix #4 동기화] BPM 툴팁 — 현재 구간 하이라이트 */}
-            <div className="absolute bottom-full right-0 mb-3 w-56 bg-black/95 border border-rose-500/30 p-4 rounded-xl text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
-              <p className="font-bold text-rose-400 mb-2 text-sm">{characterName}의 심박수</p>
-              <p className="leading-relaxed text-gray-400 mb-3">대화 텐션과 감정에 따라 실시간으로 변화합니다.</p>
-              <div className="space-y-1">
-                {BPM_RANGES.map((range) => {
-                  const isCurrent = bpm >= range.min && bpm <= range.max;
-                  return (
-                    <div key={range.label} className={`flex items-center justify-between px-2 py-1 rounded-lg transition-all ${
-                      isCurrent ? "bg-white/[0.06]" : ""
-                    }`}>
-                      <div className="flex items-center gap-2">
-                        {isCurrent && (
-                          <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: range.color }} />
-                        )}
-                        <span className={`text-[11px] ${isCurrent ? "text-white/80 font-bold" : "text-gray-500"}`}>
-                          {range.label}
-                        </span>
-                      </div>
-                      <span className={`text-[10px] tabular-nums ${isCurrent ? "text-white/50" : "text-gray-600"}`}>
-                        {range.min}~{range.max}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+          {/* ━━━ [블록 D · §G-8] 박동 — 숫자 없음. emotion에서 파생(LLM에 bpm을 묻지 않는다) ━━━ */}
+          <button
+            type="button"
+            onClick={onOpenStatusPanel}
+            aria-label={`${characterName}의 심박 · ${pulse.label} — 상태창 열기`}
+            className="flex items-center gap-2.5 bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-rose-500/40 hover:bg-black/80 transition-colors"
+          >
+            <span
+              className="lucid-pulse-dot w-2.5 h-2.5 rounded-full"
+              style={{ background: pulse.color, boxShadow: `0 0 10px ${pulse.color}`, animationDuration: `${pulse.beatSec}s` }}
+            />
+            <span className="text-[11px] font-extrabold tracking-[0.05em] text-white/80">심박 · {pulse.label}</span>
+          </button>
 
           {/* ━━━ [Fix #1] 에너지 표시 — freeEnergy/paidEnergy 분리 ━━━ */}
           <div className="relative group cursor-help">

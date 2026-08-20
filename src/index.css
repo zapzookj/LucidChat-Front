@@ -110,3 +110,25 @@ select::-webkit-scrollbar-thumb:hover {
   .pt-safe-4 { padding-top: max(1rem, env(safe-area-inset-top)); }
   .pb-safe-4 { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 }
+/* ═══════════════════════════════════════════════════════════════
+   [블록 D · §G-8] 박동 인디케이터 — BPM 숫자를 대체하는 앰비언트 신호.
+   DialogueBox 정보바 / BiometricStatusPanel 헤더가 공유한다.
+   animation-duration은 인라인 style로 주입(잔잔 1.05s / 두근 .72s / 쿵쾅 .46s).
+   무한 반복이므로 reduced-motion에서는 반드시 정지시킨다.
+   ═══════════════════════════════════════════════════════════════ */
+.lucid-pulse-dot {
+  animation-name: lucid-beat;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  flex: none;
+}
+@keyframes lucid-beat {
+  0%   { transform: scale(1); }
+  15%  { transform: scale(1.25); }
+  35%  { transform: scale(1); }
+  50%  { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lucid-pulse-dot { animation: none !important; }
+}

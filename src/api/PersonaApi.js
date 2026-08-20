@@ -45,7 +45,7 @@ export async function deletePersona(personaId) {
 export const LENS_FIELDS = [
   ["allure", "매력", "끌린다"],
   ["friendliness", "친근함", "편하다"],
-  ["trust", "신뢰감", "믿는다"],
+  ["trust", "듬직함", "믿는다"],
   ["charisma", "카리스마", "어려워한다"],
   ["mystique", "신비", "궁금해한다"],
 ];

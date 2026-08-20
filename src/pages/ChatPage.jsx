@@ -29,8 +29,6 @@ import {
   peekDirectorDirective,
   consumeDirectorDirective,
   requestDirectorIntervention,
-  sendDirectorBranchStream,
-  sendDirectorTransitionStream,
   sendAutoDirectorResponse,
 } from "../api/UseChatStream";
 // DirectorInterlude 제거 — 투명 디렉터 패턴으로 대체
@@ -144,7 +142,6 @@ const ChatPage = () => {
 
   // ━━━ [Phase 4.2] 관계 승급 이벤트 상태 ━━━
   const [promotionOverlay, setPromotionOverlay] = useState(null);   // null | 'STARTED' | 'SUCCESS' | 'FAILURE' | 'SUCCESS_PENDING' | 'FAILURE_PENDING'
-  const [promotionProgress, setPromotionProgress] = useState(null); // IN_PROGRESS 배너용 { target, displayName, turnsRemaining, moodScore }
   const [promotionResult, setPromotionResult] = useState(null);     // 오버레이에 표시할 이벤트 데이터
 
   // ━━━ [Phase 4.3] 엔딩 이벤트 상태 ━━━
@@ -180,7 +177,6 @@ const ChatPage = () => {
     intimacy: 0, affection: 0, dependency: 0, playfulness: 0, trust: 0,
     lust: 0, corruption: 0, obsession: 0,
   });
-  const [currentBpm, setCurrentBpm] = useState(65);
   const [dynamicRelationTag, setDynamicRelationTag] = useState(null);
   const [characterThought, setCharacterThought] = useState(null);
   const [showStatusPanel, setShowStatusPanel] = useState(false);   // 상태창 오픈 상태
@@ -211,7 +207,7 @@ const ChatPage = () => {
   const [awaitingFinalResult, setAwaitingFinalResult] = useState(false);
 
   // [Phase 5.5-Sep] 모드별 기능 플래그 (roomInfo 로드 후 갱신)
-  const isStoryMode = roomInfo?.chatMode === "STORY";
+  const isStoryMode = roomInfo?.chatMode === "STORY" || roomInfo?.chatMode === "SANDBOX";   // [블록 D · §G-13 복구] 2026-06-12 18083be가 놓친 한 줄 — /chat/ 도착 방은 전부 SANDBOX다
 
   //   // ─── [Phase 5.5-Illust] 실시간 일러스트 시스템 ───
   const [showIllustModal, setShowIllustModal] = useState(false);
@@ -308,26 +304,6 @@ const ChatPage = () => {
       setConfirmModal(null);
   };
 
-  /**
-   * [Phase 5.5-Director] 디렉터 인터루드 체크
-   *
-   * 유저가 메시지를 보내려 할 때 (입력창 포커스 또는 전송 직전) 호출.
-   * 대기 중인 Directive가 있으면 인터루드 시퀀스를 발동.
-   *
-   * @returns {boolean} true면 인터루드 발동됨 (메시지 전송 보류)
-   */
-  /**
-   * [v3] 투명 디렉터 — 유저 메시지를 차단하지 않음
-   *
-   * 이전: peek → directive 발견 → 메시지 전송 차단 → DirectorInterlude 오버레이
-   * 현재: 자동 체크에서 투명하게 처리. 유저 메시지 전송 시에는 차단 없음.
-   *       directive가 남아있으면 자동 소비하고 유저 메시지와 함께 처리.
-   */
-  const checkDirectorInterlude = useCallback(async () => {
-    // [v3] 투명 디렉터: 유저 메시지를 절대 차단하지 않음
-    // 비동기 자동 체크(scheduleDirectorAutoCheck)에서 투명하게 처리
-    return false;
-  }, []);
 
   /**
    * DirectorInterlude 컴포넌트에서 유저가 행동을 선택했을 때 호출.
@@ -483,13 +459,13 @@ const ChatPage = () => {
    * INTERLUDE/TRANSITION/AWAY에서 나레이션 표시 후 호출.
    * 캐릭터가 상황에 자동으로 반응하는 응답을 생성.
    */
-  const triggerAutoDirectorResponse = useCallback(async (directiveType, eventContext = null) => {
+  const triggerAutoDirectorResponse = useCallback(async (directiveType, eventContext = null, chosenIndex = null, optimisticCost = 1) => {
     // [Bug Fix B] setIsTyping(true) 제거 — 나레이션이 이미 표시 중일 때 타이핑 인디케이터가 덮어쓰는 문제 방지
     // 대신 awaitingFinalResult로 하단에 미세한 로딩 표시
     setAwaitingFinalResult(true);
     // [Fix] currentScene을 null로 설정하지 않음 — 나레이션 레이턴시 마스킹 보존
 
-    const cost = 1;
+    const cost = optimisticCost;   // [블록 D · §G-13] 카드별 비용 — 서버가 최종 판정
     setEnergy(prev => Math.max(0, prev - cost));
 
     let firstSceneReceived = false;
@@ -536,7 +512,7 @@ const ChatPage = () => {
           setAwaitingFinalResult(false);
           setDirectorAutoProcessing(false);
 
-          const { scenes, currentAffection, stats: newStats, bpm: newBpm,
+          const { scenes, currentAffection, stats: newStats,
                   dynamicRelationTag: newRelTag, eventStatus: newEventStatus,
                   topicConcluded: newTopicConcluded,
                   locationTransition: resLocTransition,
@@ -544,7 +520,6 @@ const ChatPage = () => {
 
           setAffection(currentAffection);
           if (newStats) setCharacterStats(newStats);
-          if (newBpm !== undefined) setCurrentBpm(newBpm);
           if (newRelTag) setDynamicRelationTag(newRelTag);
 
           if (newEventStatus) {
@@ -607,7 +582,7 @@ const ChatPage = () => {
           setEnergy(prev => prev + cost);
           showToast(error.message || "자동 응답 처리 중 오류가 발생했습니다.", "error");
         },
-      });
+      }, undefined, chosenIndex);
     } catch (err) {
       setIsTyping(false); setAwaitingFinalResult(false); setDirectorAutoProcessing(false);
       setEnergy(prev => prev + cost);
@@ -983,7 +958,6 @@ const ChatPage = () => {
         setRoomPersona(roomRes.data.userPersona || userRes.data.profileDescription || "");
         // [Phase 5.5] 상태창 데이터 복원
         if (roomRes.data.stats) setCharacterStats(roomRes.data.stats);
-        if (roomRes.data.bpm !== undefined) setCurrentBpm(roomRes.data.bpm);
         if (roomRes.data.dynamicRelationTag) setDynamicRelationTag(roomRes.data.dynamicRelationTag);
         if (roomRes.data.characterThought) setCharacterThought(roomRes.data.characterThought);
         setAffection(roomRes.data.affectionScore);
@@ -1219,39 +1193,13 @@ const ChatPage = () => {
 
   const getUnlockIcon = (type) => type === 'LOCATION' ? <MapPin size={22} /> : <Shirt size={22} />;
 
+  // [블록 D · §G-1] 승급 시험 폐지 — 서버는 이제 SUCCESS만 내려보낸다.
+  //   STARTED/IN_PROGRESS/FAILURE는 5턴 시험의 UI였고 시험과 함께 사라졌다.
+  //   세리머니(Relationship Up)는 §G-1이 유지하라고 명시한 부분이라 그대로 둔다.
   const handlePromotionEvent = (promoEvent) => {
-    if (!promoEvent) return;
-    switch (promoEvent.status) {
-      case 'STARTED':
-        setPromotionResult(promoEvent);
-        setPromotionOverlay('STARTED');
-        setPromotionProgress({
-          target: promoEvent.targetRelation,
-          displayName: promoEvent.targetDisplayName,
-          turnsRemaining: promoEvent.turnsRemaining,
-          moodScore: 0
-        });
-        setTimeout(() => setPromotionOverlay(null), 3500);
-        break;
-      case 'IN_PROGRESS':
-        setPromotionProgress({
-          target: promoEvent.targetRelation,
-          displayName: promoEvent.targetDisplayName,
-          turnsRemaining: promoEvent.turnsRemaining,
-          moodScore: promoEvent.moodScore
-        });
-        break;
-      case 'SUCCESS':
-        setPromotionProgress(null);
-        setPromotionResult(promoEvent);
-        setPromotionOverlay('SUCCESS_PENDING');
-        break;
-      case 'FAILURE':
-        setPromotionProgress(null);
-        setPromotionResult(promoEvent);
-        setPromotionOverlay('FAILURE_PENDING');
-        break;
-    }
+    if (!promoEvent || promoEvent.status !== 'SUCCESS') return;
+    setPromotionResult(promoEvent);
+    setPromotionOverlay('SUCCESS_PENDING');
   };
 
   const handleLocationTransitionComplete = useCallback((bgUrl) => {
@@ -1360,8 +1308,6 @@ const ChatPage = () => {
     if (sceneQueue.length === 0 && currentScene && !isTyping) {
       if (promotionOverlay === 'SUCCESS_PENDING') {
         setTimeout(() => setPromotionOverlay('SUCCESS'), 800);
-      } else if (promotionOverlay === 'FAILURE_PENDING') {
-        setTimeout(() => setPromotionOverlay('FAILURE'), 800);
       }
     }
   }, [sceneQueue, currentScene, isTyping, promotionOverlay]);
@@ -1476,7 +1422,7 @@ const ChatPage = () => {
           topicConcluded: newTopicConcluded,
           eventStatus: newEventStatus,
           endingTrigger: endingTrig,
-          stats: newStats, bpm: newBpm,
+          stats: newStats,
           dynamicRelationTag: newRelTag,
           characterThought: newThought,
           hasInnerThought: resHasThought,
@@ -1501,7 +1447,6 @@ const ChatPage = () => {
           }
           setCharacterStats(newStats);
         }
-        if (newBpm !== undefined) setCurrentBpm(newBpm);
         if (newRelTag) setDynamicRelationTag(newRelTag);
         if (newThought !== undefined && newThought !== null) {
           setCharacterThought(newThought);
@@ -1718,7 +1663,6 @@ const ChatPage = () => {
           setCharacterThought(freshRoom.data.characterThought);
         }
         if (freshRoom.data.stats) setCharacterStats(freshRoom.data.stats);
-        if (freshRoom.data.bpm !== undefined) setCurrentBpm(freshRoom.data.bpm);
         if (freshRoom.data.dynamicRelationTag) setDynamicRelationTag(freshRoom.data.dynamicRelationTag);
       } catch (_) { /* 다음 턴에 자연스럽게 갱신 */ }
     }, 3000);
@@ -1776,24 +1720,6 @@ const ChatPage = () => {
 
 
   // 이벤트 트리거 -> 옵션 받기 (1단계)
-  const handleTriggerEvent = async () => {
-    setIsTyping(true); 
-    try {
-        const res = await api.post(`/story/rooms/${roomId}/events`);
-        
-        // 옵션 모달을 띄운다
-        if (res.data.options && res.data.options.length > 0) {
-            setEventOptions(res.data.options);
-        } else {
-            showToast("이벤트 생성에 실패했습니다.", "error");
-        }
-    } catch (err) {
-        console.error("Event trigger failed", err);
-        showToast("이벤트 생성 실패", "error");
-    } finally {
-        setIsTyping(false);
-    }
-  };
 
   /**
    * "감독님, 다음 씬 주세요" 버튼 핸들러
@@ -1850,7 +1776,7 @@ const ChatPage = () => {
   // Bug 1 Fix: sendEventSelectStream → sendAutoDirectorResponse (ONGOING 완전 제거)
   // Bug 2 Fix: detail을 USER 메시지가 아닌 SYSTEM 나레이션으로 저장
   // Bug 3 Fix: 카드 선택 즉시 나레이션 표시 (레이턴시 마스킹) + 씬 중복 방지
-  const handleSelectEvent = async (option) => {
+  const handleSelectEvent = async (option, chosenIndex = null) => {
     const detail = option.detail;
     const energyCost = option.energyCost;
   
@@ -1884,7 +1810,7 @@ const ChatPage = () => {
 
     // ── sendAutoDirectorResponse로 캐릭터 자동 응답 요청 ──
     // detail을 eventContext로 전달 → 백엔드에서 SYSTEM 메시지로 저장 + constraint 적용
-    triggerAutoDirectorResponse("BRANCH", detail);
+    triggerAutoDirectorResponse("BRANCH", detail, chosenIndex, energyCost);
   };
 
   const handleDirectorWatch = async () => {
@@ -1936,12 +1862,11 @@ const ChatPage = () => {
         onFinalResult: (data) => {
           if (!firstSceneReceived) setIsTyping(false);
   
-          const { scenes, currentAffection, stats: newStats, bpm: newBpm,
+          const { scenes, currentAffection, stats: newStats,
                   dynamicRelationTag: newRelTag, eventStatus: newEventStatus } = data;
   
           setAffection(currentAffection);
           if (newStats) setCharacterStats(newStats);
-          if (newBpm !== undefined) setCurrentBpm(newBpm);
           if (newRelTag) setDynamicRelationTag(newRelTag);
   
           // 이벤트 상태 업데이트
@@ -2029,7 +1954,7 @@ const ChatPage = () => {
         onFinalResult: (data) => {
           if (!firstSceneReceived) setIsTyping(false);
   
-          const { scenes, currentAffection, stats: newStats, bpm: newBpm,
+          const { scenes, currentAffection, stats: newStats,
                   dynamicRelationTag: newRelTag, characterThought: newThought,
                   hasInnerThought: resHasThought, assistantLogId: resLogId } = data;
   
@@ -2049,7 +1974,6 @@ const ChatPage = () => {
             }
             setCharacterStats(newStats);
           }
-          if (newBpm !== undefined) setCurrentBpm(newBpm);
           if (newRelTag) setDynamicRelationTag(newRelTag);
           if (newThought) setCharacterThought(newThought);
   
@@ -2272,7 +2196,6 @@ const ChatPage = () => {
                   intimacy: 0, affection: 0, dependency: 0, playfulness: 0, trust: 0,
                   lust: 0, corruption: 0, obsession: 0,
                 });
-                setCurrentBpm(65);
                 setDynamicRelationTag("낯선 사람");
                 setCharacterThought(null);
                 setShowStatusPanel(false);
@@ -2460,7 +2383,7 @@ const ChatPage = () => {
         onClose={() => setShowStatusPanel(false)}
         excludeRef={statusToggleRef}
         stats={characterStats}
-        bpm={currentBpm}
+        emotion={displayedEmotion}
         dynamicRelationTag={dynamicRelationTag}
         characterThought={characterThought}
         characterName={roomInfo?.characterName || "캐릭터"}
@@ -2469,47 +2392,6 @@ const ChatPage = () => {
         chatMode={roomInfo?.chatMode}
       />
 
-      {/* ━━━ [Phase 5] Promotion IN_PROGRESS Banner ━━━ */}
-      <AnimatePresence>
-        {promotionProgress && !promotionOverlay && (
-          <motion.div
-            initial={{ opacity: 0, y: -30 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -30 }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="absolute top-6 left-[5.5rem] sm:left-[7.5rem] z-40"
-          >
-            <div className={`flex items-center gap-3 px-4 py-2.5 rounded-xl backdrop-blur-xl border bg-black/60 shadow-lg ${
-              getRelationColor(promotionProgress.target).border
-            }`}>
-              <Heart size={18} className={`${getRelationColor(promotionProgress.target).text} animate-pulse`} fill="currentColor" />
-              <div className="flex flex-col">
-                <span className="text-[10px] text-gray-400 uppercase tracking-wider font-bold">Promotion Event</span>
-                <span className={`text-xs font-bold ${getRelationColor(promotionProgress.target).text}`}>
-                  → {promotionProgress.displayName}
-                </span>
-              </div>
-              <div className="h-8 w-px bg-white/10" />
-              <div className="flex flex-col items-center">
-                <span className="text-[10px] text-gray-500">남은 턴</span>
-                <span className="text-sm font-bold text-white">{promotionProgress.turnsRemaining}</span>
-              </div>
-              <div className="flex flex-col items-center">
-                <span className="text-[10px] text-gray-500">분위기</span>
-                <div className="flex gap-0.5">
-                  {[...Array(5)].map((_, i) => (
-                    <div key={i} className={`w-1.5 h-3 rounded-full transition-colors ${
-                      i < Math.max(0, promotionProgress.moodScore)
-                        ? 'bg-yellow-400'
-                        : 'bg-white/10'
-                    }`} />
-                  ))}
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Top Buttons */}
       {/* [Phase B · 단계3] 데스크톱은 기존 클러스터 그대로, 모바일은 ⋯ 오버플로 → 메뉴 시트 */}
@@ -2599,13 +2481,12 @@ const ChatPage = () => {
         onNextScene={replayView ? replay.next : handleNextScene}
         hasNextScene={replayView ? replay.canNext : sceneQueue.length > 0}
         nickname={userInfo.nickname}
-        onTriggerEvent={handleTriggerEvent}
         boostMode={boostMode}
         isSubscriber={isSubscriber}
         freeEnergyMax={freeEnergyMax}
         chatMode={roomInfo?.chatMode}
         onOpenStore={(tab) => { setStoreInitialTab(tab); setShowStore(true); }}
-        bpm={currentBpm}
+        emotion={displayedEmotion}
         onOpenStatusPanel={() => setShowStatusPanel(true)}
         statusToggleRef={statusToggleRef}
         // [Profile v1] PROFILE 버튼 — roomInfo 로드 전엔 진입점 비노출
@@ -2671,7 +2552,7 @@ const ChatPage = () => {
                         return (
                             <button
                                 key={idx}
-                                onClick={() => !isLocked && !isNoEnergy && handleSelectEvent(opt)}
+                                onClick={() => !isLocked && !isNoEnergy && handleSelectEvent(opt, idx)}
                                 disabled={isLocked || isNoEnergy}
                                 className={`relative group h-[400px] rounded-2xl border overflow-hidden transition-all duration-300 flex flex-col items-center justify-center p-6 text-center
                                     ${opt.type === 'SECRET' 
@@ -2730,90 +2611,6 @@ const ChatPage = () => {
 
       {/* [v3] DirectorInterlude 제거 — 투명 디렉터 패턴으로 대체 */}
 
-      {/* ━━━━━━━ [Phase 5] PROMOTION STARTED Overlay ━━━━━━━ */}
-      <AnimatePresence>
-        {promotionOverlay === 'STARTED' && promotionResult && (() => {
-          const rc = getRelationColor(promotionResult.targetRelation);
-          return (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
-            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md"
-          >
-            {/* 파티클 */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-              {[...Array(20)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, y: '100vh', x: `${Math.random() * 100}vw` }}
-                  animate={{ opacity: [0, 0.6, 0], y: '-10vh' }}
-                  transition={{ duration: 3 + Math.random() * 2, delay: Math.random() * 1.5, repeat: Infinity }}
-                  className={`absolute w-1 h-1 rounded-full ${
-                    i % 3 === 0 ? 'bg-yellow-400' : i % 3 === 1 ? 'bg-pink-400' : 'bg-white'
-                  }`}
-                />
-              ))}
-            </div>
-
-            <motion.div
-              initial={{ scale: 0.8, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.3 }}
-              className="text-center"
-            >
-              <motion.div
-                initial={{ scale: 0, rotate: -180 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={{ type: "spring", stiffness: 200, delay: 0.5 }}
-                className="mx-auto mb-6"
-              >
-                <div className={`w-20 h-20 rounded-full bg-gradient-to-br ${rc.bg} flex items-center justify-center shadow-2xl ${rc.glow}`}>
-                  <Heart size={36} className="text-white" fill="currentColor" />
-                </div>
-              </motion.div>
-
-              <motion.p
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.8 }}
-                className="text-gray-400 text-sm tracking-widest uppercase mb-3"
-              >
-                Relationship Event
-              </motion.p>
-
-              <motion.h2
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 1.0 }}
-                className="text-3xl font-bold text-white mb-2"
-              >
-                관계 변화의 기운이 느껴집니다
-              </motion.h2>
-
-              <motion.p
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 1.3 }}
-                className={`text-lg font-bold ${rc.text}`}
-              >
-                → {promotionResult.targetDisplayName} 승급 이벤트
-              </motion.p>
-
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.5 }}
-                transition={{ delay: 2.0 }}
-                className="text-xs text-gray-500 mt-6"
-              >
-                다음 {promotionResult.turnsRemaining}턴 동안 그녀의 마음을 움직이세요
-              </motion.p>
-            </motion.div>
-          </motion.div>
-          );
-        })()}
-      </AnimatePresence>
 
       {/* ━━━━━━━ [Phase 5] PROMOTION SUCCESS Overlay ━━━━━━━ */}
       <AnimatePresence>
@@ -2933,72 +2730,6 @@ const ChatPage = () => {
         })()}
       </AnimatePresence>
 
-      {/* ━━━━━━━ [Phase 5] PROMOTION FAILURE Overlay ━━━━━━━ */}
-      <AnimatePresence>
-        {promotionOverlay === 'FAILURE' && promotionResult && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md"
-            onClick={dismissPromotionOverlay}
-          >
-            <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              transition={{ type: "spring", stiffness: 200 }}
-              className="text-center max-w-sm mx-auto px-6"
-            >
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", delay: 0.2 }}
-                className="mx-auto mb-6"
-              >
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center shadow-xl ring-4 ring-white/5">
-                  <Heart size={36} className="text-gray-500" />
-                </div>
-              </motion.div>
-
-              <motion.h2
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5 }}
-                className="text-2xl font-bold text-white mb-2"
-              >
-                아쉽게도...
-              </motion.h2>
-
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.7 }}
-                className="text-gray-400 text-sm mb-2"
-              >
-                아직 관계가 변하기엔 이른 것 같습니다
-              </motion.p>
-
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.9 }}
-                className="text-gray-500 text-xs mb-8"
-              >
-                호감도가 다시 임계점에 도달하면 새로운 기회가 찾아옵니다
-              </motion.p>
-
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.4 }}
-                transition={{ delay: 1.5 }}
-                className="text-xs text-gray-600"
-              >
-                화면을 터치하여 계속
-              </motion.p>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Toast Notification */}
       <AnimatePresence>

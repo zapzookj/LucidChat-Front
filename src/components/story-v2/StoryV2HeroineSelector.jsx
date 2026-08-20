@@ -95,7 +95,6 @@ export default function StoryV2HeroineSelector({
                     <div className="flex-1 min-w-0 px-4 py-3.5 flex flex-col justify-center gap-1.5">
                       <div className="flex items-baseline gap-2 min-w-0">
                         <span className={`font-bold text-lg text-white tracking-wide truncate`}>{h.name}</span>
-                        <span className="text-rose-300/60 text-[11px] tabular-nums flex-shrink-0">♥ {h.currentBpm}</span>
                       </div>
 
                       {h.dynamicRelationTag && (

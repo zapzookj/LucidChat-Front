@@ -1,7 +1,6 @@
 /**
  * [Phase 5.5-Perf] SSE 스트리밍 채팅 클라이언트
  * [Phase 5.5-EV]  이벤트 시스템 강화:
- *   - sendEventSelectStream(): 이벤트 선택 → 디렉터 모드 SSE
  *   - sendDirectorWatchStream(): 👀 계속 지켜보기 SSE
  *   - sendTimeSkipStream(): 시간 넘기기 SSE
  */
@@ -20,10 +19,6 @@ export async function sendMessageStream(roomId, message, callbacks, abortControl
 //  2. [Phase 5.5-EV] 이벤트 선택 → 디렉터 모드 SSE
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-export async function sendEventSelectStream(roomId, detail, energyCost, callbacks, abortController) {
-  const url = `${BASE_URL}/story/rooms/${roomId}/events/select`;
-  return _ssePost(url, { detail, energyCost }, callbacks, abortController);
-}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  3. [Phase 5.5-EV] 👀 계속 지켜보기 SSE
@@ -152,29 +147,21 @@ export async function requestDirectorIntervention(roomId) {
 //  8. [Phase 5.5-Director] BRANCH 선택 → SSE
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  
-export async function sendDirectorBranchStream(roomId, detail, energyCost, callbacks, abortController) {
-  // const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
-  const url = `${BASE_URL}/story/rooms/${roomId}/director/apply-branch`;
-  return _ssePost(url, { detail, energyCost }, callbacks, abortController);
-}
  
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  9. [Phase 5.5-Director] TRANSITION 적용 → SSE
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  
-export async function sendDirectorTransitionStream(roomId, callbacks, abortController) {
-  // const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
-  const url = `${BASE_URL}/story/rooms/${roomId}/director/apply-transition`;
-  return _ssePost(url, {}, callbacks, abortController);
-}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  10. [v3] 투명 디렉터 자동 응답 → SSE
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-export async function sendAutoDirectorResponse(roomId, directiveType, eventContext, callbacks, abortController) {
+export async function sendAutoDirectorResponse(roomId, directiveType, eventContext, callbacks, abortController, chosenIndex = null) {
   const url = `${BASE_URL}/story/rooms/${roomId}/director/auto-respond`;
-  return _ssePost(url, { directiveType, eventContext: eventContext || null }, callbacks, abortController);
+  // [블록 D · §G-13] chosenIndex — 서버가 캐싱해 둔 가격표로 비용을 재판정한다.
+  //   클라이언트가 보내던 energyCost는 더 이상 신뢰되지 않는다(docs/13 P0).
+  return _ssePost(url, { directiveType, eventContext: eventContext || null, chosenIndex }, callbacks, abortController);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
