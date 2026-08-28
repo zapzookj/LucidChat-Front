@@ -11,12 +11,15 @@ import api from "./axios";
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * 다음 배치 요청.
+ * 다음 배치 요청. **항상 1E가 과금된다.**
+ *
+ * [버그픽스 B-5.1] 종전 `prefetch` 인자를 제거했다. 그 플래그는 서버의 과금을 건너뛰면서도
+ * 같은 배치 전문을 돌려줘서 극장 전체를 무과금 완주할 수 있는 통로였다(서버에서 제거됨).
+ * 선행 생성이 필요하면 `prefetchNextBatch`(전용 엔드포인트, 202·본문 없음)를 쓸 것.
  * @param {number} roomId
- * @param {boolean} prefetch - true면 에너지 차감 없이 선행 생성만
  */
-export async function requestNextBatch(roomId, prefetch = false) {
-  const res = await api.post(`/theater/rooms/${roomId}/next-batch`, { prefetch });
+export async function requestNextBatch(roomId) {
+  const res = await api.post(`/theater/rooms/${roomId}/next-batch`, {});
   return res.data;
 }
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Drama, Crown, Heart, Home, BookOpen, Save } from "lucide-react";
+import { ArrowLeft, Drama, Crown, Heart, Home, BookOpen, Save, AlertTriangle, Info } from "lucide-react";
 
 // 기존 프로젝트 에셋 재활용
 import BackgroundDisplay from "../components/BackgroundDisplay";
@@ -56,6 +56,19 @@ import { sfx } from "../utils/sfx";
  */
 
 const AUTO_ADVANCE_MS = { SLOW: 6500, NORMAL: 4500, FAST: 2500 };
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  [P1-4 · FE] 분기 실패를 유저에게 보이게 한다
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  왜: 백엔드가 극장 분기를 "서버 권위"로 바꾸면서 확정 경로에 400을 6종 신설했다
+//      (토큰 없음 / 오퍼 만료 / 토큰 불일치 / 인덱스 범위 / 미해금 / 제시된 분기 없음).
+//      FE는 그 전부를 catch에서 console.error로만 삼켰고, 모달은 성공 경로에서만 닫혔다
+//      → 유저에겐 "버튼이 안 먹는 화면"이 남고, 다시 눌러도 같은 400이 반복됐다.
+//  대응: (1) 서버 메시지를 그대로 토스트로 노출, (2) 옵션 1회 재조회로 복구,
+//        (3) 재조회도 실패하면 모달을 닫고 배치를 다시 로드해 진행을 풀어 준다.
+const BRANCH_ERROR_FALLBACK = "분기를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.";
+const branchErrorMessage = (e) =>
+  e?.response?.data?.message || BRANCH_ERROR_FALLBACK;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  [Phase III · A-1] Act 진행 도트
@@ -131,6 +144,37 @@ export default function TheaterPlayPage() {
   const [historyViewIndex, setHistoryViewIndex] = useState(null); // null = 현재 라이브
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  [P1-4 · FE] 토스트 + 분기 복구 가드
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  토스트는 ChatPageV2의 기존 패턴(state + 타이머 + 상단 알약)을 그대로 따랐다.
+  //  극장 전용 공용 토스트 컴포넌트는 이 저장소에 없다.
+  const [toast, setToast] = useState(null); // { message, type }
+  const toastTimerRef = useRef(null);
+  const showToast = useCallback((message, type = "error") => {
+    setToast({ message, type });
+    clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 4000);
+  }, []);
+  useEffect(() => () => clearTimeout(toastTimerRef.current), []);
+
+  //  재조회 폭주 방지 — 한 번 뜬 분기 오퍼당 재조회는 1회로 제한한다.
+  //  (서버가 멱등 재발급을 구현했으므로 재조회 자체는 LLM 비용 0이지만,
+  //   확정 400이 결정적(deterministic)인 종류라면 무한 재조회가 DB를 때린다.)
+  const branchRecoveredRef = useRef(false);
+  //  LOCATION 분기 자동 트리거의 재시도 횟수 상한 (최초 1 + 재시도 1 = 2회).
+  //  기존 코드는 실패 시 locationBranchRequested를 무조건 false로 되돌려
+  //  effect가 즉시 재실행 → POST 무한 루프가 될 수 있었다.
+  const locationBranchAttemptsRef = useRef(0);
+
+  //  분기 옵션 재조회 — 확정 실패/조회 실패 양쪽의 공통 복구 경로.
+  const refetchBranchOptions = useCallback(async (isLocation, signal, level) => {
+    if (isLocation) return await fetchLocationBranch(numericRoomId);
+    return await fetchSceneBranch(
+      numericRoomId, signal?.level || level, signal?.contextSummary
+    );
+  }, [numericRoomId]);
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  1. 방 정보 로드
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -140,6 +184,17 @@ export default function TheaterPlayPage() {
       try {
         const info = await fetchTheaterRoom(numericRoomId);
         if (!alive) return;
+
+        // [D-13 ③ · docs/19_assets/blockd_regressions.md — "극장 엔딩 진입이 '챕터 리포트 닫기'
+        //   한 경로에만 걸려 있어 이탈 시 부활 실패"] 챕터 리포트의 endingReady는 그 모달을 띄운
+        //   순간에만 존재하는 일회성 신호라, 리포트를 닫지 않고 새로고침·이탈하면 엔딩 진입점이
+        //   영구히 사라졌다(마지막 Act·마지막 챕터 뒤엔 인터미션도 열리지 않는다).
+        //   서버가 progress.endingReady로 같은 사실을 방 조회에도 실어 주므로 여기서 유도한다.
+        if (info.progress?.endingReady && !info.endingReached) {
+          navigate(`/theater/${numericRoomId}/ending`, { replace: true });
+          return;
+        }
+
         setRoomInfo(info);
         if (info.playSettings) {
           setPlaySpeed(info.playSettings.playSpeed || "NORMAL");
@@ -150,7 +205,7 @@ export default function TheaterPlayPage() {
       }
     })();
     return () => { alive = false; };
-  }, [numericRoomId]);
+  }, [numericRoomId, navigate]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  2. 스트림 훅
@@ -170,6 +225,9 @@ export default function TheaterPlayPage() {
     //        프론트가 roomInfo를 refetch하여 autoStart=true로 전환되며 batch 진입.
     autoStart: !!roomInfo
       && !roomInfo.endingReached
+      // [D-13 ② ③] 엔딩 지점을 넘긴 상태에서는 서버가 batch 요청을 ENDING_READY로 막는다.
+      //   위 로드 이펙트가 이미 엔딩으로 리다이렉트하지만, 방어적으로 여기서도 요청을 내지 않는다.
+      && !roomInfo.progress?.endingReady
       && !roomInfo.progress?.inIntermission
       && !roomInfo.progress?.requiresLocationChoice,
     onChapterEnd: (report) => setChapterReport(report),
@@ -190,12 +248,39 @@ export default function TheaterPlayPage() {
             numericRoomId, branchSignal.level, branchSignal.contextSummary
           );
         }
-        setBranchModalData({ options, isLocation: false });
+        // [P1-4 · FE] branchSignal을 함께 보관한다 — 확정이 400으로 튕겼을 때
+        //   같은 오퍼를 재조회(level + contextSummary 필요)하려면 이 신호가 있어야 한다.
+        branchRecoveredRef.current = false;
+        setBranchModalData({ options, isLocation: false, signal: branchSignal });
       } catch (e) {
+        // [P1-4 · FE] 여기서 로그만 찍으면 useTheaterStream이 이미 return한 뒤라
+        //   화면이 마지막 씬에 영구 고정된다(useTheaterStream.js — onBranchReady 후 return).
+        //   토스트로 알리고 1회만 재조회, 그래도 실패하면 배치를 다시 로드해 진행을 푼다.
         console.error("[Theater] branch fetch failed:", e);
+        showToast(branchErrorMessage(e), "error");
+        try {
+          const retried = await refetchBranchOptions(false, branchSignal);
+          branchRecoveredRef.current = false;
+          setBranchModalData({ options: retried, isLocation: false, signal: branchSignal });
+        } catch (retryErr) {
+          console.error("[Theater] branch fetch retry failed:", retryErr);
+          showToast(branchErrorMessage(retryErr), "error");
+          setBranchModalData(null);
+          reloadBatch(); // 멈춘 화면을 남기지 않는다 — 다음 배치로 진행
+        }
       }
     },
-    onError: (e) => console.error("[Theater] Stream error:", e),
+    onError: (e) => {
+      // [D-13 ②] 서버가 엔딩 지점을 넘긴 세션의 batch 요청을 ENDING_READY로 막는다.
+      //   (기존엔 종료 가드가 isEndingReached()뿐이라 Chapter 5·6·7이 계속 진행되고
+      //    인터미션이 영구히 안 열렸다.) 이 신호를 받으면 조용히 엔딩으로 보낸다.
+      const msg = e?.response?.data?.message || e?.message;
+      if (msg && msg.includes("ENDING_READY")) {
+        navigate(`/theater/${numericRoomId}/ending`, { replace: true });
+        return;
+      }
+      console.error("[Theater] Stream error:", e);
+    },
   });
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -218,15 +303,26 @@ export default function TheaterPlayPage() {
     (async () => {
       try {
         setLocationBranchRequested(true);
+        locationBranchAttemptsRef.current += 1;
         const options = await fetchLocationBranch(numericRoomId);
+        branchRecoveredRef.current = false;
+        locationBranchAttemptsRef.current = 0;
         setBranchModalData({ options, isLocation: true });
       } catch (e) {
-        console.debug("[Theater] location branch skipped:", e?.message);
-        // 트리거 실패 시 다음 useEffect 사이클에서 재시도 가능하도록 플래그 해제
-        setLocationBranchRequested(false);
+        console.error("[Theater] location branch failed:", e);
+        // [P1-4 · FE] 기존엔 console.debug + 무조건 플래그 해제였다. 그러면
+        //   (a) 유저는 아무 안내 없이 빈 화면에 갇히고,
+        //   (b) 실패가 지속되면 effect가 즉시 재실행되어 POST 무한 루프가 된다.
+        //   → 토스트로 알리고, 재시도는 총 2회(최초 + 1회)로 상한을 둔다.
+        showToast(branchErrorMessage(e), "error");
+        if (locationBranchAttemptsRef.current < 2) {
+          setLocationBranchRequested(false); // 다음 사이클에서 1회만 재시도
+        }
+        // 상한을 넘기면 플래그를 세워 둔 채 멈춘다(재시도 폭주 금지).
+        // 유저는 토스트의 서버 메시지를 보고 새로고침/로비 이동을 택할 수 있다.
       }
     })();
-  }, [roomInfo, locationBranchRequested, branchModalData, chapterReport, numericRoomId]);
+  }, [roomInfo, locationBranchRequested, branchModalData, chapterReport, numericRoomId, showToast]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  4. 씬 인덱스 변경 시 타이핑 상태 리셋
@@ -339,9 +435,24 @@ export default function TheaterPlayPage() {
   //  8. 분기 확정
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+  // [P1-4 · FE] 분기 복구가 끝내 실패했을 때 "진행을 푸는" 경로.
+  //   MINOR/MAJOR/CLIMAX는 배치를 다시 로드하면 이야기가 이어진다.
+  //   LOCATION은 서버가 아직 선택을 요구하므로 batch 요청이 LOCATION_CHOICE_REQUIRED로
+  //   조용히 보류된다(useTheaterStream.js) — 그래서 배치가 아니라 모달 트리거를 되살린다.
+  const unblockAfterBranchFailure = useCallback((wasLocationChoice) => {
+    setBranchModalData(null);
+    if (wasLocationChoice) {
+      locationBranchAttemptsRef.current = 0;
+      setLocationBranchRequested(false); // effect가 새 오퍼로 모달을 다시 띄운다
+    } else {
+      reloadBatch();
+    }
+  }, [reloadBatch]);
+
   const handleBranchConfirm = useCallback(async (chosenIndex) => {
     if (!branchModalData) return;
     const wasLocationChoice = branchModalData.options.branchLevel === "LOCATION";
+    const branchSignal = branchModalData.signal;
     try {
       await confirmBranchChoice(numericRoomId, {
         level: branchModalData.options.branchLevel,
@@ -372,9 +483,43 @@ export default function TheaterPlayPage() {
         reloadBatch();
       }
     } catch (e) {
+      // [P1-4 · FE] 확정 400 6종(토큰 없음 / 오퍼 만료 / 토큰 불일치 / 인덱스 범위 /
+      //   미해금 / 제시된 분기 없음)이 전부 여기로 떨어진다. 기존엔 로그만 찍고
+      //   모달을 그대로 뒀기 때문에 "버튼이 안 먹는 화면"이 됐다.
+      //   ★ 서버가 멱등 재발급을 구현했으므로 재조회는 LLM 비용 0이고 같은 오퍼를
+      //     새 토큰과 함께 돌려준다 — 이게 정상 복구 경로다.
       console.error("[Theater] Branch confirm failed:", e);
+      showToast(branchErrorMessage(e), "error");
+
+      // 재조회는 이 오퍼당 1회만 — 결정적 400이면 무한 재조회가 LLM·DB를 때린다.
+      if (branchRecoveredRef.current) {
+        branchRecoveredRef.current = false;
+        unblockAfterBranchFailure(wasLocationChoice); // 멈춘 화면을 남기지 않는다
+        return;
+      }
+      branchRecoveredRef.current = true;
+
+      try {
+        const refreshed = await refetchBranchOptions(
+          wasLocationChoice, branchSignal, branchModalData.options.branchLevel
+        );
+        // 새 branchToken이 실린 오퍼로 교체 — 유저는 같은 선택지를 다시 확정하면 된다.
+        setBranchModalData({
+          options: refreshed,
+          isLocation: wasLocationChoice,
+          signal: branchSignal,
+        });
+      } catch (refetchErr) {
+        console.error("[Theater] Branch options refetch failed:", refetchErr);
+        showToast(branchErrorMessage(refetchErr), "error");
+        branchRecoveredRef.current = false;
+        unblockAfterBranchFailure(wasLocationChoice);
+      }
     }
-  }, [branchModalData, numericRoomId, reloadBatch]);
+  }, [
+    branchModalData, numericRoomId, reloadBatch,
+    refetchBranchOptions, showToast, unblockAfterBranchFailure,
+  ]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  9. Chapter 종료 닫기
@@ -933,6 +1078,28 @@ export default function TheaterPlayPage() {
           />
         </>
       )}
+
+      {/* ═══ [P1-4 · FE] 토스트 ═══
+          분기 확정·조회가 서버 400으로 튕겼을 때 유저에게 보이는 유일한 통로.
+          분기 모달(z-[110])보다 위에 떠야 하므로 z-[130]. */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, x: "-50%" }}
+            animate={{ opacity: 1, y: 0, x: "-50%" }}
+            exit={{ opacity: 0, y: -20, x: "-50%" }}
+            role="status"
+            aria-live="polite"
+            className={`fixed top-10 left-1/2 z-[130] px-5 py-3 rounded-full backdrop-blur-xl shadow-2xl border flex items-center gap-3 max-w-[92vw] justify-center pointer-events-none
+              ${toast.type === "error"
+                ? "bg-red-900/85 border-red-500/50 text-red-100"
+                : "bg-indigo-900/85 border-indigo-500/50 text-indigo-100"}`}
+          >
+            {toast.type === "error" ? <AlertTriangle size={16} /> : <Info size={16} />}
+            <span className="text-sm font-medium">{toast.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -58,7 +58,7 @@ export default function useTheaterStream({
     setLoadingNext(true);
     prefetchFiredRef.current = false;
     try {
-      const batch = await requestNextBatch(roomId, false);
+      const batch = await requestNextBatch(roomId);   // [B-5.1] prefetch 인자 제거 — 항상 과금
       setCurrentBatch(batch);
       setCurrentSceneIndex(0);
     } catch (e) {
@@ -168,6 +168,24 @@ export default function useTheaterStream({
       // 일반 흐름: 다음 배치
       await loadNextBatch();
     } catch (e) {
+      // [B-5.2 · 적대적 리뷰 P2] 소비가 UNPAID_BATCH로 거부되면 **자기 치유**한다.
+      //   서버가 '이 배치는 아직 정상 취득(/next-batch)되지 않았다'고 판정한 경우인데,
+      //   여기서 console.error만 남기면 화면이 마지막 씬에 고정된 채 **무증상 정지**가 된다
+      //   (자기 치유에 해당하는 loadNextBatch는 위 try 안쪽이라 도달하지 못한다).
+      //   loadNextBatch()가 그 배치를 정상 과금 취득하므로 대개 1홉이면 복구된다.
+      //   ⚠ 재시도는 **1회만** — 실패가 계속되면 LLM·DB를 반복해서 때린다.
+      const code = e?.errorCode || e?.response?.data?.errorCode;
+      if (code === "UNPAID_BATCH") {
+        console.warn("[Theater] Unpaid batch — self-healing via loadNextBatch");
+        try {
+          await loadNextBatch();
+          return;
+        } catch (healErr) {
+          console.error("[Theater] Self-heal failed:", healErr);
+          if (onError) onError(healErr);
+          return;
+        }
+      }
       console.error("[Theater] Batch transition failed:", e);
       if (onError) onError(e);
     }

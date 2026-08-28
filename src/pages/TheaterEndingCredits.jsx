@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useParams, useNavigate } from "react-router-dom";
 import {
@@ -87,23 +87,52 @@ export default function TheaterEndingCredits() {
   const [phase, setPhase] = useState(PHASES.SCENES);
   const [sceneIndex, setSceneIndex] = useState(0);
 
+  // ─── [D-11] 엔딩 생성 진행 상태 ───
+  //   generating=true 구간이 LLM 20~60초다. 이 구간에 아무 문구도 없는 스피너만 돌아서
+  //   유저가 "멈췄나?" 하고 새로고침 → POST 재발동 → D-10 동시 발동 경합이 실제로 발생했다.
+  //   즉 D-11(UX)은 D-10(경합)의 트리거다. 서버 락과 별개로 여기서도 원인을 없앤다.
+  const [generating, setGenerating] = useState(false);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  //   [D-11] 진행 중 POST 가드 — "이 방에 대해 이미 요청을 보냈는가"를 ref에 남긴다.
+  //   ⚠️ 기존의 `let alive` + cleanup 패턴을 여기서 쓰면 안 된다. StrictMode(dev)는 이펙트를
+  //      mount→cleanup→mount로 두 번 돌리는데, 그러면 1회차의 alive가 false가 되어 응답이 와도
+  //      setEnding이 스킵되고 스피너가 영원히 돈다. roomId 기준 ref 가드는 두 번째 실행만
+  //      조용히 건너뛰고 1회차 응답을 그대로 반영한다.
+  //   (탭 안 중복만 막는다. 새로고침으로 넘어오는 중복 POST는 서버측 비관적 락이 막는다 — D-10.)
+  const requestedRoomRef = useRef(null);
+
   useEffect(() => {
     sfx.wooshDeep();
-    let alive = true;
+    if (requestedRoomRef.current === roomId) return;
+    requestedRoomRef.current = roomId;
+
     (async () => {
       try {
         // [블록 D · 극장 엔딩 부활] 저장된 엔딩 우선 — 없을 때만 발동(POST).
         //   기존에는 진입할 때마다 발동 API를 재호출해서 "엔딩 다시 보기"가 항상 400이었다.
         const saved = await fetchTheaterEnding(Number(roomId));
-        const result = saved ?? await triggerTheaterEnding(Number(roomId));
-        if (alive) setEnding(result);
+        let result = saved;
+        if (!result) {
+          setGenerating(true);   // [D-11] 여기부터가 LLM 대기 구간 (20~60초)
+          result = await triggerTheaterEnding(Number(roomId));
+        }
+        setEnding(result);
       } catch (e) {
         console.error("[Theater] Ending failed:", e);
-        if (alive) setLoadError(e?.response?.data?.message || "엔딩을 불러오지 못했습니다.");
+        setLoadError(e?.response?.data?.message || "엔딩을 불러오지 못했습니다.");
+      } finally {
+        setGenerating(false);
       }
     })();
-    return () => { alive = false; };
   }, [roomId]);
+
+  // [D-11] 경과 시간 카운터 — "얼마나 더?"에 답이 없는 것이 새로고침을 부른다.
+  useEffect(() => {
+    if (!generating) return;
+    setElapsedSec(0);
+    const t = setInterval(() => setElapsedSec((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, [generating]);
 
   // ─── 씬 시퀀스 자동 재생 ───
   useEffect(() => {
@@ -153,10 +182,36 @@ export default function TheaterEndingCredits() {
   }
 
   if (!ending) {
+    // [D-11 · docs/19_assets/blockd_regressions.md] 텍스트 없는 스피너가 20~60초 떠 있는 것이
+    //   "멈춘 줄 알고 새로고침" → POST 재발동 → D-10 동시 발동 경합의 실제 유발 원인이었다.
+    //   무엇을 기다리는지 / 얼마나 걸리는지 / 새로고침하지 말라는 것 — 세 가지를 명시한다.
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center px-6 text-center">
         <motion.div className="w-10 h-10 border-2 border-white/40 border-t-white rounded-full"
           animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} />
+
+        {generating ? (
+          <motion.div
+            className="mt-7 max-w-sm"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+          >
+            <p className="text-white/85 text-[15px] font-medium tracking-tight">
+              엔딩을 쓰는 중입니다
+            </p>
+            <p className="mt-1.5 text-white/45 text-[13px] leading-relaxed">
+              당신이 지나온 선택들을 모아 마지막 장면을 만들고 있어요.
+              <br />
+              최대 1분 정도 걸립니다.
+            </p>
+            <p className="mt-4 text-white/30 text-[12px]">
+              창을 닫거나 새로고침하지 말아 주세요 · {elapsedSec}초
+            </p>
+          </motion.div>
+        ) : (
+          <p className="mt-7 text-white/45 text-[13px]">엔딩을 불러오는 중…</p>
+        )}
       </div>
     );
   }
