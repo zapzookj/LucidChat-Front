@@ -146,11 +146,22 @@ export function bandLabel(axisKey, value) {
   return (secret ? BAND_SECRET : BAND_NORMAL)[bandOf(value)];
 }
 
-/** 축 서술 한 줄. 비한글 이름은 josa 계약대로 "이 캐릭터는" 폴백. */
+/**
+ * 축 서술 한 줄. 비한글 이름은 josa 계약대로 "이 캐릭터는" 폴백.
+ *
+ * [D-32 · docs/19_assets/decision_agenda.md] 경계 방어 2건:
+ *  - `NARRATIVE`를 own-property로만 조회한다. axisKey가 "constructor"/"toString" 같은
+ *    프로토타입 키로 들어오면 `set[...]`가 undefined가 되어 `.replace`에서 죽는다.
+ *  - replace의 두 번째 인자를 **함수**로 준다. UGC 캐릭터 이름은 유저 입력이라
+ *    `$&`·`$'`·`$1` 이 섞이면 문자열 replacer가 치환 패턴으로 해석해 문장이 깨진다.
+ */
 export function narrate(axisKey, value, name) {
-  const set = NARRATIVE[axisKey];
-  if (!set) return "";
-  return set[bandOf(value)].replace("{N}", subjectEunNeun(name));
+  const set = Object.prototype.hasOwnProperty.call(NARRATIVE, axisKey) ? NARRATIVE[axisKey] : null;
+  if (!Array.isArray(set)) return "";
+  const line = set[bandOf(value)];
+  if (typeof line !== "string") return "";
+  const subject = subjectEunNeun(name);
+  return line.replace("{N}", () => subject);
 }
 
 /** 8축 전부 0 = 신규 방. 축 서술을 돌리지 않고 전용 빈 카피를 쓴다. */
@@ -181,7 +192,10 @@ export function dominantAxis(stats) {
 
 /** "지금 이 관계" 대표 문장. 축 목록과 중복되지 않는 전용 카피. */
 export function headline(statusLevel, stats) {
-  const stage = HEAD_STAGE[statusLevel] ? statusLevel : "STRANGER";
+  // [D-32] own-property 검사. `HEAD_STAGE[statusLevel] ? ...`는 statusLevel이
+  //   "__proto__"/"constructor"면 프로토타입 객체가 truthy로 잡혀 헤드라인에
+  //   "[object Object] — …"가 렌더됐다. 미지값은 계약대로 STRANGER로 떨어뜨린다.
+  const stage = Object.prototype.hasOwnProperty.call(HEAD_STAGE, statusLevel) ? statusLevel : "STRANGER";
   const dom = dominantAxis(stats);
   const domVal = Number((stats || {})[dom.key]) || 0;
   const cold = domVal < 0 || stage === "ENEMY";
@@ -216,10 +230,47 @@ const EMOTION_BAND = {
  * @param lust      음란도 현재값
  */
 export function derivePulse(emotion, deltaSum = 0, secretOn = false, lust = 0) {
-  let band = EMOTION_BAND[emotion] ?? 0;
-  if (deltaSum >= 6) band = Math.min(2, band + 1);
-  if (secretOn && lust >= 60) band = Math.max(1, band);
-  return PULSE_LEVELS[band];
+  // [D-32] 미지 emotion fail-safe 강화. 기존 `EMOTION_BAND[emotion] ?? 0`은
+  //   emotion이 "constructor"/"toString" 같은 프로토타입 키로 오면 함수를 반환해
+  //   PULSE_LEVELS[함수] === undefined → 호출부의 pulse.label 접근에서 화면이 죽었다.
+  //   own-property 조회 + 숫자 검사 + 최종 인덱스 폴백으로 3중 방어한다.
+  //   대소문자는 정규화한다(EmotionTag는 서버 계약상 대문자지만, 소문자로 오면
+  //   조용히 '잔잔'으로 떨어져 원인 추적이 어려웠다 — 정규화는 대문자 입력에 무영향).
+  const key = typeof emotion === "string" ? emotion.toUpperCase() : "";
+  const raw = Object.prototype.hasOwnProperty.call(EMOTION_BAND, key) ? EMOTION_BAND[key] : 0;
+  let band = typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
+  if (Number(deltaSum) >= 6) band = Math.min(2, band + 1);
+  if (secretOn && Number(lust) >= 60) band = Math.max(1, band);
+  band = Math.max(0, Math.min(PULSE_LEVELS.length - 1, band));
+  return PULSE_LEVELS[band] || PULSE_LEVELS[0];
+}
+
+/**
+ * [D-32] 직전 턴 스탯 델타 합 — 박동 보정 입력.
+ *
+ * <p>박동은 화면에 두 곳(상태창 헤더 · DialogueBox 정보바)에서 렌더되는데
+ * 지금까지 DialogueBox는 `derivePulse(emotion)`만 불러 보정이 전부 기본값이었고
+ * 상태창은 보정을 다 넣어, **같은 화면의 '심박' 두 개가 다른 값**을 표시했다.
+ * 계약을 하나로 만들기 위해 델타 합 산식을 여기 한 곳에 둔다.
+ *
+ * @param changes DialogueBox `statChanges` 형태 배열 — `[{ key, value }, ...]`
+ * @returns |value| 합. 입력이 없거나 배열이 아니면 0.
+ */
+export function deltaSumOfChanges(changes) {
+  if (!Array.isArray(changes)) return 0;
+  return changes.reduce((sum, c) => sum + Math.abs(Number(c?.value) || 0), 0);
+}
+
+/**
+ * [D-32] 두 스탯 스냅샷의 절대 델타 합 — 상태창처럼 statChanges를 못 받는 쪽의 산식.
+ * `deltaSumOfChanges`와 같은 단위(축별 절대 변화량의 합)를 낸다.
+ */
+export function deltaSumOfStats(current, previous) {
+  if (!current || !previous) return 0;
+  return AXES.reduce(
+    (sum, a) => sum + Math.abs((Number(current[a.key]) || 0) - (Number(previous[a.key]) || 0)),
+    0
+  );
 }
 
 /** 변화 방향 — 기간을 카피에 명시한다(기간이 없으면 해석이 갈린다). */

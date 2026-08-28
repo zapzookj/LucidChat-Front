@@ -23,7 +23,6 @@ import LocationTransition from "../components/LocationTransition";
 import IllustrationGalleryPage from "./IllustrationGalleryPage";
 import {
   sendMessageStream,
-  sendEventSelectStream,
   sendDirectorWatchStream,
   sendTimeSkipStream,
   peekDirectorDirective,
@@ -1805,8 +1804,11 @@ const ChatPage = () => {
     // 히스토리에 SYSTEM 나레이션으로 추가 (USER 아님!)
     setMessages(prev => [...prev, { role: 'SYSTEM', cleanContent: detail, isEvent: true }]);
 
-    // 낙관적 에너지 차감
-    setEnergy(prev => Math.max(0, prev - energyCost));
+    // [docs/19 §F D-7] 여기서 차감하지 않는다 — 바로 아래 triggerAutoDirectorResponse가
+    //   같은 energyCost를 낙관 차감하고 실패 시 환불까지 대칭으로 처리한다(:467-468, onError).
+    //   블록 D 이전에는 그쪽이 cost=1 고정이라 오차가 +1이었는데, energyCost를 넘기면서
+    //   정확히 2배가 됐다. 화면 잔여가 서버의 절반이 되면 isNoEnergy 판정이 클라 값으로 이뤄져
+    //   실제로는 살 수 있는 카드가 잠긴다.
 
     // ── sendAutoDirectorResponse로 캐릭터 자동 응답 요청 ──
     // detail을 eventContext로 전달 → 백엔드에서 SYSTEM 메시지로 저장 + constraint 적용
@@ -2186,7 +2188,6 @@ const ChatPage = () => {
                 setDynamicBackgroundUrl(null); // AI 생성 배경 클리어
                 // [Phase 4.2] 승급 이벤트 상태 초기화
                 setPromotionOverlay(null);
-                setPromotionProgress(null);
                 setPromotionResult(null);
                 // [Phase 4.3] 엔딩 상태 초기화
                 setEndingTrigger(null);
@@ -2390,6 +2391,12 @@ const ChatPage = () => {
         statusLevel={roomInfo?.statusLevel || "STRANGER"}
         isSecretMode={roomInfo?.secretModeActive}
         chatMode={roomInfo?.chatMode}
+        /* [docs/19 §F D-26] 시크릿 업셀 배선 — 이 prop을 넘기는 호출부가 저장소 전체 0건이라
+           상태창 '봉인' 카드 CTA가 영구 비활성이었다. docs/16이 핵심 BM으로 지정한 시크릿의
+           인게임 진입점이 통째로 죽어 있었다. 미전달 시 패널은 안내형 폴백으로 떨어진다. */
+        onUnlockSecret={() => { setShowStatusPanel(false); setStoreInitialTab("secret"); setShowStore(true); }}
+        /* [docs/19 §F D-32-2] 히로인 전환 시 '직전 턴 ↑↓' 추세가 다른 캐릭터 값과 비교되는 것을 막는 식별자 */
+        characterId={roomInfo?.characterId}
       />
 
 
@@ -2493,6 +2500,10 @@ const ChatPage = () => {
         onOpenProfile={roomInfo?.characterId ? () => { sfx.click(); setShowProfile((v) => !v); } : null}
         profileToggleRef={profileToggleRef}
         statChanges={latestStatChanges}
+        // [docs/19 §F D-32-1] 심박 보정 인자를 상태창과 동일하게 맞춘다 —
+        // 미전달이면 DialogueBox가 secretOn=false·lust=0으로 파생해 같은 화면의 '심박' 두 개가 어긋난다.
+        isSecretMode={roomInfo?.secretModeActive}
+        lust={characterStats?.lust}
         // ── [Phase 5.5-Sep] 스토리 전용 props 모드 가드 ──
         // [리플레이 E13] 리플레이 중엔 속마음/이벤트 부가 UI 숨김 — 과거 씬은 열람 전용
         innerThought={replayView ? null : (isStoryMode ? currentInnerThought : null)}

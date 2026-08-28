@@ -1,9 +1,9 @@
 import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Lock, Unlock, Crown, Moon, ArrowRight, UserRound } from "lucide-react";
-import api from "../api/axios";
 import AdultVerificationModal from "./AdultVerificationModal";
 import { fetchProfile, updateProfile } from "../api/PersonaApi";
+import { refreshSecretStatus } from "../hooks/useSecretStatus";
 import { sfx } from "../utils/sfx";
 
 /**
@@ -14,8 +14,16 @@ import { sfx } from "../utils/sfx";
  * 2. CHECK_ACCESS   → API로 접근 권한 확인
  * 2.5 PERSONA_AGE   → [블록 B] 페르소나 프로필 나이<19(미설정 포함)면 수정 제안 모달
  *                     (UX는 부드럽게, 게이트는 서버 하드 — 수정 없인 활성 불가)
- * 3. NEED_PURCHASE  → 상점 유도
+ * 3. NEED_PURCHASE  → 상점 유도 (★ secretProductsEnabled=true일 때만)
+ * 3'. UNAVAILABLE   → [적대적 리뷰 P1 · 안건 7(b)] 노출 노브 off면 여기로. 상품명·가격·혜택 비노출
  * 4. GRANTED        → 시크릿 모드 활성화
+ *
+ * [적대적 리뷰 P1 픽스 · decisions_confirmed.md §A #7]
+ *   판정 소스를 `hooks/useSecretStatus`의 공용 스토어로 옮겼다. 이 컴포넌트는 자기가 부르던
+ *   바로 그 엔드포인트(/users/secret-status)의 `secretProductsEnabled`를 읽지 않아서,
+ *   PG 심사용 완전 게이팅이 켜진 상태에서도 "시크릿 패키지 보기 · 24시간 패스 · 영구 해금",
+ *   "미드나잇 패스 구독" 같은 상품 광고를 그대로 띄우고 있었다. BiometricStatusPanel과
+ *   판정이 갈리지 않도록 각자 fetch를 금지하고 공용 스토어를 쓴다(조회 실패 시 닫힘 폴백).
  *
  * [Phase 7-V2 BM 피벗]
  *   - 시크릿 모드 BM이 user-global로 통합 — 캐릭터별 해금 폐기.
@@ -40,7 +48,7 @@ const SecretModeFlow = ({
   userInfo,
   characterId, // eslint-disable-line no-unused-vars  -- V1 호환용, 무시됨
 }) => {
-  const [step, setStep] = useState("idle"); // idle | check_adult | check_access | persona_age | need_purchase | granted
+  const [step, setStep] = useState("idle"); // idle | check_adult | check_access | persona_age | need_purchase | unavailable | granted
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [accessStatus, setAccessStatus] = useState(null);
   // [블록 B] 페르소나 나이 수정 제안 — 프로필 드래프트
@@ -65,43 +73,63 @@ const SecretModeFlow = ({
   }, [step]);
 
   const startFlow = useCallback(async () => {
+    // [적대적 리뷰 P1] 노출 노브를 **성인 인증보다 먼저** 확인한다.
+    //   노브가 off인데 먼저 NICE 본인인증(건당 유료·실명정보 제출)을 시키면, 인증을 마쳐도
+    //   살 수 있는 게 없는 데드엔드로 떨어진다. 판정부터 받고 갈림길을 정한다.
+    setStep("check_access");
+    const data = await refreshSecretStatus({ force: true });
+    setAccessStatus(data);
+
+    // 이미 보유(canAccess)한 유저는 노브와 무관하게 통과시킨다 — 노브는 '판매·노출' 축이고,
+    // 접근 권한은 서버가 독립적으로 판정한다. 기구매자의 이용을 뺏지 않는다.
+    if (!data.canAccess && !data.secretProductsEnabled) {
+      setStep("unavailable");
+      return;
+    }
+
     // Step 1: Adult check
-    if (!userInfo?.isAdultVerified) {
+    if (!data.canAccess && !userInfo?.isAdultVerified) {
       setStep("check_adult");
       setShowVerifyModal(true);
       return;
     }
 
     // Step 2: Access check (user-global)
-    setStep("check_access");
-    await checkAccess();
+    await applyAccess(data);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userInfo]);
 
-  const checkAccess = async () => {
-    try {
-      // [Phase 7-V2 BM 피벗] characterId 쿼리 제거 — user-global 응답.
-      // 백엔드 GET /users/secret-status는 characterId를 받아도 무시한다.
-      const { data } = await api.get("/users/secret-status");
-      setAccessStatus(data);
-
-      if (data.canAccess) {
-        setStep("granted");
-        // 자동으로 활성화
-        setTimeout(() => {
-          onGranted?.();
-          onClose();
-        }, 1500);
-      } else if (data.accessReason === "PERSONA_UNDERAGE") {
-        // [블록 B] 페르소나 나이 게이트 — 수정 제안 모달로 (서버가 하드 차단 중)
-        setStep("persona_age");
-        await loadProfileForAgeEdit();
-      } else {
-        setStep("need_purchase");
-      }
-    } catch {
+  /** 공용 판정 스냅샷 하나로 다음 스텝을 결정한다(스텝 분기의 단일 지점). */
+  const applyAccess = async (data) => {
+    if (data.canAccess) {
+      setStep("granted");
+      // 자동으로 활성화
+      setTimeout(() => {
+        onGranted?.();
+        onClose();
+      }, 1500);
+    } else if (data.accessReason === "PERSONA_UNDERAGE") {
+      // [블록 B] 페르소나 나이 게이트 — 수정 제안 모달로 (서버가 하드 차단 중)
+      setStep("persona_age");
+      await loadProfileForAgeEdit();
+    } else if (!data.secretProductsEnabled) {
+      // [적대적 리뷰 P1] 노브 off — 상품명·가격·혜택을 노출하지 않고 종료 스텝으로.
+      setStep("unavailable");
+    } else {
       setStep("need_purchase");
     }
+  };
+
+  const checkAccess = async () => {
+    // [Phase 7-V2 BM 피벗] characterId 쿼리 제거 — user-global 응답.
+    // 백엔드 GET /users/secret-status는 characterId를 받아도 무시한다.
+    // [적대적 리뷰 P1] 직접 api.get 하지 않는다 — BiometricStatusPanel과 같은 공용 스토어를
+    //   쓴다. 인증·나이 수정 직후에는 판정이 바뀌므로 TTL을 우회한다(force).
+    //   refreshSecretStatus는 reject하지 않는다 — 실패도 '닫힘' 스냅샷으로 resolve되어
+    //   need_purchase(상품 광고)가 아니라 unavailable로 떨어진다(fail-closed).
+    const data = await refreshSecretStatus({ force: true });
+    setAccessStatus(data);
+    await applyAccess(data);
   };
 
   // [블록 B 리뷰픽스] 프로필 로드 실패가 데드엔드가 되지 않게 — 에러 표시 + 재시도 가능
@@ -244,8 +272,33 @@ const SecretModeFlow = ({
                 </div>
               )}
 
-              {/* Need purchase */}
-              {step === "need_purchase" && (
+              {/* [적대적 리뷰 P1] 노출 노브 off — 준비 중 종료 스텝.
+                  상품명·가격·혜택·상점 진입 CTA 없음. PG 심사자가 이 화면을 봐도
+                  '시크릿 완전 게이팅' 주장과 어긋나지 않는다. */}
+              {step === "unavailable" && (
+                <div className="text-center">
+                  <div className="w-16 h-16 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center mx-auto mb-5">
+                    <Lock size={28} className="text-white/40" />
+                  </div>
+
+                  <h3 className="text-lg font-bold text-white mb-2">아직 준비 중이에요</h3>
+                  <p className="text-white/50 text-sm mb-6 leading-relaxed">
+                    이 기능은 지금 이용할 수 없어요.<br />
+                    준비가 끝나면 안내해 드릴게요.
+                  </p>
+
+                  <button
+                    onClick={() => { sfx.click(); onClose?.(); }}
+                    className="w-full py-3 rounded-xl text-sm font-bold bg-white/[0.06] border border-white/10 hover:bg-white/[0.1] text-white/80 transition"
+                  >
+                    확인
+                  </button>
+                </div>
+              )}
+
+              {/* Need purchase — ★ 렌더 자체를 노브에 건다(2중 게이트).
+                  분기 로직이 바뀌어도 노브가 off인 한 상품 카드는 그려지지 않는다. */}
+              {step === "need_purchase" && accessStatus?.secretProductsEnabled && (
                 <div className="text-center">
                   <div className="w-16 h-16 rounded-full bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mx-auto mb-5">
                     <Lock size={28} className="text-purple-400" />

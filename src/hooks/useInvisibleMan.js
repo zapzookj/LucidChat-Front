@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import api from "../api/axios";
+import { josaIGa } from "../utils/josa";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4.4] useInvisibleMan — 투명인간 이스터에그 클라이언트 감지
@@ -43,49 +44,53 @@ export default function useInvisibleMan({ enabled = true, characterName = "캐�
       const name = characterNameRef.current;
       console.log("👁️ [INVISIBLE_MAN] 10분 방치 감지 — 이스터에그 트리거");
 
+      // ─────────────────────────────────────────────────────────────
+      // [D-16 · docs/14 §C#6 (a) 이행] 업적은 게이트 오프, **연출은 유지**.
+      //
+      //  버그: 예전에는 `if (res.data)` 성공 게이트 안에 onTrigger가 들어 있었다.
+      //  블록 D가 `AchievementService.unlockClientTriggered`를 legacy 게이트로 막으면서
+      //  서버가 null → 컨트롤러가 **200 + 빈 바디**를 내리게 됐고, 그러면 이 조건이
+      //  false가 되는데 예외가 아니라서 catch도 안 탄다 → 10분 방치 연출이 통째로 소멸.
+      //  §C#6이 확정한 것은 '업적만 오프'이므로, 업적은 optional로 내리고
+      //  연출은 서버 응답과 **무관하게 항상** 발동시킨다(구조로 보장 — 게이트 밖으로 뺀다).
+      // ─────────────────────────────────────────────────────────────
+      let achievement = null;
       try {
-        // 서버에 업적 해금 요청
         const roomId = localStorage.getItem("roomId");
-        const res = await api.post(`/achievements/rooms/${roomId}/unlock`, { code: "INVISIBLE_MAN" });
-        
-        if (res.data) {
-            const narrationMap = {
-                  "연화": "연화가 흥미롭다는 눈빛으로 당신을 바라봅니다.",
-                  "아이리": "아이리가 숙여 인사하며 부드럽게 미소짓는다.",
-                  "백루나": "루나가 머뭇거리며 말합니다.",
-                  "서태리": "태리가 귀찮다는 듯이 인사합니다."
-              };
-            const dialogueMap = {
-                  "연화": "...주무시나..? 속눈썹 되게 기네..",
-                  "아이리": "...주무시나..? 속눈썹 되게 기네..",
-                  "백루나": "...주무시나..? 속눈썹 되게 기네..",
-                  "서태리": "...주무시나..? 속눈썹 되게 기네.."
-            };
-          onTrigger?.({
-            trigger: "INVISIBLE_MAN",
-            achievement: res.data,
-            // [Phase 5] 캐릭터 이름 동적 참조
-            
-            scene: {
-              narration: narrationMap[name] || `${name}가 가까이 조용히 다가온다. 그 눈동자가 당신을 빤히 올려다본다.`,
-              dialogue: "...주무시나..? 속눈썹 되게 기네..",
-              emotion: "RELAX",
-            },
-          });
+        // roomId가 없으면 `/achievements/rooms/null/unlock`을 쏘던 자리 — 호출만 건너뛰고 연출은 그대로 간다.
+        if (roomId) {
+          const res = await api.post(`/achievements/rooms/${roomId}/unlock`, { code: "INVISIBLE_MAN" });
+          achievement = res?.data || null; // 게이트 오프 시 빈 바디 → null (호출부는 이미 data.achievement?.isNew로 optional 처리)
         }
       } catch (err) {
         console.error("INVISIBLE_MAN unlock failed:", err);
-        // 서버 실패해도 연출은 보여줌
-        onTrigger?.({
-          trigger: "INVISIBLE_MAN",
-          achievement: null,
-          scene: {
-            narration: `${name}가 화면 가까이 조용히 다가온다. 그 눈동자가 당신을 빤히 올려다본다.`,
-            dialogue: "...주무시나..? 속눈썹 되게 기네..",
-            emotion: "RELAX",
-          },
-        });
       }
+
+      const narrationMap = {
+        "연화": "연화가 흥미롭다는 눈빛으로 당신을 바라봅니다.",
+        "아이리": "아이리가 숙여 인사하며 부드럽게 미소짓는다.",
+        "백루나": "루나가 머뭇거리며 말합니다.",
+        "서태리": "태리가 귀찮다는 듯이 인사합니다.",
+      };
+      // [D-16] 주격 조사 '가' 하드코딩 제거 — 받침 있는 이름에서 "강채린가"가 됐다.
+      //  josa.js의 josaIGa(블록 D FE 커밋이 추가)를 재사용하고, 비한글·판별 불가 이름은
+      //  josa 계약대로 이름 생략형("이 캐릭터가")으로 폴백한다.
+      const iga = josaIGa(name);
+      const subject = iga ? `${name}${iga}` : "이 캐릭터가";
+      // UGC 캐릭터 이름은 유저 입력이다 — "constructor" 같은 프로토타입 키가 오면
+      // narrationMap[name]이 함수를 반환해 narration에 함수가 실린다. own-property로만 조회.
+      const preset = Object.prototype.hasOwnProperty.call(narrationMap, name) ? narrationMap[name] : null;
+
+      onTrigger?.({
+        trigger: "INVISIBLE_MAN",
+        achievement,
+        scene: {
+          // [Phase 5] 캐릭터 이름 동적 참조
+          narration: preset || `${subject} 화면 가까이 조용히 다가온다. 그 눈동자가 당신을 빤히 올려다본다.`,
+          dialogue: "...주무시나..? 속눈썹 되게 기네..",
+          emotion: "RELAX",
+        },
+      });
     }, IDLE_THRESHOLD_MS);
   }, [enabled, onTrigger]);
 

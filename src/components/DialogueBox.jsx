@@ -3,7 +3,7 @@ import { Send, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity
 import { useState, useEffect, useRef, useMemo } from "react";
 import { sanitizeScene } from "../utils/dialogueSanitizer";
 import { sfx } from "../utils/sfx";
-import { derivePulse } from "../utils/relationNarrative";
+import { derivePulse, deltaSumOfChanges } from "../utils/relationNarrative";
 
 /**
  * [Phase 5.5-Fix] DialogueBox
@@ -300,6 +300,10 @@ const DialogueBox = ({
   onOpenStore,
   // ── [Phase 5.5-v3] 기존 props ──
   emotion = null,   // [블록 D · §G-8] 박동 파생 입력 (구 bpm prop 대체)
+  // ── [D-32] 박동 계약 — BiometricStatusPanel과 동일 시그니처 ──
+  pulse: pulseProp = null, // 상위가 계산한 박동. 전달되면 이것을 쓴다(상태창과 같은 값 보장)
+  isSecretMode = false,    // 미전달 시 자체 파생용 보정 인자 (상태창과 같은 인자 집합)
+  lust = 0,
   onOpenStatusPanel,
   statusToggleRef = null, // [폴리싱 #8] 상태창 토글 버튼 ref — BiometricStatusPanel excludeRef와 연결
   // [Profile v1] 캐릭터 프로필 진입점 (additive — 미전달 시 버튼 비노출, V2 동작 불변)
@@ -473,7 +477,18 @@ const DialogueBox = ({
   const lowEnergy = energy < energyCost && energy > 0;
 
   // [블록 D · §G-8] 박동 — LLM 숫자가 아니라 직전 턴 emotion에서 파생
-  const pulse = derivePulse(emotion);
+  //
+  // [D-32 · docs/19_assets/decision_agenda.md] 상태창과 값이 갈리던 자리.
+  //  예전엔 여기서 `derivePulse(emotion)`만 불러 deltaSum=0 / secretOn=false / lust=0 기본값이
+  //  들어간 반면, BiometricStatusPanel은 보정 인자를 전부 넣어 계산했다 → **같은 화면의
+  //  '심박' 두 개가 다른 값**(상태창 '쿵쾅' / 여기 '두근')을 표시했다.
+  //  ① 상위가 pulse를 넘기면 그것을 그대로 쓴다(구조적으로 어긋날 수 없다).
+  //  ② 미전달 폴백도 상태창과 **같은 인자 집합**으로 계산한다 — 델타는 이미 이 컴포넌트가
+  //     받고 있는 statChanges에서 뽑는다(상태창의 prevStats 델타와 같은 단위).
+  const pulse = useMemo(
+    () => pulseProp || derivePulse(emotion, deltaSumOfChanges(statChanges), isSecretMode, lust),
+    [pulseProp, emotion, statChanges, isSecretMode, lust]
+  );
 
   // [Phase 5.5-Sep] 속마음: 스토리 모드 전용
   const showThoughtTabs = isStoryMode && thoughtUnlocked && innerThought;

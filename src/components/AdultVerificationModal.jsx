@@ -66,16 +66,33 @@ const AdultVerificationModal = ({ isOpen, onClose, onVerified }) => {
       document.body.removeChild(form);
 
       // Step 3: Listen for callback from popup
+      //   발신 측 = /verify/callback 라우트(VerifyCallbackPage). 백엔드
+      //   GET|POST /api/v1/verify/callback 가 NICE 결과를 받아 이 SPA 라우트로 302 시킨다.
+      //   [C-1.5 · docs/17_assets/defect_register.md] 이전에는 발신자가 리포에 아예 없어
+      //   아래 블록 전체가 도달 불가 코드였다.
+      let resultReceived = false;
+
       const handleMessage = async (event) => {
-        // Validate origin in production
+        // [C-1.5 ③] 'Validate origin in production' 주석만 있고 미구현이던 origin 검증.
+        //   콜백 페이지는 같은 오리진에서 postMessage 하므로 타 오리진 메시지는 전부 버린다.
+        if (event.origin !== window.location.origin) return;
         if (event.data && event.data.type === 'NICE_VERIFY_RESULT') {
+          resultReceived = true;
           window.removeEventListener('message', handleMessage);
+
+          // 콜백 브리지가 실패를 통보한 경우(파라미터 누락·NICE 오류 코드) — 서버 호출 없이 종료
+          if (event.data.error || !event.data.encData) {
+            sfx.thud();
+            setStep('error');
+            setErrorMsg(event.data.error || '본인확인 결과를 받지 못했습니다. 다시 시도해 주세요.');
+            return;
+          }
 
           try {
             const result = await axios.post('/verify/success', {
               requestNo: requestNo,
               encData: event.data.encData,
-              tokenVersionId: tokenVersionId,
+              tokenVersionId: event.data.tokenVersionId || tokenVersionId,
             });
 
             if (result.data.success) {
@@ -86,7 +103,12 @@ const AdultVerificationModal = ({ isOpen, onClose, onVerified }) => {
                 onClose();
               }, 1500);
             } else {
+              // [E-1.12b · docs/17_assets/defect_register.md:4701]
+              //   여기가 비어 있어 서버가 HTTP 200 + success:false를 주면 step이 'loading'에
+              //   고착됐다(:72에서 리스너를 이미 뗐으므로 재수신도 불가). 명시적으로 error 전이.
               sfx.thud();
+              setStep('error');
+              setErrorMsg(result.data.message || '본인확인에 실패했습니다. 다시 시도해 주세요.');
             }
           } catch (err) {
             sfx.thud();
@@ -102,10 +124,15 @@ const AdultVerificationModal = ({ isOpen, onClose, onVerified }) => {
       const checkClosed = setInterval(() => {
         if (popup.closed) {
           clearInterval(checkClosed);
+          // 결과를 이미 받았으면(POST 진행 중일 수 있음) 단계를 되돌리지 않는다
+          if (resultReceived) return;
           window.removeEventListener('message', handleMessage);
-          if (step === 'loading') {
-            setStep('intro');
-          }
+          // [E-1.12a · docs/17_assets/defect_register.md:4666]
+          //   기존 `if (step === 'loading')`는 **스테일 클로저**였다 — startVerification이
+          //   만들어진 렌더의 step은 'intro'라 조건이 영원히 거짓이고, 팝업을 닫으면
+          //   'Verification in progress...' 스피너가 영구 고착됐다.
+          //   함수형 갱신으로 최신 상태를 읽어 클로저 의존 자체를 제거한다.
+          setStep((prev) => (prev === 'loading' ? 'intro' : prev));
         }
       }, 1000);
 
@@ -114,7 +141,9 @@ const AdultVerificationModal = ({ isOpen, onClose, onVerified }) => {
       setStep('error');
       setErrorMsg(err.response?.data?.message || 'Failed to start verification');
     }
-  }, [onClose, onVerified, step]);
+    // [E-1.12a] step을 deps에서 제거했다 — 위 setStep 함수형 갱신으로 최신 상태를 읽으므로
+    //   더 이상 step을 캡처할 필요가 없고, 남겨 두면 매 단계 전이마다 콜백이 새로 만들어진다.
+  }, [onClose, onVerified]);
 
   if (!isOpen) return null;
 
