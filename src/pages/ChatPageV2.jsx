@@ -33,11 +33,9 @@ import { buildSceneHistoryIndex } from "../utils/sceneHistoryMap";
 // [2026-08-07 디오라마 이식] 과거 씬 리플레이 — 히스토리 행 클릭 → 그 시점 씬 무대 재현 (V1/V2 공용)
 import useSceneReplay from "../hooks/useSceneReplay";
 import SceneReplayOverlay from "../components/SceneReplayOverlay";
-import PaymentModal from "../components/PaymentModal";
 import IllustrationGalleryPage from "./IllustrationGalleryPage";
 import {
   sendMessageStream,
-  sendEventSelectStream,
   sendDirectorWatchStream,
   sendTimeSkipStream,
   peekDirectorDirective,
@@ -316,9 +314,7 @@ const ChatPage = () => {
   const [showHeroineSelector, setShowHeroineSelector] = useState(false);
   const [showV2LocationModal, setShowV2LocationModal] = useState(false);
   const [showV2ResetModal, setShowV2ResetModal] = useState(false);
-  // V2 PaymentModal in-place
-  const [showPayment, setShowPayment] = useState(false);
-  const [paymentInitialTab, setPaymentInitialTab] = useState("energy");
+  // [C-2.i] showPayment/paymentInitialTab 제거 — V2도 showStore/storeInitialTab(LucidStore)로 일원화.
   // V2 멀티 히로인 엔딩 크레딧
   const [showV2EndingCredits, setShowV2EndingCredits] = useState(false);
 
@@ -1777,12 +1773,12 @@ const ChatPage = () => {
         setAwaitingFinalResult(false);
         if (err.errorCode === "INSUFFICIENT_ENERGY") {
           sfx.locked();
-          setPaymentInitialTab("energy");
-          setShowPayment(true);
+          handleOpenStoreV2("energy");
         } else if (err.errorCode === "PREMIUM_REQUIRED") {
+          // [C-2.g] 'packages' → 'pass'. 종전 PaymentModal의 packages 탭에는 LUCID_MIDNIGHT_PASS가
+          //   없어서, 정작 그걸 사야 하는 PREMIUM_REQUIRED 유저가 살 물건이 없는 업셀 데드엔드였다.
           sfx.locked();
-          setPaymentInitialTab("packages");
-          setShowPayment(true);
+          handleOpenStoreV2("pass");
         } else if (err.errorCode === "CONTENT_BLOCKED") {
           showToast("부적절한 내용으로 차단되었습니다.", "error");
         } else {
@@ -2096,11 +2092,23 @@ const ChatPage = () => {
     }
   }, [roomId]);
 
-  // V2 스토어 진입 (in-place PaymentModal)
+  // V2 스토어 진입
+  // [C-2.i · docs/19 §F] V2 결제 진입점을 죽은 PaymentModal → LucidStore로 교체.
+  //   PaymentModal은 (a) axios baseURL에 이미 /api/v1이 있는데 '/api/v1/payments/...'를 보내
+  //   **이중 프리픽스 404**였고(C-2.a/b), (b) 카탈로그에 백엔드에 없는 'LUCID_PASS_MONTHLY'를
+  //   19,900원으로 싣고 있었으며(C-2.c/d — 실제는 LUCID_PASS 14,900원), (c) 시크릿 2종에
+  //   targetCharacterId를 못 붙여 항상 400이었고(C-2.e), (d) ENERGY_T3에 지급 로직이 없는
+  //   '+Affection Potion'을 광고했고(C-2.f), (e) PREMIUM_REQUIRED 유저가 사야 할
+  //   LUCID_MIDNIGHT_PASS가 아예 없었다(C-2.g — 업셀 데드엔드).
+  //   LucidStore는 이 7건이 전부 없는 카탈로그를 이미 갖고 있으므로 교체 하나로 닫힌다.
+  //   탭 키 매핑: PaymentModal의 'packages'(시크릿+구독 혼재) → LucidStore는 'secret'/'pass'로 분리돼 있다.
   const handleOpenStoreV2 = useCallback((tab) => {
-    const initialTab = (tab === "secret" || tab === "pass" || tab === "packages") ? "packages" : "energy";
-    setPaymentInitialTab(initialTab);
-    setShowPayment(true);
+    const initialTab =
+      tab === "secret" ? "secret"
+      : (tab === "pass" || tab === "packages") ? "pass"
+      : "energy";
+    setStoreInitialTab(initialTab);
+    setShowStore(true);
   }, []);
 
   // V2 결제 완료 후
@@ -2642,8 +2650,9 @@ const ChatPage = () => {
     // 히스토리에 SYSTEM 나레이션으로 추가 (USER 아님!)
     setMessages(prev => [...prev, { role: 'SYSTEM', cleanContent: detail, isEvent: true }]);
 
-    // 낙관적 에너지 차감
-    setEnergy(prev => Math.max(0, prev - energyCost));
+    // [docs/19 §F D-7] 여기서 차감하지 않는다 — 바로 아래 triggerAutoDirectorResponse가
+    //   같은 energyCost를 낙관 차감하고 실패 시 환불까지 대칭으로 처리한다. 블록 D가 그쪽 cost를
+    //   1 고정에서 energyCost로 바꾸면서 오차가 +1 → 정확히 2배가 됐다(ChatPage.jsx와 동형).
 
     // ── sendAutoDirectorResponse로 캐릭터 자동 응답 요청 ──
     // detail을 eventContext로 전달 → 백엔드에서 SYSTEM 메시지로 저장 + constraint 적용
@@ -3001,7 +3010,6 @@ const ChatPage = () => {
                 setDynamicBackgroundUrl(null); // AI 생성 배경 클리어
                 // [Phase 4.2] 승급 이벤트 상태 초기화
                 setPromotionOverlay(null);
-                setPromotionProgress(null);
                 setPromotionResult(null);
                 // [Phase 4.3] 엔딩 상태 초기화
                 setEndingTrigger(null);
@@ -3225,6 +3233,11 @@ const ChatPage = () => {
         statusLevel={roomInfo?.statusLevel || "STRANGER"}
         isSecretMode={roomInfo?.secretModeActive}
         chatMode={roomInfo?.chatMode}
+        /* [docs/19 §F D-26] 시크릿 업셀 배선. V2는 스토어 진입 규약이 달라 handleOpenStoreV2를 탄다
+           (ChatPageV2:3322의 onOpenStore와 동일 계약). 미전달 시 패널은 안내형 폴백으로 떨어진다. */
+        onUnlockSecret={() => { setShowStatusPanel(false); (isV2 ? handleOpenStoreV2 : (tab) => { setStoreInitialTab(tab); setShowStore(true); })("secret"); }}
+        /* [docs/19 §F D-32-2] V2는 히로인 전환이 잦아 이 식별자가 없으면 5축 전부에 거짓 '직전 턴 ↓'가 붙는다 */
+        characterId={roomInfo?.characterId}
       />
 
 
@@ -3330,6 +3343,9 @@ const ChatPage = () => {
         }
         statusToggleRef={statusToggleRef}
         statChanges={latestStatChanges}
+        // [docs/19 §F D-32-1] 심박 보정 인자를 상태창과 동일하게 — 미전달이면 두 인디케이터가 어긋난다.
+        isSecretMode={roomInfo?.secretModeActive}
+        lust={characterStats?.lust}
         // ── [Phase 5.5-Sep] 스토리 전용 props 모드 가드 ──
         // [리플레이 E13] 리플레이 중엔 속마음/스토리 부가 UI 숨김 — 과거 씬은 열람 전용
         innerThought={replayView ? null : (directorEligible ? currentInnerThought : null)}
@@ -4341,6 +4357,9 @@ const ChatPage = () => {
         }}
         onPaymentComplete={() => {
           setShowStore(false);
+          // [C-2.i] 구 PaymentModal의 완료 훅(handlePaymentCompleteV2)이 하던 방 상세 재조회를 흡수.
+          //   시크릿 해금이 방의 시크릿 가용 상태를 바꾸므로 V2는 방도 다시 읽어야 한다.
+          if (isV2) handlePaymentCompleteV2();
 
           api.get("/users/me").then(res => {
             if (res.data.energy !== undefined)
@@ -4386,14 +4405,9 @@ const ChatPage = () => {
           }
         }}
         onOpenStore={(tab) => {
+          // [C-2.i] V1/V2 분기 소멸 — 양쪽 다 LucidStore로 간다(구 주석의 'in-place PaymentModal'은 폐기됨).
           setShowSecretFlow(false);
-          if (isV2) {
-            // [Phase 7-V2 Pivot] V2: in-place PaymentModal — V1처럼 LucidStore 라우팅 X
-            handleOpenStoreV2(tab || "secret");
-          } else {
-            setStoreInitialTab(tab || "secret");
-            setShowStore(true);
-          }
+          handleOpenStoreV2(tab || "secret");
         }}
         userInfo={userInfo}
         characterId={isV2 ? null : roomInfo?.characterId}  // [Phase 7-V2 Pivot] V2는 user-global이라 characterId 미전달
@@ -4558,14 +4572,8 @@ const ChatPage = () => {
         )}
       </AnimatePresence>
 
-      {/* V2 결제 모달 — in-place 진입 (시크릿 / 에너지 분기 자동) */}
-      <PaymentModal
-        isOpen={isV2 && showPayment}
-        onClose={() => setShowPayment(false)}
-        onPaymentComplete={handlePaymentCompleteV2}
-        userEnergy={energy}
-        initialTab={paymentInitialTab}
-      />
+      {/* [C-2.i] V2 전용 PaymentModal 제거 — 위 LucidStore 하나로 일원화했다.
+          모달을 남겨 두면 두 카탈로그(하나는 404·허위가격·없는 상품)가 공존한다. */}
     </div>
   );
 };

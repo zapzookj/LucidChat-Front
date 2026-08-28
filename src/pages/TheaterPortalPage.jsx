@@ -581,7 +581,7 @@ export default function TheaterPortalPage() {
             onClose={() => setCreateFlowWorld(null)}
             // [Phase III · B-4] 무료 유저 Step 4 업셀
             onOpenStore={() => {
-              setStoreInitialTab("subscription");
+              setStoreInitialTab("pass")   /* [C-2.i 후속] 존재하지 않는 탭 키 → 빈 상점 */;
               setShowStore(true);
             }}
           />

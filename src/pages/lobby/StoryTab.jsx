@@ -163,7 +163,7 @@ export default function StoryTab() {
             initialHeroineIds={[]}
             skipHeroineSelection={false}
             onClose={() => setTheaterCreate(null)}
-            onOpenStore={() => openStore("subscription")}
+            onOpenStore={() => openStore("pass")   /* [C-2.i 후속] LucidStore 탭 키는 energy|secret|pass — "subscription"은 빈 상점이 떴다 */}
           />
         )}
       </AnimatePresence>

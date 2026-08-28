@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import api from "../api/axios";
 import { sfx } from "../utils/sfx";
+import { portOneBlockReason } from "../utils/portone";   // [C-2.j] 결제 초기화 게이트
 
 /**
  * Lucid Store — 루시드 부띠끄
@@ -50,13 +51,13 @@ const SECRET_PRODUCTS = [
   {
     type: "SECRET_PASS_24H", name: "시크릿 나이트 패스", price: 2900,
     icon: Moon, color: "indigo",
-    desc: "선택한 캐릭터의 시크릿 모드를\n24시간 동안 자유롭게 즐길 수 있습니다",
+    desc: "모든 캐릭터의 시크릿 모드를\n24시간 동안 자유롭게 즐길 수 있습니다",
     tag: "단기 소모권",
   },
   {
     type: "SECRET_UNLOCK_PERMANENT", name: "캐릭터 시크릿 영구 해금", price: 14900,
     icon: Key, color: "amber",
-    desc: "선택한 캐릭터의 시크릿 모드를\n영구적으로 제한 없이 이용할 수 있습니다",
+    desc: "모든 캐릭터의 시크릿 모드를\n영구적으로 제한 없이 이용할 수 있습니다",
     tag: "영구 소유권",
   },
 ];
@@ -82,6 +83,21 @@ const PASS_PRODUCTS = [
     ],
   },
 ];
+
+/**
+ * [C-2.i 후속 · 적대적 리뷰] 상점 탭 키 정규화.
+ *
+ * 호출부마다 탭 키 어휘가 갈려 있었다 — 구 PaymentModal 시절의 `packages`,
+ * 로비/극장 업셀의 `subscription`. LucidStore의 실제 탭은 `energy|secret|pass` 셋뿐이고
+ * 본문 패널도 그 세 조건으로만 렌더되므로, 모르는 키가 들어오면 **탭 바만 있고 상품이
+ * 하나도 없는 빈 상점**이 뜬다(무료 유저의 구독 업셀 CTA 2곳이 정확히 그랬다).
+ * 호출부를 고치는 것과 별개로, 여기서 한 번 더 접어 두어야 같은 사고가 재발하지 않는다.
+ */
+const normalizeTab = (t) => {
+  if (t === "secret") return "secret";
+  if (t === "pass" || t === "packages" || t === "subscription") return "pass";
+  return "energy";
+};
 
 const formatPrice = (n) => n.toLocaleString("ko-KR") + "원";
 
@@ -121,24 +137,46 @@ const LucidStore = ({
   onClose,
   initialTab = "energy",
   userInfo,
-  characters = [],
+  // [안건 8 확정] characters prop 폐기 — 대상 캐릭터 선택 UI를 없앴다(시크릿은 계정 단위 해금).
+  //   호출부의 characters={...} 전달은 무해하므로 그대로 두되, 여기서는 받지 않는다.
   currentCharacterId = null,
   onPaymentComplete,
   onRequestAdultVerify,
 }) => {
-  const [activeTab, setActiveTab] = useState(initialTab);
+  const [activeTab, setActiveTab] = useState(normalizeTab(initialTab));
   const [selectedCharId, setSelectedCharId] = useState(currentCharacterId);
   const [status, setStatus] = useState("idle"); // idle | processing | success | error
   const [errorMsg, setErrorMsg] = useState("");
   const [successProduct, setSuccessProduct] = useState(null);
+  // [안건 7(b) 확정 · decisions_confirmed §A #7] 시크릿 상품 노출 롤아웃 토글.
+  //   서버 노브 `bm.secret-products-enabled`(기본 off)가 GET /users/secret-status의
+  //   secretProductsEnabled로 내려온다. docs/18 §1-D D2가 'PG 심사에 시크릿을 완전 게이팅된
+  //   상태로 제출'을 요구하는데, 상품 카드가 남아 있으면 그 주장과 화면이 어긋난다.
+  //   ⚠ 이건 **UX일 뿐 게이트가 아니다** — 서버가 /payments/ready에서 독립적으로 400을 던진다(§2-4).
+  //   기본값을 false로 두어 조회 실패 시 '노출하지 않는' 쪽으로 안전하게 닫힌다.
+  const [secretProductsEnabled, setSecretProductsEnabled] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       sfx.wooshLight();
-      setActiveTab(initialTab);
+      setActiveTab(normalizeTab(initialTab));
       setStatus("idle");
       setErrorMsg("");
       if (currentCharacterId) setSelectedCharId(currentCharacterId);
+      // [안건 7(b)] 열릴 때마다 서버 롤아웃 상태를 다시 읽는다 — env 토글이 재배포 없이 바뀔 수 있고,
+      //   심사 통과 직후 캐시된 false로 상품이 계속 안 보이면 매출이 막힌다. 실패 시 false 유지(닫힘).
+      api.get("/users/secret-status")
+        .then((res) => {
+          const on = !!res.data?.secretProductsEnabled;
+          setSecretProductsEnabled(on);
+          // 시크릿 탭이 숨겨진 상태에서 initialTab="secret"으로 열리면(상태창 업셀·SecretModeFlow 경로)
+          // 탭은 없고 본문만 비는 화면이 된다. 가장 가까운 상위 상품 탭으로 떨어뜨린다.
+          if (!on && initialTab === "secret") setActiveTab("pass");
+        })
+        .catch(() => {
+          setSecretProductsEnabled(false);
+          if (initialTab === "secret") setActiveTab("pass");
+        });
     }
   }, [isOpen, initialTab, currentCharacterId]);
 
@@ -163,13 +201,19 @@ const LucidStore = ({
         payload.targetCharacterId = selectedCharId;
       }
 
-      const { data: order } = await api.post("/payments/ready", payload);
-
-      if (!window.IMP) {
+      // [C-2.j · docs/19 §F] 결제 게이트를 주문 생성 **앞**으로 옮겼다.
+      //   종전에는 /payments/ready로 PENDING 주문을 만든 뒤에야 window.IMP를 확인해서,
+      //   SDK가 없으면 결제되지 않은 고아 주문만 쌓였다. 그리고 LucidStore는 IMP.init을
+      //   한 번도 부르지 않아 실제로는 request_pay가 성립하지 않았다(초기화는 폐기 예정
+      //   PaymentModal 안에만 있었다). 이제 초기화·가맹점 코드 확인이 여기서 끝난다.
+      const blockReason = portOneBlockReason();
+      if (blockReason) {
         setStatus("error");
-        setErrorMsg("결제 모듈을 불러올 수 없습니다.");
+        setErrorMsg(blockReason);
         return;
       }
+
+      const { data: order } = await api.post("/payments/ready", payload);
 
       window.IMP.request_pay(
         {
@@ -179,6 +223,10 @@ const LucidStore = ({
           name: order.productName,
           amount: order.amount,
           buyer_name: "Lucid User",
+          // [적대적 리뷰 P0] 모바일은 팝업이 아니라 **전체 페이지 리다이렉트**다 —
+          //   SPA가 언마운트되므로 아래 콜백이 실행되지 않고 /payments/confirm이 영영 안 불린다.
+          //   이 값이 없으면 모바일 결제는 100% '돈은 빠지고 재화 미지급'으로 끝난다.
+          m_redirect_url: `${window.location.origin}/payment/callback`,
         },
         async (res) => {
           if (res.success) {
@@ -272,7 +320,11 @@ const LucidStore = ({
           {/* ─── Tabs ─── */}
           <div className="relative px-6 mb-4">
             <div className="flex gap-1 bg-white/[0.03] rounded-xl p-1 border border-white/5">
-              {TABS.map((tab) => {
+              {/* [안건 8 확정 (b)] 대상 캐릭터 문맥이 없는 진입점(극장 포털 등)에서는 시크릿 탭을 숨긴다.
+                  서버가 지급 트래킹용으로 targetCharacterId를 요구하는데 극장에는 '현재 화자' 개념이 없어
+                  탭을 열어 두면 구매가 복구 불가 에러로 끝난다(레지스터 E-1.13a). */}
+              {/* [안건 7(b)] 시크릿 상품 롤아웃 토글이 off면 탭 자체를 숨긴다(PG 심사용 완전 게이팅). */}
+              {TABS.filter((t) => t.key !== "secret" || (!!currentCharacterId && secretProductsEnabled)).map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.key;
                 return (
@@ -482,36 +534,14 @@ const LucidStore = ({
                 animate={{ opacity: 1, y: 0 }}
                 className="space-y-5"
               >
-                {/* Character selector */}
-                {characters.length > 0 && (
-                  <div>
-                    <label className="text-xs text-white/40 uppercase tracking-wider mb-2 block">대상 캐릭터 선택</label>
-                    {/* [Phase B · 단계4] 모바일(<640px)에서만 줄바꿈 — 데스크톱 한 줄 배치 불변(G1) */}
-                    <div className="flex gap-3 max-sm:flex-wrap">
-                      {characters.map((ch) => (
-                        <button
-                          key={ch.id}
-                          onClick={() => { sfx.click(); setSelectedCharId(ch.id); }}
-                          className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl border transition-all ${
-                            selectedCharId === ch.id
-                              ? "border-purple-500/60 bg-purple-500/10 text-white"
-                              : "border-white/10 bg-white/[0.02] text-white/50 hover:bg-white/5"
-                          }`}
-                        >
-                          <div className="w-8 h-8 rounded-full overflow-hidden bg-slate-800 flex-shrink-0">
-                            {ch.thumbnailUrl
-                              ? <img src={ch.thumbnailUrl} alt="" className="w-full h-full object-cover" />
-                              : <div className="w-full h-full flex items-center justify-center text-xs text-white/30">{ch.name?.[0]}</div>
-                            }
-                          </div>
-                          <span className="text-sm font-medium">{ch.name}</span>
-                          {selectedCharId === ch.id && <CheckCircle size={14} className="text-purple-400" />}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
+                {/* [안건 8 확정 · docs/19_assets/decisions_confirmed.md §A #8] 대상 캐릭터 선택 UI 제거.
+                    시크릿 접근 판정은 서버에서 **user-global**이다(SecretModeService.canAccessSecretMode —
+                    영구해금 1건이면 전 캐릭터에 적용). 그런데 이 셀렉터가 캐릭터별 상품인 것처럼 오표시해
+                    ① V2에서는 characters=[]라 셀렉터가 안 뜨는데 currentCharacterId 폴백으로 구매가 성립해
+                       '첫 히로인에 조용히 귀속'되고 ② 극장 포털에서는 characters={[]} + currentCharacterId
+                       미전달이라 "캐릭터를 선택해주세요"로 구매 자체가 막혔다.
+                    targetCharacterId는 서버가 **지급 트래킹용**으로 계속 요구하므로 전송은 유지하되
+                    (현재 화자 자동 첨부), 유저에게 고르게 하지 않는다. */}
                 {/* Adult verification status banner */}
                 {!userInfo?.isAdultVerified ? (
                   <button
@@ -602,7 +632,10 @@ const LucidStore = ({
                 animate={{ opacity: 1, y: 0 }}
                 className="space-y-5"
               >
-                {PASS_PRODUCTS.map((p) => {
+                {/* [안건 7(b)] 미드나잇 패스(성인 전용 구독)도 같은 토글에 묶는다 — 종원 확정 (b).
+                    시크릿 콘텐츠 진입만 가리고 상품 카드를 남기면 심사자가 상품 설명에서
+                    '성인 콘텐츠 포함 구독'을 보게 되어 '완전 게이팅' 주장과 어긋난다. */}
+                {PASS_PRODUCTS.filter((p) => !p.adultOnly || secretProductsEnabled).map((p) => {
                   const isPremium = p.type === "LUCID_MIDNIGHT_PASS";
                   const isCurrentTier = userInfo?.subscriptionTier === p.type;
                   const needsAdult = p.adultOnly && !userInfo?.isAdultVerified;
