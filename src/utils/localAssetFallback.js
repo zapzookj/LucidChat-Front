@@ -11,7 +11,9 @@
 //   → 미러에도 없으면 내장 플레이스홀더(데이터 URI, 재실패 불가).
 // 프로드 번들에서는 설치 자체를 하지 않는다(무영향).
 
-const CDN_HOST_RE = /^https?:\/\/[^/]*\.cloudfront\.net\//i;
+// [탈AWS 2026-09-01] CDN이 CloudFront → R2 커스텀 도메인(assets.lucid-chat.com)으로
+// 절환됨. 구 도메인 패턴은 과도기(로컬 DB에 남은 옛 절대 URL) 안전망으로 유지.
+const CDN_HOST_RE = /^https?:\/\/([^/]*\.cloudfront\.net|assets\.lucid-chat\.com)\//i;
 
 /** 어떤 CDN 도메인이든 경로만 벗겨 로컬 public/ 경로로. */
 export function toLocalAssetPath(url) {
