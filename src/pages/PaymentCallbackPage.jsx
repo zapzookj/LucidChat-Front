@@ -45,15 +45,12 @@ const PaymentCallbackPage = () => {
       ? { phase: "failed", message: params.get("error_msg") || "결제가 취소되었거나 완료되지 않았습니다." }
       : { phase: "verifying", message: "" }
   );
+  const [retrying, setRetrying] = useState(false);
 
-  useEffect(() => {
-    if (invalid) { sfx.thud(); return; }
-    if (confirmedRef.current) return;
-    confirmedRef.current = true;
+  // 복귀 후 되돌아갈 곳. 결제는 대개 채팅/로비에서 시작하므로 히스토리가 있으면 그쪽으로.
+  const goBack = () => navigate("/", { replace: true });
 
-    // 복귀 후 되돌아갈 곳. 결제는 대개 채팅/로비에서 시작하므로 히스토리가 있으면 그쪽으로.
-    const goBack = () => navigate("/", { replace: true });
-
+  const confirm = () =>
     api
       .post("/payments/confirm", { impUid, merchantUid })
       .then((res) => {
@@ -70,6 +67,14 @@ const PaymentCallbackPage = () => {
         }
       })
       .catch((err) => {
+        // [안건 4 · 적대적 리뷰 P1] 결제는 확정, 지급만 지연 — '실패'로 단정하지 않고 재시도 수단을 준다.
+        if (err.response?.data?.errorCode === "PAYMENT_DELIVERY_PENDING") {
+          setState({
+            phase: "pending",
+            message: err.response.data.message || "결제는 완료됐고 지급이 지연되고 있어요.",
+          });
+          return;
+        }
         sfx.thud();
         // ⚠ 여기서 실패해도 결제 자체는 승인된 상태일 수 있다 — 유저에게 '결제 안 됨'이라고
         //   단정하지 않는다. 서버 웹훅/만료 스케줄러가 뒤이어 처리하므로 문의 경로를 안내한다.
@@ -80,7 +85,24 @@ const PaymentCallbackPage = () => {
             "결제 확인 중 문제가 발생했습니다. 결제가 완료됐다면 잠시 후 반영됩니다.",
         });
       });
-  }, [invalid, impUid, merchantUid, navigate]);
+
+  useEffect(() => {
+    if (invalid) { sfx.thud(); return; }
+    if (confirmedRef.current) return;
+    confirmedRef.current = true;
+    confirm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invalid, impUid, merchantUid]);
+
+  const retryDelivery = async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      await confirm();
+    } finally {
+      setTimeout(() => setRetrying(false), 5000);   // 결제 검증 레이트리밋(5초) 쿨다운
+    }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950 px-6">
@@ -98,6 +120,30 @@ const PaymentCallbackPage = () => {
             <div className="mx-auto mb-5 flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500/15 text-xl">✓</div>
             <p className="text-sm font-bold text-white/90">{state.message}</p>
             <p className="mt-2 text-xs text-white/45">잠시 후 자동으로 돌아갑니다.</p>
+          </>
+        )}
+
+        {state.phase === "pending" && (
+          <>
+            <div className="mx-auto mb-5 flex h-11 w-11 items-center justify-center rounded-full bg-amber-500/15 text-xl">✓</div>
+            <p className="text-sm font-bold text-white/90">결제 완료 · 지급 대기</p>
+            <p className="mt-2 text-xs text-white/55">{state.message}</p>
+            <p className="mt-2 text-xs text-amber-300/80">다시 결제하지 마세요 — 결제는 이미 완료됐어요.</p>
+            <div className="mt-6 flex justify-center gap-2">
+              <button
+                onClick={retryDelivery}
+                disabled={retrying}
+                className="rounded-xl border border-amber-400/30 bg-amber-500/15 px-5 py-2.5 text-xs font-bold text-amber-100 hover:bg-amber-500/25 disabled:opacity-50"
+              >
+                {retrying ? "확인 중…" : "지급 다시 시도"}
+              </button>
+              <button
+                onClick={goBack}
+                className="rounded-xl border border-white/12 bg-white/[0.04] px-5 py-2.5 text-xs font-bold text-white/75 hover:bg-white/[0.08]"
+              >
+                돌아가기
+              </button>
+            </div>
           </>
         )}
 

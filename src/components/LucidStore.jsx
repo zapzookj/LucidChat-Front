@@ -145,9 +145,51 @@ const LucidStore = ({
 }) => {
   const [activeTab, setActiveTab] = useState(normalizeTab(initialTab));
   const [selectedCharId, setSelectedCharId] = useState(currentCharacterId);
-  const [status, setStatus] = useState("idle"); // idle | processing | success | error
+  const [status, setStatus] = useState("idle"); // idle | processing | success | error | pending
   const [errorMsg, setErrorMsg] = useState("");
   const [successProduct, setSuccessProduct] = useState(null);
+  // [안건 4 · 적대적 리뷰 P1] 결제는 확정됐는데 지급이 지연된 주문 — '결제 실패'로 그리면 유저가 재구매해 이중 결제가 난다.
+  //   impUid/merchantUid를 들고 있다가 '지급 다시 시도'가 같은 값으로 /confirm을 재호출한다(서버는 PAID_UNDELIVERED를
+  //   보고 PortOne 재검증 없이 지급만 다시 한다). 이 상태에서는 상품 카드를 숨긴다.
+  const [pendingOrder, setPendingOrder] = useState(null); // { product, impUid, merchantUid }
+  const [retrying, setRetrying] = useState(false);
+
+  const confirmAndSettle = useCallback(async (product, impUid, merchantUid) => {
+    try {
+      const confirm = await api.post("/payments/confirm", { impUid, merchantUid });
+      if (confirm.data.status === "PAID") {
+        setPendingOrder(null);
+        setSuccessProduct(product);
+        setStatus("success");
+        setTimeout(() => {
+          onPaymentComplete?.(confirm.data);
+        }, 2500);
+      } else {
+        setStatus("error");
+        setErrorMsg(confirm.data.message || "결제 검증에 실패했습니다.");
+      }
+    } catch (e) {
+      if (e.response?.data?.errorCode === "PAYMENT_DELIVERY_PENDING") {
+        setPendingOrder({ product, impUid, merchantUid });
+        setErrorMsg(e.response.data.message || "결제는 완료됐고 지급이 지연되고 있어요.");
+        setStatus("pending");
+        return;
+      }
+      setStatus("error");
+      setErrorMsg(e.response?.data?.message || "서버 검증 실패");
+    }
+  }, [onPaymentComplete]);
+
+  const retryDelivery = useCallback(async () => {
+    if (!pendingOrder || retrying) return;
+    setRetrying(true);
+    try {
+      await confirmAndSettle(pendingOrder.product, pendingOrder.impUid, pendingOrder.merchantUid);
+    } finally {
+      // 레이트리밋(결제 검증 5초)을 고려한 쿨다운
+      setTimeout(() => setRetrying(false), 5000);
+    }
+  }, [pendingOrder, retrying, confirmAndSettle]);
   // [안건 7(b) 확정 · decisions_confirmed §A #7] 시크릿 상품 노출 롤아웃 토글.
   //   서버 노브 `bm.secret-products-enabled`(기본 off)가 GET /users/secret-status의
   //   secretProductsEnabled로 내려온다. docs/18 §1-D D2가 'PG 심사에 시크릿을 완전 게이팅된
@@ -230,25 +272,7 @@ const LucidStore = ({
         },
         async (res) => {
           if (res.success) {
-            try {
-              const confirm = await api.post("/payments/confirm", {
-                impUid: res.imp_uid,
-                merchantUid: order.merchantUid,
-              });
-              if (confirm.data.status === "PAID") {
-                setSuccessProduct(product);
-                setStatus("success");
-                setTimeout(() => {
-                  onPaymentComplete?.(confirm.data);
-                }, 2500);
-              } else {
-                setStatus("error");
-                setErrorMsg(confirm.data.message || "결제 검증에 실패했습니다.");
-              }
-            } catch (e) {
-              setStatus("error");
-              setErrorMsg(e.response?.data?.message || "서버 검증 실패");
-            }
+            await confirmAndSettle(product, res.imp_uid, order.merchantUid);
           } else {
             setStatus("idle");
           }
@@ -258,7 +282,7 @@ const LucidStore = ({
       setStatus("error");
       setErrorMsg(e.response?.data?.message || "결제 준비 실패");
     }
-  }, [selectedCharId, onPaymentComplete]);
+  }, [selectedCharId, confirmAndSettle]);
 
   if (!isOpen) return null;
 
@@ -436,6 +460,38 @@ const LucidStore = ({
                       ? `+${successProduct.energy} 에너지가 충전되었습니다`
                       : successProduct.name}
                   </motion.p>
+                </motion.div>
+              )}
+
+              {status === "pending" && (
+                <motion.div
+                  key="pending"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex flex-col items-center py-8"
+                >
+                  <div className="w-14 h-14 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-3">
+                    <CheckCircle size={28} className="text-amber-400" />
+                  </div>
+                  <p className="text-amber-300 font-medium mb-1">결제 완료 · 지급 대기</p>
+                  <p className="text-white/50 text-sm text-center">{errorMsg}</p>
+                  <p className="text-white/35 text-xs text-center mt-2">다시 결제하지 마세요 — 결제는 이미 완료됐어요.</p>
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      onClick={retryDelivery}
+                      disabled={retrying}
+                      className="px-6 py-2 rounded-lg bg-amber-500/20 text-amber-200 hover:bg-amber-500/30 text-sm transition disabled:opacity-50"
+                    >
+                      {retrying ? "확인 중…" : "지급 다시 시도"}
+                    </button>
+                    <button
+                      onClick={onClose}
+                      className="px-6 py-2 rounded-lg bg-white/10 text-white/70 hover:bg-white/15 text-sm transition"
+                    >
+                      닫기
+                    </button>
+                  </div>
                 </motion.div>
               )}
 
@@ -639,11 +695,13 @@ const LucidStore = ({
                   const isPremium = p.type === "LUCID_MIDNIGHT_PASS";
                   const isCurrentTier = userInfo?.subscriptionTier === p.type;
                   const needsAdult = p.adultOnly && !userInfo?.isAdultVerified;
+                  // [적대적 리뷰 P2] 상위 구독 활성 중 하위 카드 — 서버가 400으로 거부한다(잔여 기간 소각 방지). 카드도 잠근다.
+                  const isDowngrade = userInfo?.subscriptionTier === "LUCID_MIDNIGHT_PASS" && p.type === "LUCID_PASS";
 
                   const PassCard = (
                     <button
                       onClick={() => {
-                        if (isCurrentTier) return;
+                        if (isCurrentTier || isDowngrade) return;
                         sfx.click();
                         if (needsAdult) { onRequestAdultVerify?.(); return; }
                         handlePurchase(p);
@@ -655,6 +713,11 @@ const LucidStore = ({
                       {isCurrentTier && (
                         <div className="absolute top-4 right-4 flex items-center gap-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold px-3 py-1 rounded-full">
                           <CheckCircle size={12} /> 구독 중
+                        </div>
+                      )}
+                      {isDowngrade && (
+                        <div className="absolute top-4 right-4 flex items-center gap-1.5 bg-white/5 border border-white/10 text-white/50 text-[10px] font-bold px-3 py-1 rounded-full">
+                          <Lock size={12} /> 미드나잇 만료 후 변경 가능
                         </div>
                       )}
 
