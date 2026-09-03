@@ -5,7 +5,9 @@
  *   - sendTimeSkipStream(): 시간 넘기기 SSE
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1'; // 백엔드 주소
+import { API_BASE_URL, refreshAccessToken } from './refreshLock';
+
+const BASE_URL = API_BASE_URL; // 백엔드 주소 (상수 정의는 refreshLock.js로 일원화)
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  1. 일반 채팅 메시지 (기존)
@@ -168,7 +170,7 @@ export async function sendAutoDirectorResponse(roomId, directiveType, eventConte
 //  공통 SSE POST 호출
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async function _ssePost(url, body, callbacks, abortController) {
+async function _ssePost(url, body, callbacks, abortController, _retried = false) {
   const token = localStorage.getItem('accessToken');
 
   try {
@@ -188,9 +190,11 @@ async function _ssePost(url, body, callbacks, abortController) {
       const errorData = await response.json().catch(() => ({}));
 
       if (response.status === 401) {
-        const refreshed = await tryRefreshToken();
-        if (refreshed) {
-          return _ssePost(url, body, callbacks, abortController);
+        // [E-1.2] 재시도는 1회로 제한한다 — 갱신은 됐는데 서버가 계속 401이면
+        //   (권한 변경·계정 정지 등) 이 재귀가 무한 루프가 된다.
+        const newToken = _retried ? null : await refreshAccessToken();
+        if (newToken) {
+          return _ssePost(url, body, callbacks, abortController, true);
         }
         window.location.href = '/login';
         return;
@@ -296,33 +300,9 @@ function parseSseEvent(block) {
   return { event, data: dataLines.join('\n') };
 }
 
-// [Phase6/Tier3 / H-24] SSE 흐름의 refresh도 single-flight.
-//   여러 SSE 호출이 동시에 401을 받아도 한 번의 /auth/refresh 호출로 합쳐진다.
-//   axios.js의 refreshOnce와는 별도 트랙(fetch 기반)이지만 동일 패턴.
-let _sseRefreshPromise = null;
-
-async function tryRefreshToken() {
-  if (!_sseRefreshPromise) {
-    _sseRefreshPromise = (async () => {
-      try {
-        const res = await fetch(`${BASE_URL}/auth/refresh`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-        });
-        if (!res.ok) return false;
-        const data = await res.json();
-        if (data.accessToken) {
-          localStorage.setItem('accessToken', data.accessToken);
-          return true;
-        }
-        return false;
-      } catch {
-        return false;
-      }
-    })().finally(() => { _sseRefreshPromise = null; });
-  }
-  return _sseRefreshPromise;
-}
+// [Phase6/Tier3 / H-24 → E-1.2] SSE 흐름의 refresh single-flight를 이 파일이 따로 들고 있었다.
+//   axios.js도 자기 뮤텍스를 들고 있어서, API 요청과 SSE가 같은 순간 401을 받으면
+//   /auth/refresh가 두 번 나가고 RT rotation 뒤 늦은 쪽이 폐기된 RT를 제시 →
+//   서버가 재사용(탈취)으로 보고 전 세션을 끊었다. 뮤텍스를 refreshLock.js 하나로 합쳤다.
 
 export default sendMessageStream;

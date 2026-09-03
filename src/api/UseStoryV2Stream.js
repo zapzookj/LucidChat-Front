@@ -1,6 +1,7 @@
 import { getStoryV2StreamUrl, getStoryV2OpeningStreamUrl } from "./StoryV2Api";
+import { API_BASE_URL, refreshAccessToken } from "./refreshLock";
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
+const BASE_URL = API_BASE_URL; // 상수 정의는 refreshLock.js로 일원화 (:75 URL 조립에 사용)
 
 /**
  * [Story V2] V2 메시지/액션 SSE 스트림 클라이언트.
@@ -71,7 +72,7 @@ export async function sendV2Opening(roomId, callbacks, abortController) {
 //  내부 — SSE POST 핸들러 (V1 _ssePost 패턴 차용)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async function _ssePostV2(path, body, callbacks, abortController) {
+async function _ssePostV2(path, body, callbacks, abortController, _retried = false) {
   const token = localStorage.getItem("accessToken");
   const url = `${BASE_URL}${path}`;
 
@@ -92,9 +93,11 @@ async function _ssePostV2(path, body, callbacks, abortController) {
       const errorData = await response.json().catch(() => ({}));
 
       if (response.status === 401) {
-        const refreshed = await tryRefreshToken();
-        if (refreshed) {
-          return _ssePostV2(path, body, callbacks, abortController);
+        // [E-1.2b] 이 경로는 지금까지 갱신이 100% 실패해 사실상 죽어 있었다 — 고치는 순간
+        //   재귀가 처음으로 살아나므로 재시도 1회 제한을 함께 넣는다(E-1.2와 같은 규칙).
+        const newToken = _retried ? null : await refreshAccessToken();
+        if (newToken) {
+          return _ssePostV2(path, body, callbacks, abortController, true);
         }
         window.location.href = "/login";
         return;
@@ -205,32 +208,11 @@ function parseSseEvent(block) {
   return data ? { event, data } : null;
 }
 
-/**
- * 401 응답 시 토큰 갱신 시도.
- * axios.js의 refreshOnce와 별도 트랙 (fetch 기반) — 동일 패턴.
- */
-async function tryRefreshToken() {
-  const refreshToken = localStorage.getItem("refreshToken");
-  if (!refreshToken) return false;
-
-  try {
-    const res = await fetch(`${BASE_URL}/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken }),
-      credentials: "include",
-    });
-    if (!res.ok) return false;
-    const data = await res.json();
-    if (data.accessToken) {
-      localStorage.setItem("accessToken", data.accessToken);
-      if (data.refreshToken) localStorage.setItem("refreshToken", data.refreshToken);
-      return true;
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
+// [E-1.2b] 이 파일에 있던 tryRefreshToken은 `localStorage.getItem("refreshToken")`을 읽고
+//   없으면 즉시 false를 반환했다. 그런데 이 앱의 RT는 **httpOnly 쿠키**다(axios withCredentials).
+//   localStorage에 그 키는 애초에 존재하지 않으므로 이 경로는 갱신을 **시도조차 못 하고
+//   100% 실패**했고, V2 STORY 스트림에서 401이 뜨면 곧장 /login으로 튕겼다.
+//   요청 본문에 refreshToken을 싣던 것도 서버 계약과 달랐다(서버는 쿠키를 읽는다).
+//   → refreshLock.js의 공용 구현으로 교체. 삭제해야 컴파일/번들 단계에서 잔존 호출이 드러난다.
 
 export default sendV2Message;

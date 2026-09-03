@@ -1,7 +1,8 @@
 import axios from 'axios';
+import { API_BASE_URL, refreshAccessToken } from './refreshLock';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1', // 백엔드 주소
+  baseURL: API_BASE_URL, // 백엔드 주소
   headers: {
     'Content-Type': 'application/json',
     'ngrok-skip-browser-warning': 'true', // [NEW] ngrok 경고 무시 헤더
@@ -22,16 +23,8 @@ api.interceptors.request.use((config) => {
 // [Phase6/Tier3 / H-24] Refresh single-flight.
 //   5개 API가 동시에 401을 받으면 5개 동시 /auth/refresh → RT rotation으로 첫 호출만
 //   성공하고 나머지는 storedToken 불일치 → 정상 유저가 강제 로그아웃되던 결함을 차단.
-//   진행 중인 refresh가 있으면 모든 요청이 그 Promise를 공유한다.
-let refreshPromise = null;
-
-function refreshOnce() {
-  if (!refreshPromise) {
-    refreshPromise = api.post('/auth/refresh')
-      .finally(() => { refreshPromise = null; });
-  }
-  return refreshPromise;
-}
+// [E-1.2] 그 뮤텍스가 이 파일에만 있어서 SSE 트랙(UseChatStream·UseStoryV2Stream)과
+//   경합했다. 이제 뮤텍스는 refreshLock.js 하나뿐이다 — 여기서 따로 들지 않는다.
 
 // [응답 인터셉터] 401 에러 처리 (토큰 갱신)
 api.interceptors.response.use(
@@ -44,19 +37,20 @@ api.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
-        // [1] single-flight refresh — 동시 다발 요청을 한 번의 갱신으로 합침
-        const res = await refreshOnce();
+        // [1] single-flight refresh — axios·SSE를 통틀어 한 번의 갱신으로 합침(refreshLock.js).
+        //     [E-1.2] 반환은 토큰 문자열 또는 null이다. 예외를 던지지 않으므로 실패는 null로 온다.
+        const accessToken = await refreshAccessToken();
+        if (!accessToken) {
+          throw new Error('token refresh failed');
+        }
+        // 저장은 refreshAccessToken이 이미 했다(성공한 경우에만).
 
-        // [2] 새 AccessToken 저장
-        const { accessToken } = res.data;
-        localStorage.setItem('accessToken', accessToken);
-
-        // [3] 실패했던 요청의 헤더 업데이트 후 재요청
+        // [2] 실패했던 요청의 헤더 업데이트 후 재요청
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;
         return api(originalRequest);
 
       } catch (refreshError) {
-        // [4] 갱신 실패 시 (Refresh Token 만료 등) -> 로그아웃 처리
+        // [3] 갱신 실패 시 (Refresh Token 만료 등) -> 로그아웃 처리
         console.error("Session expired:", refreshError);
         localStorage.removeItem('accessToken');
         localStorage.removeItem('user');
