@@ -38,7 +38,9 @@ const BULLET_PLACEHOLDER = "- 항목 형태로 한 줄에 하나씩 적어주세
 
 const TEXTAREA_FIELDS = [
   { key: "personality", label: "성격", rows: 3 },
-  { key: "tone", label: "말투", rows: 3 },
+  // [aichat E-7.2] 말투만 서버 상한이 있다 — UgcTextLimits.TONE_MAX = 300 (Character.tone varchar(300)).
+  //   초과하면 PATCH가 400으로 거부되므로 UI에서 미리 막고 카운터를 보인다.
+  { key: "tone", label: "말투", rows: 3, max: 300 },
   { key: "appearance", label: "외형 묘사", rows: 3 },
   { key: "clothing", label: "복장 묘사", rows: 3 },
   { key: "backstory", label: "과거사", rows: 4 },
@@ -228,10 +230,20 @@ export default function ProfileEditPanel({ open, profile, onSave, onClose }) {
                     ))}
                     {TEXTAREA_FIELDS.map((f) => (
                       <div key={f.key}>
-                        <label className="text-[11px] text-white/50 mb-1 block">{f.label}</label>
+                        <div className="flex items-baseline justify-between mb-1">
+                          <label className="text-[11px] text-white/50 block">{f.label}</label>
+                          {f.max && (
+                            <span className={`text-[10px] tabular-nums ${
+                              (form[f.key]?.length || 0) >= f.max ? "text-amber-300" : "text-white/30"
+                            }`}>
+                              {form[f.key]?.length || 0}/{f.max}
+                            </span>
+                          )}
+                        </div>
                         <textarea
                           value={form[f.key]}
                           rows={f.rows}
+                          maxLength={f.max}
                           placeholder={f.placeholder}
                           onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
                           className={`${fieldClass} resize-none`}

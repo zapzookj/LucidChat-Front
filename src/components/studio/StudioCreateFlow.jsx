@@ -1765,16 +1765,30 @@ const CompleteStep = ({
                     />
                   </div>
                 ))}
+                {/* [aichat E-7.2] 말투는 서버 상한 300자(UgcTextLimits.TONE_MAX = Character.tone
+                    varchar(300))이고 초과 시 400으로 거부된다. maxLength가 없으면 유저가 긴 말투를
+                    다 쓰고 저장을 누른 뒤에야 토스트를 본다 — 카운터는 maxLength가 붙여넣기를
+                    조용히 자르는 것을 보이게 하는 장치다. */}
                 {[
                   { key: "personality", label: "성격", rows: 2 },
-                  { key: "tone", label: "말투", rows: 2 },
+                  { key: "tone", label: "말투", rows: 2, max: 300 },
                   { key: "firstGreeting", label: "첫인사", rows: 3 },
                 ].map((f) => (
                   <div key={f.key}>
-                    <label className="text-[11px] text-white/50 mb-1 block">{f.label}</label>
+                    <div className="flex items-baseline justify-between mb-1">
+                      <label className="text-[11px] text-white/50 block">{f.label}</label>
+                      {f.max && (
+                        <span className={`text-[10px] tabular-nums ${
+                          (form[f.key]?.length || 0) >= f.max ? "text-amber-300" : "text-white/30"
+                        }`}>
+                          {form[f.key]?.length || 0}/{f.max}
+                        </span>
+                      )}
+                    </div>
                     <textarea
                       value={form[f.key]}
                       rows={f.rows}
+                      maxLength={f.max}
                       onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
                       className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/25 focus:border-amber-400/60 outline-none resize-none"
                     />
