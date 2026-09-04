@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Lock, User, ChevronDown, ChevronUp } from "lucide-react";
 import { assetUrl } from "../utils/assetUrl";
 import { sfx } from "../utils/sfx";
@@ -40,6 +40,32 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace("/api/v1", "") || "h
 const LoginPage = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
+
+  // [aichat E-7.1.a/E-7.1.b] 소셜 로그인 실패 안내.
+  //   서버는 진작 /login?error=... 로 리다이렉트하고 있었는데(account_suspended·unknown_provider)
+  //   이 화면에 쿼리 파싱이 **아예 없어** 유저는 아무 설명 없이 로그인 화면으로 되돌아왔다.
+  //   이번에 email_in_use·login_failed가 추가되므로 함께 표시한다.
+  //   ⚠ 서버는 이메일을 쿼리에 싣지 않는다(URL·리퍼러·로그에 개인정보가 남는다) — provider 이름만 온다.
+  const [searchParams] = useSearchParams();
+  const socialError = useMemo(() => {
+    const code = searchParams.get("error");
+    if (!code) return null;
+    const providerLabel = { google: "구글", kakao: "카카오", naver: "네이버" }[searchParams.get("provider")];
+    switch (code) {
+      case "email_in_use":
+        return providerLabel
+          ? `이미 ${providerLabel} 계정으로 가입된 이메일이에요. ${providerLabel}로 로그인해 주세요.`
+          : "이미 다른 소셜 계정으로 가입된 이메일이에요. 처음 가입할 때 쓴 계정으로 로그인해 주세요.";
+      case "account_suspended":
+        return "이용이 정지된 계정이에요. 고객센터로 문의해 주세요.";
+      case "unknown_provider":
+        return "지원하지 않는 로그인 방식이에요.";
+      case "login_failed":
+        return "로그인 처리 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.";
+      default:
+        return "로그인에 실패했어요. 다시 시도해 주세요.";
+    }
+  }, [searchParams]);
 
   const [showLegacy, setShowLegacy] = useState(false);
   const [formData, setFormData] = useState({ username: "", password: "" });
@@ -117,6 +143,20 @@ const LoginPage = () => {
           </h2>
           <p className="text-white/40 text-sm">소셜 계정으로 간편하게 시작하세요</p>
         </div>
+
+        {/* [aichat E-7.1.a] 소셜 로그인 실패 안내 — 실패 원인이 소셜 로그인이므로 그 버튼 바로 위에 둔다 */}
+        {socialError && (
+          <motion.div
+            role="alert"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="mb-5 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-500/25
+              text-rose-200 text-sm leading-relaxed text-center"
+          >
+            {socialError}
+          </motion.div>
+        )}
 
         {/* ── 소셜 로그인 버튼들 ── */}
         <div className="space-y-3">
