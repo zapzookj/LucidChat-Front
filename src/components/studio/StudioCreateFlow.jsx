@@ -1416,6 +1416,10 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
             const isNeutral = tag === "NEUTRAL";
             const isReady = status === "READY";
             const isFailed = status === "FAILED";
+            // [aichat D-2.l] 서버가 판정한 무과금 자격. 유료 리롤이 재시도를 다 쓰고 실패해
+            //   기존 완성본으로 되돌아간 컷은 READY지만 다음 1회가 무료다 —
+            //   서버가 0E를 받는데 화면이 "2E"라고 하면 유저는 재시도하지 않는다.
+            const isFreeReroll = Boolean(asset?.freeReroll);
             const inProgress = !isReady && !isFailed;
             return (
               <div
@@ -1457,6 +1461,16 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
                       className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-rose-500/20 border border-rose-400/40 text-rose-200 text-[8px] font-bold disabled:opacity-50"
                     >
                       <RefreshCw size={7} /> 무료 재시도
+                    </button>
+                  ) : isReady && isFreeReroll ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => { sfx.click(); onRerollRequest(tag, true); }}
+                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[8px] font-bold disabled:opacity-50"
+                      title="직전 다시 뽑기가 실패해 1회 무료예요"
+                    >
+                      <RefreshCw size={7} /> 무료 1회
                     </button>
                   ) : isReady ? (
                     <button

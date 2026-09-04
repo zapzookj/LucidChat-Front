@@ -633,13 +633,16 @@ const BindingView = () => (
   </div>
 );
 
-/** 16:9 일러 컷 셀 — GENERATING: 직전본 위 스피너 / READY: 리롤 / FAILED: 무료 재시도 */
+/** 16:9 일러 컷 셀 — GENERATING: 직전본 위 스피너 / READY: 리롤 / FAILED·무료자격: 무료 재시도 */
 const AssetCell = ({ title, asset, wide = false, busy, rerollCost, onZoom, onReroll }) => {
   const status = asset?.status;
   const url = asset?.url || null;
   const generating = status === "GENERATING";
   const failed = status === "FAILED";
   const ready = status === "READY";
+  // [aichat D-2.m] 서버가 판정한 무과금 자격. 유료 리롤이 재시도를 다 쓰고 실패해 기존본으로
+  //   되돌아간 컷은 READY지만 다음 1회가 무료다 — 감정 컷(D-2.l)과 같은 계약.
+  const freeReroll = Boolean(asset?.freeReroll);
 
   return (
     <div
@@ -685,6 +688,16 @@ const AssetCell = ({ title, asset, wide = false, busy, rerollCost, onZoom, onRer
             className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-rose-500/20 border border-rose-400/40 text-rose-200 text-[9px] font-bold disabled:opacity-50"
           >
             <RefreshCw size={8} /> 무료 재시도
+          </button>
+        ) : ready && freeReroll ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => { sfx.click(); onReroll(true); }}
+            className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[9px] font-bold disabled:opacity-50"
+            title="직전 다시 그리기가 실패해 1회 무료예요"
+          >
+            <RefreshCw size={8} /> 무료 1회
           </button>
         ) : ready ? (
           <button

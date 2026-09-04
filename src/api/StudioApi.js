@@ -37,7 +37,9 @@ import api from "./axios";
  *             backstory, coreValues, flaws, speechQuirks, firstGreeting, introNarration}
  *            — Stage0(컨셉 분석) 완료 전엔 null. 편집 가능한 설정 초안.
  *   emotionAssets[TAG].status: DERIVING | REFINING | READY | CUTTING | DONE | FAILED
- *   emotionAssets[TAG]: {status, thumbUrl, versions:[url…], selectedIndex}
+ *   emotionAssets[TAG]: {status, thumbUrl, versions:[url…], selectedIndex, freeReroll}
+ *     freeReroll: [aichat D-2.l] 이 컷의 다음 리롤이 무과금인가(서버 판정). FAILED뿐 아니라
+ *                 '유료 리롤이 소진돼 기존본으로 복귀'한 READY 컷도 true다.
  *     versions: 완성본 누적 리스트 (리롤할 때마다 추가), selectedIndex: 현재 선택된 버전.
  *     리롤/재시도 중에도 thumbUrl은 직전 선택본을 유지한다.
  *     리롤 소진 시 이전 완성본으로 자동 복귀 (FAILED는 완성본이 하나도 없던 컷에서만).

@@ -13,8 +13,9 @@ import api from "./axios";
  *   { jobId, status, currentStepHint,
  *     draft: { name, intro, lore, moodTags:[..],
  *              locations:[{locationKey, displayName, description}] },
- *     thumbnail: { status, url, versions:[url..], selectedIndex } | null,
- *     locationAssets: { KEY: { status, url, versions, selectedIndex } },
+ *     thumbnail: { status, url, versions:[url..], selectedIndex, freeReroll } | null,
+ *     locationAssets: { KEY: { status, url, versions, selectedIndex, freeReroll } },
+ *       freeReroll: [aichat D-2.m] 다음 리롤 무과금 자격 — 감정 컷과 같은 계약.
  *     energySpent, rerollCost, maxLocations, failReason, ugcWorldId, expiresAt }
  *
  *   status: CONCEPT_PROCESSING → EDIT_WAIT → ILLUSTRATING → REVIEW_WAIT
