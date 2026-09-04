@@ -2072,7 +2072,11 @@ const ChatPage = () => {
   // ━━━ [Phase 5.1] 단건 메시지 삭제 핸들러 ━━━
   // [Bug #1 Fix] 씬 분리된 메시지의 전체 씬을 일괄 삭제 (parentLogId 기반)
   const handleDeleteLog = (logId, role) => {
-    const label = role === 'USER' ? '내 메시지' : '캐릭터 응답';
+    // [aichat 안건 13 재확정] SYSTEM(이벤트 나레이션)도 삭제 대상이 됐으므로 문구를 분기한다 —
+    //   종전 이분법이면 나레이션을 "캐릭터 응답"이라 부르게 된다.
+    const label = role === 'USER' ? '내 메시지'
+      : role === 'SYSTEM' ? '이벤트 나레이션'
+      : '캐릭터 응답';
     openConfirm(
       `이 ${label}을(를) 삭제하시겠습니까?`,
       async () => {
@@ -3150,13 +3154,29 @@ const ChatPage = () => {
                 let row = null;
                 if (msg.role === 'SYSTEM') {
                     row = (
-                        <div className="flex justify-center my-6">
+                        // [aichat 안건 13 재확정] 이벤트 나레이션은 화면에 보이므로 지울 수도 있어야 한다.
+                        //   종전에는 유저·캐릭터 메시지만 삭제 가능하고 이것만 막혀 있었다(서버가 SYSTEM을
+                        //   무조건 거부). 나레이션을 숨기는 대신(맥락이 끊긴다) 지울 수 있게 하는 쪽이 맞다.
+                        //   logId가 없는 경우(방금 낙관 삽입한 로컬 메시지)는 버튼을 내지 않는다 — 새로고침 후 생긴다.
+                        <div className="group/sys flex justify-center items-center gap-1.5 my-6">
                             <div onClick={() => enterReplay(idx)}
                                  title="이 장면 다시 보기"
                                  className="bg-gradient-to-r from-indigo-900/40 to-purple-900/40 border border-indigo-500/20 text-indigo-200 text-xs px-5 py-2.5 rounded-full backdrop-blur-sm shadow-lg flex items-center gap-2 max-w-[90%] text-center leading-relaxed cursor-pointer hover:brightness-125 transition">
                                 <Sparkles size={14} className="text-yellow-300 shrink-0" />
                                 <span>{msg.cleanContent}</span>
                             </div>
+                            {msg.logId && (
+                                <button
+                                    onClick={() => handleDeleteLog(msg.logId, msg.role)}
+                                    className="p-1.5 rounded-lg shrink-0 opacity-0 group-hover/sys:opacity-100
+                                               hover:bg-rose-500/10 text-white/25 hover:text-rose-400
+                                               transition-all duration-200"
+                                    title="이 나레이션 삭제"
+                                    aria-label="이벤트 나레이션 삭제"
+                                >
+                                    <Trash2 size={13} />
+                                </button>
+                            )}
                         </div>
                     );
                 } else if (msg.role === 'NPC') {

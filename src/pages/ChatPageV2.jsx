@@ -2916,7 +2916,10 @@ const ChatPage = () => {
   // ━━━ [Phase 5.1] 단건 메시지 삭제 핸들러 ━━━
   // [Bug #1 Fix] 씬 분리된 메시지의 전체 씬을 일괄 삭제 (parentLogId 기반)
   const handleDeleteLog = (logId, role) => {
-    const label = role === 'USER' ? '내 메시지' : '캐릭터 응답';
+    // [aichat 안건 13 재확정] SYSTEM(이벤트 나레이션)도 삭제 대상 — 문구 분기.
+    const label = role === 'USER' ? '내 메시지'
+      : role === 'SYSTEM' ? '이벤트 나레이션'
+      : '캐릭터 응답';
     openConfirm(
       `이 ${label}을(를) 삭제하시겠습니까?`,
       async () => {
@@ -4041,7 +4044,9 @@ const ChatPage = () => {
                 let row = null;
                 if (msg.role === 'SYSTEM') {
                     row = (
-                        <div className="flex justify-center my-6">
+                        // [aichat 안건 13 재확정] 화면에 보이는 나레이션은 지울 수도 있어야 한다(V1과 동일).
+                        //   logId 없는 낙관 삽입분은 버튼을 내지 않는다 — 새로고침 후 서버 logId가 붙는다.
+                        <div className="group/sys flex justify-center items-center gap-1.5 my-6">
                             <div onClick={() => enterReplay(idx)}
                                  title="이 장면 다시 보기"
                                  className="bg-gradient-to-r from-indigo-900/40 to-purple-900/40 border border-indigo-500/20 text-indigo-200 text-xs px-5 py-2.5 rounded-full backdrop-blur-sm shadow-lg flex items-center gap-2 max-w-[90%] text-center leading-relaxed cursor-pointer hover:brightness-125 transition">
@@ -4049,6 +4054,18 @@ const ChatPage = () => {
                                 {/* [E-1 A-2] 감싼 asterisk 정규화 — 라이브(*나레이션*)/새로고침/레거시 무관하게 깔끔히 표시 */}
                                 <span>{(msg.cleanContent || '').replace(/^\*+\s?/, '').replace(/\s?\*+$/, '')}</span>
                             </div>
+                            {msg.logId && (
+                                <button
+                                    onClick={() => handleDeleteLog(msg.logId, msg.role)}
+                                    className="p-1.5 rounded-lg shrink-0 opacity-0 group-hover/sys:opacity-100
+                                               hover:bg-rose-500/10 text-white/25 hover:text-rose-400
+                                               transition-all duration-200"
+                                    title="이 나레이션 삭제"
+                                    aria-label="이벤트 나레이션 삭제"
+                                >
+                                    <Trash2 size={13} />
+                                </button>
+                            )}
                         </div>
                     );
                 } else if (msg.role === 'NPC') {
