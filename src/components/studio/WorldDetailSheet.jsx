@@ -282,6 +282,18 @@ export default function WorldDetailSheet({ worldId, onClose, onEnergyRefresh = n
 
   // ── 장소 GENERATING 폴링 — 5초 간격, 전부 정착하면 중단, 백그라운드 탭 스킵 ──
   const locations = world?.locations || [];
+
+  /**
+   * [aichat E-5.3.b] 이 월드를 고치면 연결된 공개 캐릭터가 재심사 대기로 내려간다 —
+   * 탐색·로비에서 사라지고 타 유저의 진행 중 대화도 다음 전송에서 끊긴다.
+   * 서버가 상세 응답에 실어 주는 publicCharacterCount로 확인창에 그 사실을 고지한다.
+   * (목록 응답에는 null이라 시트가 상세를 받은 뒤에만 뜬다 — 그때만 확인창이 열린다.)
+   */
+  const publicCharacterCount = world?.publicCharacterCount ?? 0;
+  const publicCharacterNotice =
+    publicCharacterCount > 0
+      ? `⚠ 공개 중인 캐릭터 ${publicCharacterCount}개가 재심사 대기로 돌아가요.\n심사를 통과하기 전까지는 다른 사람이 찾거나 대화할 수 없어요.`
+      : "";
   const hasGenerating = locations.some((l) => l.status === "GENERATING");
   useEffect(() => {
     if (!hasGenerating) return undefined;
@@ -405,10 +417,15 @@ export default function WorldDetailSheet({ worldId, onClose, onEnergyRefresh = n
     }
     sfx.click();
     // [계약] PATCH 저장 시 판정 이력(APPROVED/REJECTED)은 NONE으로 리셋된다
-    if (world?.reviewStatus && world.reviewStatus !== "NONE") {
+    // [aichat E-5.3.b] 그리고 연결된 **공개 캐릭터가 재심사 대기로 내려간다** — 탐색에서 사라지고
+    //   타 유저의 진행 중 대화도 끊긴다. 파괴적 부작용을 확인창에서 숨기면 안 된다.
+    const needsReviewNotice = world?.reviewStatus && world.reviewStatus !== "NONE";
+    if (needsReviewNotice || publicCharacterNotice) {
       setConfirmState({
         title: "설정을 저장할까요?",
-        desc: "수정하면 검수 상태가 초기화돼요.\n(공개 심사 시 재검수를 받게 됩니다)",
+        desc:
+          (needsReviewNotice ? "수정하면 검수 상태가 초기화돼요.\n(공개 심사 시 재검수를 받게 됩니다)\n" : "") +
+          (publicCharacterNotice || ""),
         confirmLabel: "저장하기",
         action: doSave,
       });
@@ -430,7 +447,11 @@ export default function WorldDetailSheet({ worldId, onClose, onEnergyRefresh = n
     sfx.click();
     setConfirmState({
       title: "장소를 추가할까요?",
-      desc: `에너지 ${LOCATION_COST}을 사용해 "${addForm.displayName.trim()}" 장소를 추가합니다.\n배경 일러스트가 자동으로 그려져요.`,
+      desc:
+        `에너지 ${LOCATION_COST}을 사용해 "${addForm.displayName.trim()}" 장소를 추가합니다.\n배경 일러스트가 자동으로 그려져요.` +
+        // [aichat E-5.3.b] 배경이 완성되는 순간 연결된 공개 캐릭터가 재심사 대기로 내려간다.
+        //   1E짜리 조작의 파괴적 부작용이라 반드시 확인창에 고지한다.
+        (publicCharacterNotice ? `\n${publicCharacterNotice}` : ""),
       confirmLabel: "추가하기",
       action: async () => {
         const ok = await runAction(

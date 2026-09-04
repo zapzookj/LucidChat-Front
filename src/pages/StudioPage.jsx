@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { TONE_MAX } from "../utils/ugcTextLimits";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import {
@@ -1198,16 +1199,28 @@ export default function StudioPage({ embedded = false }) {
                 })}
               </div>
             </div>
+            {/* [aichat E-7.2] 이 시트가 PATCH /ugc/characters/{id}/texts의 주 편집 경로다.
+                말투만 서버 상한(UgcTextLimits.TONE_MAX = 300)이 있고 초과 시 400으로 거부된다. */}
             {[
               { key: "personality", label: "성격", rows: 3 },
-              { key: "tone", label: "말투", rows: 3 },
+              { key: "tone", label: "말투", rows: 3, max: TONE_MAX },
               { key: "firstGreeting", label: "첫인사", rows: 3 },
             ].map((f) => (
               <div key={f.key}>
-                <label className="text-[11px] text-white/50 mb-1 block">{f.label}</label>
+                <div className="flex items-baseline justify-between mb-1">
+                  <label className="text-[11px] text-white/50 block">{f.label}</label>
+                  {f.max && (
+                    <span className={`text-[10px] tabular-nums ${
+                      (editForm[f.key]?.length || 0) >= f.max ? "text-amber-300" : "text-white/30"
+                    }`}>
+                      {editForm[f.key]?.length || 0}/{f.max}
+                    </span>
+                  )}
+                </div>
                 <textarea
                   value={editForm[f.key]}
                   rows={f.rows}
+                  maxLength={f.max}
                   onChange={(e) => setEditForm((p) => ({ ...p, [f.key]: e.target.value }))}
                   className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-amber-400/60 outline-none resize-none"
                 />

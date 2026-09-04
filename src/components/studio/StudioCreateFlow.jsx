@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { TONE_MAX } from "../../utils/ugcTextLimits";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
@@ -1785,7 +1786,7 @@ const CompleteStep = ({
                     조용히 자르는 것을 보이게 하는 장치다. */}
                 {[
                   { key: "personality", label: "성격", rows: 2 },
-                  { key: "tone", label: "말투", rows: 2, max: 300 },
+                  { key: "tone", label: "말투", rows: 2, max: TONE_MAX },
                   { key: "firstGreeting", label: "첫인사", rows: 3 },
                 ].map((f) => (
                   <div key={f.key}>

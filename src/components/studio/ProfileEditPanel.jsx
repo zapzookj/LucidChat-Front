@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { TONE_MAX } from "../../utils/ugcTextLimits";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Feather, Check } from "lucide-react";
 import { sfx } from "../../utils/sfx";
@@ -38,9 +39,10 @@ const BULLET_PLACEHOLDER = "- 항목 형태로 한 줄에 하나씩 적어주세
 
 const TEXTAREA_FIELDS = [
   { key: "personality", label: "성격", rows: 3 },
-  // [aichat E-7.2] 말투만 서버 상한이 있다 — UgcTextLimits.TONE_MAX = 300 (Character.tone varchar(300)).
-  //   초과하면 PATCH가 400으로 거부되므로 UI에서 미리 막고 카운터를 보인다.
-  { key: "tone", label: "말투", rows: 3, max: 300 },
+  // [aichat E-7.2] 서버 상한은 4종이다 — name 50 / tagline 100 / role 100 / tone 300 (UgcTextLimits).
+  //   이 패널의 name·tagline·role max(20/60/60)는 그보다 **더 엄격한 UI 정책값**이라 서버 400에 닿지 않는다.
+  //   말투만 UI에 상한이 없어 실제로 400을 맞을 수 있었다. 늘릴 때 서버 상한을 넘기지 마라.
+  { key: "tone", label: "말투", rows: 3, max: TONE_MAX },
   { key: "appearance", label: "외형 묘사", rows: 3 },
   { key: "clothing", label: "복장 묘사", rows: 3 },
   { key: "backstory", label: "과거사", rows: 4 },
