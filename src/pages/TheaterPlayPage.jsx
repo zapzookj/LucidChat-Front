@@ -279,7 +279,11 @@ export default function TheaterPlayPage() {
         navigate(`/theater/${numericRoomId}/ending`, { replace: true });
         return;
       }
+      // [aichat INT-4] 종전에는 console.error만 했다 — 유저에게는 아무 일도 안 일어난 것처럼 보여
+      //   E-1.1(챕터 마감 실패)·B-5.2(미과금 배치) 같은 자기 치유 실패가 전부 **무증상 정지**가 됐다.
+      //   showToast는 이미 이 파일에 있었는데 이 경로만 쓰지 않았다.
       console.error("[Theater] Stream error:", e);
+      showToast(msg || "진행 중 문제가 생겼어요. '다음'을 다시 눌러 주세요.", "error");
     },
   });
 

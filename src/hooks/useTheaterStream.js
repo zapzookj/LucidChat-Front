@@ -44,6 +44,8 @@ export default function useTheaterStream({
   const [chapterEnding, setChapterEnding] = useState(false);
 
   const prefetchFiredRef = useRef(false);
+  // [E-1.1] 배치 소비는 커밋됐는데 finalize만 실패한 상태 — 다음 '다음'은 finalize만 재시도한다.
+  const pendingFinalizeRef = useRef(false);
   const initializedRef = useRef(false);
 
   // [Polish · P2 #1.2] 분기 옵션 prefetch 보관소.
@@ -121,9 +123,53 @@ export default function useTheaterStream({
     };
   }, [currentBatch, roomId]);
 
+  /**
+   * [aichat E-1.1 · E-4.4] 챕터 마감 실행 — **잠금 해제와 재시도 정합을 함께** 책임진다.
+   *
+   * ① E-1.1: 종전에는 `setChapterEnding(false)`가 try 안에만 있어, finalizeChapter가 throw하면
+   *    chapterEnding이 true로 고착됐다. 소비처가 이걸 전면 잠금으로 쓴다(nextScene 차단 ·
+   *    canGoNext=false · 키보드 차단 · "Chapter를 마무리하는 중…" 오버레이 상주).
+   *    즉 일시적 5xx 한 번으로 **새로고침 외 탈출구가 없는 영구 정지**가 됐다. → finally로 해제.
+   *
+   * ② 그런데 finally만으로는 부족하다. 이 시점엔 notifyBatchConsumed가 **이미** 서버에서
+   *    advanceBatch를 커밋한 뒤다. 그냥 '다음'을 다시 누르면 nextScene이 소비를 또 호출해
+   *    상태가 어긋난다. → pendingFinalizeRef로 **finalize만** 재시도하도록 표시한다.
+   *
+   * ③ 재시도가 CHAPTER_ALREADY_FINALIZED(409)로 오면 그건 '응답만 유실된 성공'이다.
+   *    에러로 처리하면 다시 갇히므로 **성공으로 간주**하고 잠금을 푼다(자기 치유).
+   */
+  const runFinalize = useCallback(async () => {
+    setChapterEnding(true);
+    try {
+      const report = await finalizeChapter(roomId);
+      pendingFinalizeRef.current = false;
+      if (onChapterEnd) onChapterEnd(report);
+    } catch (e) {
+      const code = e?.errorCode || e?.response?.data?.errorCode;
+      if (code === "CHAPTER_ALREADY_FINALIZED") {
+        // 서버는 이미 마감했다 — 우리가 원하던 상태다. 리포트만 못 받았을 뿐.
+        console.warn("[Theater] Chapter already finalized — 자기 치유(리포트 없이 진행)");
+        pendingFinalizeRef.current = false;
+        if (onChapterEnd) onChapterEnd(null);
+        return;
+      }
+      pendingFinalizeRef.current = true;   // 다음 '다음' 클릭은 finalize만 재시도한다
+      console.error("[Theater] finalizeChapter failed:", e);
+      if (onError) onError(e);
+    } finally {
+      setChapterEnding(false);             // ★ E-1.1 — 어떤 경로로 끝나든 잠금을 푼다
+    }
+  }, [roomId, onChapterEnd, onError]);
+
   // ─── 씬 이동 ───
   const nextScene = useCallback(async () => {
     if (!currentBatch) return;
+
+    // [E-1.1 ②] 배치 소비는 끝났고 finalize만 실패한 상태 — 소비를 다시 호출하면 안 된다.
+    if (pendingFinalizeRef.current) {
+      await runFinalize();
+      return;
+    }
 
     const total = currentBatch.scenes?.length || 0;
     const isLast = currentSceneIndex >= total - 1;
@@ -158,10 +204,7 @@ export default function useTheaterStream({
       }
 
       if (chapterEnd || currentBatch.chapterEndAfter) {
-        setChapterEnding(true);
-        const report = await finalizeChapter(roomId);
-        setChapterEnding(false);
-        if (onChapterEnd) onChapterEnd(report);
+        await runFinalize();
         return;
       }
 
@@ -191,7 +234,8 @@ export default function useTheaterStream({
     }
   }, [
     currentBatch, currentSceneIndex, roomId,
-    loadNextBatch, onChapterEnd, onBranchReady, onError
+    loadNextBatch, onChapterEnd, onBranchReady, onError,
+    runFinalize,   // [E-1.1] 챕터 마감 경로가 이 콜백으로 빠졌다 — deps 누락 시 낡은 클로저를 잡는다
   ]);
 
   // ─── 배치 내 특정 씬으로 점프 (되감기용) ───
