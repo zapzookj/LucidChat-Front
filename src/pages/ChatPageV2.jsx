@@ -1771,23 +1771,11 @@ const ChatPage = () => {
         console.error("[V2-Send] SSE error:", err);
         setIsTyping(false);
         setAwaitingFinalResult(false);
-        if (err.errorCode === "INSUFFICIENT_ENERGY") {
-          sfx.locked();
-          handleOpenStoreV2("energy");
-        } else if (err.errorCode === "PREMIUM_REQUIRED") {
-          // [C-2.g] 'packages' → 'pass'. 종전 PaymentModal의 packages 탭에는 LUCID_MIDNIGHT_PASS가
-          //   없어서, 정작 그걸 사야 하는 PREMIUM_REQUIRED 유저가 살 물건이 없는 업셀 데드엔드였다.
-          sfx.locked();
-          handleOpenStoreV2("pass");
-        } else if (err.errorCode === "CONTENT_BLOCKED") {
-          showToast("부적절한 내용으로 차단되었습니다.", "error");
-        } else {
-          showToast(err.message || "오류가 발생했습니다.", "error");
-        }
+        handleV2StreamError(err, "오류가 발생했습니다.");
       },
     }, sseAbortRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, energy, isTyping, awaitingFinalResult, showV2EndingCredits, refreshUser, v2Room?.heroines]);
+  }, [roomId, energy, isTyping, awaitingFinalResult, showV2EndingCredits, refreshUser, v2Room?.heroines, handleV2StreamError]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  [Phase 7-V2 Pivot] V2 액션 전송 — NEXT_SCENE / TIME_ADVANCE / MOVE
@@ -1899,11 +1887,12 @@ const ChatPage = () => {
         console.error("[V2-Action] SSE error:", err);
         setIsTyping(false);
         setAwaitingFinalResult(false);
-        showToast(err.message || "액션 실행 실패", "error");
+        // [aichat F-8.b 후속] 액션도 에너지를 쓴다 — 메시지 경로와 같은 분기를 타야 충전 모달이 뜬다.
+        handleV2StreamError(err, "액션 실행 실패");
       },
     }, sseAbortRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, isTyping, awaitingFinalResult, showV2EndingCredits, refreshUser, v2Room?.heroines]);
+  }, [roomId, isTyping, awaitingFinalResult, showV2EndingCredits, refreshUser, v2Room?.heroines, handleV2StreamError]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  [E-3 C-1] 오프닝 자동 생성 — 빈 방 첫 진입 시 디렉터 도입 장면
@@ -2110,6 +2099,35 @@ const ChatPage = () => {
     setStoreInitialTab(initialTab);
     setShowStore(true);
   }, []);
+
+  /**
+   * [aichat F-8.b 후속] V2 SSE 에러 → 행동 가능한 분기 공용 처리.
+   *
+   * 서버(ChatStreamServiceV2.sendTypedStreamError)가 이제 에너지 부족·프리미엄·차단을
+   * 각각의 errorCode로 내려준다. 종전엔 이 분기가 **메시지 경로에만** 있어서,
+   * 같은 엔드포인트를 쓰는 **액션 경로(MOVE/NEXT_SCENE/TIME_ADVANCE)** 는 에너지가 부족해도
+   * "액션 실행 실패" 토스트만 뜨고 충전 모달이 안 떴다 — 구매 퍼널이 절반만 이어져 있었다.
+   * 분기를 복제하면 또 갈리므로 한 곳에 둔다.
+   */
+  const handleV2StreamError = useCallback((err, fallbackMessage) => {
+    if (err?.errorCode === "INSUFFICIENT_ENERGY") {
+      sfx.locked();
+      handleOpenStoreV2("energy");
+      return;
+    }
+    if (err?.errorCode === "PREMIUM_REQUIRED") {
+      // [C-2.g] 'packages' → 'pass'. 종전 PaymentModal의 packages 탭에는 LUCID_MIDNIGHT_PASS가
+      //   없어서, 정작 그걸 사야 하는 PREMIUM_REQUIRED 유저가 살 물건이 없는 업셀 데드엔드였다.
+      sfx.locked();
+      handleOpenStoreV2("pass");
+      return;
+    }
+    if (err?.errorCode === "CONTENT_BLOCKED") {
+      showToast("부적절한 내용으로 차단되었습니다.", "error");
+      return;
+    }
+    showToast(err?.message || fallbackMessage, "error");
+  }, [handleOpenStoreV2]);
 
   // V2 결제 완료 후
   const handlePaymentCompleteV2 = useCallback(() => {
