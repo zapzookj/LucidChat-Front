@@ -488,6 +488,82 @@ const ChatPage = () => {
       }
   }, []);
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  스토어 진입 · SSE 에러 분기
+  //  ★ [적대적 검토 P0] 이 두 콜백은 아래 스트림 핸들러들의 **deps 배열에서 참조**되므로
+  //     반드시 그보다 먼저 선언돼야 한다. deps 배열은 useCallback 호출의 인자라 렌더 시점에
+  //     평가되는데, const는 TDZ가 있어 선언 아래에 두면 `ReferenceError: Cannot access
+  //     'handleV2StreamError' before initialization`으로 **컴포넌트가 아예 렌더되지 않는다**.
+  //     실제로 그렇게 배포될 뻔했다 — vite build도 모듈 평가(await import)도 이걸 못 잡는다.
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  // V2 스토어 진입
+  // [C-2.i · docs/19 §F] V2 결제 진입점을 죽은 PaymentModal → LucidStore로 교체.
+  //   PaymentModal은 (a) axios baseURL에 이미 /api/v1이 있는데 '/api/v1/payments/...'를 보내
+  //   **이중 프리픽스 404**였고(C-2.a/b), (b) 카탈로그에 백엔드에 없는 'LUCID_PASS_MONTHLY'를
+  //   19,900원으로 싣고 있었으며(C-2.c/d — 실제는 LUCID_PASS 14,900원), (c) 시크릿 2종에
+  //   targetCharacterId를 못 붙여 항상 400이었고(C-2.e), (d) ENERGY_T3에 지급 로직이 없는
+  //   '+Affection Potion'을 광고했고(C-2.f), (e) PREMIUM_REQUIRED 유저가 사야 할
+  //   LUCID_MIDNIGHT_PASS가 아예 없었다(C-2.g — 업셀 데드엔드).
+  //   LucidStore는 이 7건이 전부 없는 카탈로그를 이미 갖고 있으므로 교체 하나로 닫힌다.
+  //   탭 키 매핑: PaymentModal의 'packages'(시크릿+구독 혼재) → LucidStore는 'secret'/'pass'로 분리돼 있다.
+  const handleOpenStoreV2 = useCallback((tab) => {
+    const initialTab =
+      tab === "secret" ? "secret"
+      : (tab === "pass" || tab === "packages") ? "pass"
+      : "energy";
+    setStoreInitialTab(initialTab);
+    setShowStore(true);
+  }, []);
+
+  /**
+   * [aichat F-8.b 후속] V2 SSE 에러 → 행동 가능한 분기 공용 처리.
+   *
+   * 서버(ChatStreamServiceV2.sendTypedStreamError)가 이제 에너지 부족·프리미엄·차단을
+   * 각각의 errorCode로 내려준다. 종전엔 이 분기가 **메시지 경로에만** 있어서,
+   * 같은 엔드포인트를 쓰는 **액션 경로(MOVE/NEXT_SCENE/TIME_ADVANCE)** 는 에너지가 부족해도
+   * "액션 실행 실패" 토스트만 뜨고 충전 모달이 안 떴다 — 구매 퍼널이 절반만 이어져 있었다.
+   * 분기를 복제하면 또 갈리므로 한 곳에 둔다.
+   *
+   * [F-8.d 잔여] 이 파일의 **V1-모드 경로**(메시지·지켜보기·시간넘기기·자동응답)도 같은
+   * 결함이었다 — 에너지 부족에서 토스트만 띄우고 끝났다. 그 넷도 이 핸들러로 모은다.
+   * V1-모드는 SSE 프레임이 아니라 HTTP 응답으로 떨어지는 경우가 있어 `status`도 함께 본다.
+   *
+   * ※ RATE_LIMITED는 **BE에 존재하지 않는 코드다**(ErrorCode enum에 값이 없다). 채팅
+   *   레이트리밋은 ChatController가 SseEmitter를 만들기 **전에** RateLimitException을 던져
+   *   HTTP 429로 나가므로 status로만 잡힌다 — errorCode 비교는 영구 사문이라 제거했다.
+   *
+   * 반환값: true = 타입이 특정된 에러를 처리했다 / false = 정체불명 →
+   *         호출부가 자기 폴백(V1-모드 메시지 경로의 폴백 씬 등)을 이어서 하라는 뜻.
+   */
+  const handleV2StreamError = useCallback((err, fallbackMessage) => {
+    if (err?.errorCode === "INSUFFICIENT_ENERGY" || err?.status === 402) {
+      sfx.locked();
+      handleOpenStoreV2("energy");
+      return true;
+    }
+    if (err?.errorCode === "PREMIUM_REQUIRED") {
+      // [C-2.g] 'packages' → 'pass'. 종전 PaymentModal의 packages 탭에는 LUCID_MIDNIGHT_PASS가
+      //   없어서, 정작 그걸 사야 하는 PREMIUM_REQUIRED 유저가 살 물건이 없는 업셀 데드엔드였다.
+      sfx.locked();
+      handleOpenStoreV2("pass");
+      return true;
+    }
+    if (err?.errorCode === "CONTENT_BLOCKED") {
+      showToast("부적절한 내용으로 차단되었습니다.", "error");
+      return true;
+    }
+    if (err?.status === 429) {
+      showToast("요청이 너무 빠릅니다.", "warning");
+      return true;
+    }
+    if (fallbackMessage) {
+      showToast(err?.message || fallbackMessage, "error");
+      return true;
+    }
+    return false;
+  }, [handleOpenStoreV2, showToast]);
+
   const openConfirm = (message, onConfirm, type = 'danger') => {
       setConfirmModal({ message, onConfirm, type });
   };
@@ -776,7 +852,7 @@ const ChatPage = () => {
           console.error("[Director-Auto] SSE error:", error);
           setIsTyping(false); setAwaitingFinalResult(false); setDirectorAutoProcessing(false);
           setEnergy(prev => prev + cost);
-          showToast(error.message || "자동 응답 처리 중 오류가 발생했습니다.", "error");
+          handleV2StreamError(error, "자동 응답 처리 중 오류가 발생했습니다.");
         },
       }, sseAbortRef.current, chosenIndex);
     } catch (err) {
@@ -1693,62 +1769,6 @@ const ChatPage = () => {
     }
   }, [sceneQueue, currentScene, isTyping, promotionOverlay]);
 
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  //  스토어 진입 · SSE 에러 분기
-  //  ★ [적대적 검토 P0] 이 두 콜백은 아래 스트림 핸들러들의 **deps 배열에서 참조**되므로
-  //     반드시 그보다 먼저 선언돼야 한다. deps 배열은 useCallback 호출의 인자라 렌더 시점에
-  //     평가되는데, const는 TDZ가 있어 선언 아래에 두면 `ReferenceError: Cannot access
-  //     'handleV2StreamError' before initialization`으로 **컴포넌트가 아예 렌더되지 않는다**.
-  //     실제로 그렇게 배포될 뻔했다 — vite build도 모듈 평가(await import)도 이걸 못 잡는다.
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  // V2 스토어 진입
-  // [C-2.i · docs/19 §F] V2 결제 진입점을 죽은 PaymentModal → LucidStore로 교체.
-  //   PaymentModal은 (a) axios baseURL에 이미 /api/v1이 있는데 '/api/v1/payments/...'를 보내
-  //   **이중 프리픽스 404**였고(C-2.a/b), (b) 카탈로그에 백엔드에 없는 'LUCID_PASS_MONTHLY'를
-  //   19,900원으로 싣고 있었으며(C-2.c/d — 실제는 LUCID_PASS 14,900원), (c) 시크릿 2종에
-  //   targetCharacterId를 못 붙여 항상 400이었고(C-2.e), (d) ENERGY_T3에 지급 로직이 없는
-  //   '+Affection Potion'을 광고했고(C-2.f), (e) PREMIUM_REQUIRED 유저가 사야 할
-  //   LUCID_MIDNIGHT_PASS가 아예 없었다(C-2.g — 업셀 데드엔드).
-  //   LucidStore는 이 7건이 전부 없는 카탈로그를 이미 갖고 있으므로 교체 하나로 닫힌다.
-  //   탭 키 매핑: PaymentModal의 'packages'(시크릿+구독 혼재) → LucidStore는 'secret'/'pass'로 분리돼 있다.
-  const handleOpenStoreV2 = useCallback((tab) => {
-    const initialTab =
-      tab === "secret" ? "secret"
-      : (tab === "pass" || tab === "packages") ? "pass"
-      : "energy";
-    setStoreInitialTab(initialTab);
-    setShowStore(true);
-  }, []);
-
-  /**
-   * [aichat F-8.b 후속] V2 SSE 에러 → 행동 가능한 분기 공용 처리.
-   *
-   * 서버(ChatStreamServiceV2.sendTypedStreamError)가 이제 에너지 부족·프리미엄·차단을
-   * 각각의 errorCode로 내려준다. 종전엔 이 분기가 **메시지 경로에만** 있어서,
-   * 같은 엔드포인트를 쓰는 **액션 경로(MOVE/NEXT_SCENE/TIME_ADVANCE)** 는 에너지가 부족해도
-   * "액션 실행 실패" 토스트만 뜨고 충전 모달이 안 떴다 — 구매 퍼널이 절반만 이어져 있었다.
-   * 분기를 복제하면 또 갈리므로 한 곳에 둔다.
-   */
-  const handleV2StreamError = useCallback((err, fallbackMessage) => {
-    if (err?.errorCode === "INSUFFICIENT_ENERGY") {
-      sfx.locked();
-      handleOpenStoreV2("energy");
-      return;
-    }
-    if (err?.errorCode === "PREMIUM_REQUIRED") {
-      // [C-2.g] 'packages' → 'pass'. 종전 PaymentModal의 packages 탭에는 LUCID_MIDNIGHT_PASS가
-      //   없어서, 정작 그걸 사야 하는 PREMIUM_REQUIRED 유저가 살 물건이 없는 업셀 데드엔드였다.
-      sfx.locked();
-      handleOpenStoreV2("pass");
-      return;
-    }
-    if (err?.errorCode === "CONTENT_BLOCKED") {
-      showToast("부적절한 내용으로 차단되었습니다.", "error");
-      return;
-    }
-    showToast(err?.message || fallbackMessage, "error");
-  }, [handleOpenStoreV2]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  [Phase 7-V2 Pivot] V2 메시지 전송 — 별도 SSE 흐름
@@ -1881,6 +1901,11 @@ const ChatPage = () => {
         console.error("[V2-Send] SSE error:", err);
         setIsTyping(false);
         setAwaitingFinalResult(false);
+        // [aichat E-1.10a 잔여] 낙관 차감 롤백 — 액션 경로(E-1.10b)에만 있어 같은 파일 안에서
+        //   비대칭이었다. 잔량을 서버값으로 되돌리는 유일한 경로가 refreshUser인데 그건
+        //   onFinalResult에서만 불리므로, 차단된 메시지 1건마다 화면 잔량이 v2SendCost만큼
+        //   실제보다 낮게 굳는다 → 남아 있는데도 "에너지 부족"으로 잠긴다.
+        setEnergy(prev => prev + v2SendCost);
         handleV2StreamError(err, "오류가 발생했습니다.");
       },
     }, sseAbortRef.current);
@@ -2533,17 +2558,10 @@ const ChatPage = () => {
  
         // 에러 타입별 처리
         // [aichat F-8.d] SSE 에러는 HTTP status가 아니라 **errorCode**로 판정한다.
-        //   `error.status`는 SSE 프레임에 실려 오지 않아 402/429 분기가 영구 사문이었다 —
+        //   `error.status`는 SSE 프레임에 실려 오지 않아 402 분기가 영구 사문이었다 —
         //   에너지가 부족해도 충전 모달이 아니라 일반 오류 토스트가 떴다.
-        //   서버가 INSUFFICIENT_ENERGY / RATE_LIMITED를 코드로 내려준다(aichat F-8.a/F-8.c).
-        if (error.errorCode === "CONTENT_BLOCKED") {
-          showToast(error.message || "부적절한 내용이 포함되어 있습니다.", "warning");
-        } else if (error.errorCode === "INSUFFICIENT_ENERGY" || error.status === 402) {
-          sfx.locked();
-          showToast(error.message || "에너지가 부족합니다.", "error");
-        } else if (error.errorCode === "RATE_LIMITED" || error.status === 429) {
-          showToast("요청이 너무 빠릅니다.", "warning");
-        } else {
+        //   판정·퍼널 연결은 handleV2StreamError로 일원화했다(V2 경로와 같은 계약).
+        if (!handleV2StreamError(error, null)) {
           // [aichat F-3.c] 공식 4인 하드코딩 폴백 대사 삭제 — UGC·남캐·V2 히로인은 전부
           //   빈 문자열로 떨어졌고, 무엇보다 다른 캐릭터의 말투를 흉내내면 몰입이 깨진다.
           //   dialogue(캐릭터 발화)와 narration(연출)의 역할 분리도 함께 정리했다.
@@ -2823,7 +2841,7 @@ const ChatPage = () => {
           console.error("[SSE] Watch error:", error);
           setIsTyping(false);
           setEnergy(prev => prev + cost);
-          showToast(error.message || "지켜보기 처리 중 오류가 발생했습니다.", "error");
+          handleV2StreamError(error, "지켜보기 처리 중 오류가 발생했습니다.");
         },
       }, sseAbortRef.current);
     } catch (err) {
@@ -2935,7 +2953,7 @@ const ChatPage = () => {
           console.error("[SSE] Time skip error:", error);
           setIsTyping(false);
           setEnergy(prev => prev + 1);
-          showToast(error.message || "시간 넘기기 처리 중 오류가 발생했습니다.", "error");
+          handleV2StreamError(error, "시간 넘기기 처리 중 오류가 발생했습니다.");
         },
       }, sseAbortRef.current);
     } catch (err) {

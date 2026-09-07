@@ -297,6 +297,56 @@ const ChatPage = () => {
       }
   }, []);
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  [aichat F-8.d 잔여] V1 스트림 에러 단일 핸들러
+  //
+  //  BE `ChatStreamService.sendTypedStreamError`가 **네 경로**(메시지·지켜보기·시간넘기기·
+  //  자동응답)에 타입 에러를 깔았는데, FE는 메시지 경로만 errorCode로 분기하고 나머지 셋은
+  //  일반 토스트로 끝냈다. 게다가 메시지 경로조차 에너지 부족에서 토스트만 띄웠다 —
+  //  BE 커밋이 되살리려던 **구매 퍼널이 FE에서 다시 끊긴 상태**였다(레지스터 F-8.d 수정안이
+  //  "토스트만 띄우고 끝내면 충전 퍼널이 여전히 안 열린다"고 미리 못박은 그 형태).
+  //
+  //  네 경로가 각자 분기를 복제하면 또 갈린다(§2-6) — V2의 handleV2StreamError와 같은 계약의
+  //  단일 핸들러로 모은다.
+  //
+  //  반환값: true = 타입이 특정된 에러를 처리했다 / false = 정체불명 →
+  //          호출부가 자기 폴백(메시지 경로의 폴백 씬 등)을 이어서 하라는 뜻.
+  //
+  //  ※ RATE_LIMITED는 **BE에 존재하지 않는 코드다.** ErrorCode enum에 값이 없고, 채팅
+  //    레이트리밋은 SSE 프레임이 아니라 ChatController가 SseEmitter를 만들기 **전에**
+  //    RateLimitException을 던져 HTTP 429로 나간다 → `_ssePost`의 !response.ok가 status를
+  //    실어 준다. 그래서 status 429만 본다(errorCode 비교는 영구 사문이라 제거).
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const handleV1StreamError = useCallback((error, fallbackMessage) => {
+    if (error?.errorCode === "CONTENT_BLOCKED") {
+      showToast(error.message || "부적절한 내용이 포함되어 있습니다.", "warning");
+      return true;
+    }
+    if (error?.errorCode === "INSUFFICIENT_ENERGY" || error?.status === 402) {
+      sfx.locked();
+      showToast(error.message || "에너지가 부족합니다.", "error");
+      setStoreInitialTab("energy");
+      setShowStore(true);          // ← 퍼널 복구. 토스트만으로는 F-8.a가 무의미해진다.
+      return true;
+    }
+    if (error?.status === 429) {
+      showToast("요청이 너무 빠릅니다.", "warning");
+      return true;
+    }
+    if (error?.errorCode === "PREMIUM_REQUIRED") {
+      sfx.locked();
+      showToast(error.message || "구독이 필요한 기능입니다.", "error");
+      setStoreInitialTab("pass");
+      setShowStore(true);
+      return true;
+    }
+    if (fallbackMessage) {
+      showToast(error?.message || fallbackMessage, "error");
+      return true;
+    }
+    return false;
+  }, [showToast]);
+
   const openConfirm = (message, onConfirm, type = 'danger') => {
       setConfirmModal({ message, onConfirm, type });
   };
@@ -585,7 +635,7 @@ const ChatPage = () => {
           console.error("[Director-Auto] SSE error:", error);
           setIsTyping(false); setAwaitingFinalResult(false); setDirectorAutoProcessing(false);
           setEnergy(prev => prev + cost);
-          showToast(error.message || "자동 응답 처리 중 오류가 발생했습니다.", "error");
+          handleV1StreamError(error, "자동 응답 처리 중 오류가 발생했습니다.");
         },
       }, sseAbortRef.current, chosenIndex);
     } catch (err) {
@@ -1650,17 +1700,10 @@ const ChatPage = () => {
  
         // 에러 타입별 처리
         // [aichat F-8.d] SSE 에러는 HTTP status가 아니라 **errorCode**로 판정한다.
-        //   `error.status`는 SSE 프레임에 실려 오지 않아 402/429 분기가 영구 사문이었다 —
+        //   `error.status`는 SSE 프레임에 실려 오지 않아 402 분기가 영구 사문이었다 —
         //   에너지가 부족해도 충전 모달이 아니라 일반 오류 토스트가 떴다.
-        //   서버가 INSUFFICIENT_ENERGY / RATE_LIMITED를 코드로 내려준다(aichat F-8.a/F-8.c).
-        if (error.errorCode === "CONTENT_BLOCKED") {
-          showToast(error.message || "부적절한 내용이 포함되어 있습니다.", "warning");
-        } else if (error.errorCode === "INSUFFICIENT_ENERGY" || error.status === 402) {
-          sfx.locked();
-          showToast(error.message || "에너지가 부족합니다.", "error");
-        } else if (error.errorCode === "RATE_LIMITED" || error.status === 429) {
-          showToast("요청이 너무 빠릅니다.", "warning");
-        } else {
+        //   판정·퍼널 연결은 handleV1StreamError로 일원화했다(네 경로 공통).
+        if (!handleV1StreamError(error, null)) {
           // [aichat F-3.c] 공식 4인 하드코딩 폴백 대사 삭제 — UGC·남캐·V2 히로인은 전부
           //   빈 문자열로 떨어졌고, 무엇보다 다른 캐릭터의 말투를 흉내내면 몰입이 깨진다.
           //   dialogue(캐릭터 발화)와 narration(연출)의 역할 분리도 함께 정리했다.
@@ -1942,7 +1985,7 @@ const ChatPage = () => {
           console.error("[SSE] Watch error:", error);
           setIsTyping(false);
           setEnergy(prev => prev + cost);
-          showToast(error.message || "지켜보기 처리 중 오류가 발생했습니다.", "error");
+          handleV1StreamError(error, "지켜보기 처리 중 오류가 발생했습니다.");
         },
       }, sseAbortRef.current);
     } catch (err) {
@@ -2054,7 +2097,7 @@ const ChatPage = () => {
           console.error("[SSE] Time skip error:", error);
           setIsTyping(false);
           setEnergy(prev => prev + 1);
-          showToast(error.message || "시간 넘기기 처리 중 오류가 발생했습니다.", "error");
+          handleV1StreamError(error, "시간 넘기기 처리 중 오류가 발생했습니다.");
         },
       }, sseAbortRef.current);
     } catch (err) {
