@@ -20,7 +20,14 @@
  * 같은 세그먼트 안에서만 선언↔참조를 짝짓는다 — 파일 안에 컴포넌트/훅이 여럿일 때
  * 다른 스코프의 동명 식별자를 잘못 엮지 않기 위해서다(실제로 그 오탐이 났다:
  * `useSequentialTypewriter(parts, …)`의 **파라미터** parts와 다른 컴포넌트의 `const parts`).
- * 조건부 선언·중첩 함수 안의 재선언은 여전히 보지 않는다 — 놓칠 수는 있어도 오탐은 없어야 한다.
+ * 보지 않는 것: 조건부 선언 · 중첩 함수 안의 재선언 · 구조분해 선언(`const [a, setA] = …`) ·
+ * `}, [` 형태가 아닌 deps(예: 한 줄짜리 `useCallback(fn, [x])`).
+ * 놓칠 수는 있어도 **오탐은 없어야 한다**는 쪽으로 항상 기울인다.
+ *
+ * 적대적 검토(2026-09-07)가 초판의 그물 구멍 3종을 잡아 이 판에서 메웠다:
+ * ① 멀티라인 deps 배열(이 리포에 실재 4곳) → 대괄호 균형으로 읽는다
+ * ② deps가 아래쪽 **평범한 화살표 const**를 참조 → DECL을 `const 이름 =` 전부로 넓혔다
+ * ③ deps가 아래쪽 `useRef`/`useState` 결과를 참조 → 같은 확장으로 함께 덮인다
  *
  * ## 왜 ESLint 규칙이 아니라 이 스크립트인가
  * `no-use-before-define`이 정답처럼 보이지만 **텍스트 순서만** 본다 — 콜백 **본문** 안의
@@ -38,8 +45,15 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
 
-const DECL = /^\s*const\s+([A-Za-z_$][\w$]*)\s*=\s*(useCallback|useMemo)\s*\(/;
-const DEPS = /^\s*\}\s*,\s*\[([^\]]*)\]\s*\)\s*;/;
+// 선언: `const 이름 =` 전부. 처음엔 useCallback/useMemo만 봤는데, deps가 아래쪽의 **평범한
+//   화살표 const**나 `useRef`/`useState` 결과를 참조해도 같은 ReferenceError가 난다.
+//   (구조분해 `const [a, setA] = useState()`는 이 정규식에 안 걸린다 — 이름이 하나가 아니라
+//    짝지을 수 없고, 배열 구조분해 자체가 deps에 그 이름으로 오는 일이 없어 무해하다.)
+const DECL = /^\s*const\s+([A-Za-z_$][\w$]*)\s*=/;
+// deps 배열의 시작. 한 줄로 닫히든(`}, [a, b]);`) 여러 줄에 걸치든 여기서 잡고,
+//   실제 범위는 아래 readDeps가 대괄호 균형으로 닫는다. 처음엔 한 줄짜리만 봐서
+//   이 리포에 실재하는 멀티라인 deps 4곳(TheaterPlayPage ×3 · useTheaterStream)이 그물 밖이었다.
+const DEPS_OPEN = /^\s*\}\s*,\s*\[/;
 
 function collect(dir, out = []) {
   for (const name of readdirSync(dir)) {
@@ -55,6 +69,24 @@ let violations = 0;
 
 /** 최상위(들여쓰기 0) 함수·컴포넌트 선언이 시작되는 줄 번호들 — 스코프 경계 근사. */
 const TOP_LEVEL = /^(export\s+default\s+)?(function|const|class)\s+[A-Za-z_$]/;
+
+/**
+ * `}, [` 로 시작하는 deps 배열의 내용을 대괄호 균형으로 읽는다(멀티라인 지원).
+ * 배열이 닫히기 전에 세그먼트가 끝나면 null(=포기) — 놓칠지언정 오탐은 만들지 않는다.
+ */
+function readDeps(lines, startIdx, segEnd) {
+  let depth = 0, out = "", started = false;
+  for (let i = startIdx; i <= segEnd; i++) {
+    const line = i === startIdx ? lines[i].slice(lines[i].indexOf("[")) : lines[i];
+    for (const ch of line) {
+      if (ch === "[") { depth++; if (depth === 1) { started = true; continue; } }
+      else if (ch === "]") { depth--; if (depth === 0) return out; }
+      if (started) out += ch;
+    }
+    out += ",";   // 줄바꿈을 구분자로 — 항목이 붙어 버리지 않게
+  }
+  return null;
+}
 
 function segmentsOf(lines) {
   const starts = [];
@@ -79,10 +111,11 @@ for (const file of files) {
     }
 
     for (let i = from; i <= to; i++) {
-      const m = DEPS.exec(lines[i]);
-      if (!m) continue;
+      if (!DEPS_OPEN.test(lines[i])) continue;
+      const inner = readDeps(lines, i, to);
+      if (inner === null) continue;
       const lineNo = i + 1;
-      for (const raw of m[1].split(",")) {
+      for (const raw of inner.split(",")) {
         const dep = raw.trim().split(/[.?[]/)[0]; // v2Room?.heroines → v2Room
         if (!dep) continue;
         const declLine = declaredAt.get(dep);
