@@ -469,6 +469,10 @@ const ChatPage = () => {
 
     let firstSceneReceived = false;
 
+    // [aichat E-1.4/E-1.4b] 이전 스트림을 끊고 새 컨트롤러를 건다 — 종전엔 abortController를
+    //   넘기지 않아, 방을 나가거나 다음 요청을 보내도 이 스트림이 살아남아 뒤늦게 화면 상태를 덮었다.
+    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
+    sseAbortRef.current = new AbortController();
     try {
       await sendAutoDirectorResponse(roomId, directiveType, eventContext, {
         onEventMeta: (meta) => {
@@ -581,7 +585,7 @@ const ChatPage = () => {
           setEnergy(prev => prev + cost);
           showToast(error.message || "자동 응답 처리 중 오류가 발생했습니다.", "error");
         },
-      }, undefined, chosenIndex);
+      }, sseAbortRef.current, chosenIndex);
     } catch (err) {
       setIsTyping(false); setAwaitingFinalResult(false); setDirectorAutoProcessing(false);
       setEnergy(prev => prev + cost);
@@ -670,19 +674,26 @@ const ChatPage = () => {
    * ChatLogResponse (서버 로그) → 프론트 메시지 배열 확장.
    * scenesJson이 있으면 씬별 분리 복원, 없으면 기존 cleanContent 사용.
    */
-  const expandLogWithScenes = useCallback((log) => {
+  /**
+   * @param ctx [aichat E-1.7] 선택적 컨텍스트 — `{ characterName }`을 주면 state 대신 그 값으로 판정한다.
+   *   init이 방 정보를 받은 **직후**에 이 함수를 부르는데, 그 시점의 클로저는 아직 `roomInfo=null`이라
+   *   ① 히로인 본인 대사가 전부 NPC로 분류되고 ② speaker 없는 씬의 화자가 리터럴 "캐릭터"로 박혔다.
+   *   초기 50개 로그 전체가 그렇게 손상됐다. ChatPageV2의 ctx 관용구와 같은 형태다.
+   */
+  const expandLogWithScenes = useCallback((log, ctx) => {
+    const ctxCharacterName = ctx ? (ctx.characterName ?? null) : (roomInfo?.characterName ?? null);
     if (log.role === 'ASSISTANT' && log.scenesJson) {
       try {
         const scenes = JSON.parse(log.scenesJson);
         return scenes.map((scene, i) => {
-          const isNpc = scene.speaker && scene.speaker !== roomInfo?.characterName;
+          const isNpc = scene.speaker && scene.speaker !== ctxCharacterName;
           const content = [];
           if (scene.narration) content.push(`*${scene.narration}*`);
           if (scene.dialogue) content.push(scene.dialogue);
           return {
             role: isNpc ? 'NPC' : 'ASSISTANT',
             cleanContent: content.join('\n'),
-            speaker: scene.speaker || roomInfo?.characterName || "캐릭터",
+            speaker: scene.speaker || ctxCharacterName || "캐릭터",
             logId: (i === scenes.length - 1) ? log.logId : null,
             parentLogId: log.logId,  // [Bug #1 Fix] 모든 씬에 원본 logId 공유 — 일괄 삭제용
             hasInnerThought: (i === scenes.length - 1) ? log.hasInnerThought : false,
@@ -1009,7 +1020,8 @@ const ChatPage = () => {
             // [Phase 5.5-Fix] scenesJson 기반 씬별 분리 복원
             const expandedLogs = [];
             for (const log of sortedLogs) {
-              const expanded = expandLogWithScenes(log);
+              // [aichat E-1.7] 방금 받은 방 정보를 명시로 넘긴다 — 이 시점 roomInfo state는 아직 null이다.
+              const expanded = expandLogWithScenes(log, { characterName: roomRes.data.characterName });
               expandedLogs.push(...expanded);
             }
             setMessages(expandedLogs);
@@ -1619,26 +1631,28 @@ const ChatPage = () => {
         }
  
         // 에러 타입별 처리
+        // [aichat F-8.d] SSE 에러는 HTTP status가 아니라 **errorCode**로 판정한다.
+        //   `error.status`는 SSE 프레임에 실려 오지 않아 402/429 분기가 영구 사문이었다 —
+        //   에너지가 부족해도 충전 모달이 아니라 일반 오류 토스트가 떴다.
+        //   서버가 INSUFFICIENT_ENERGY / RATE_LIMITED를 코드로 내려준다(aichat F-8.a/F-8.c).
         if (error.errorCode === "CONTENT_BLOCKED") {
           showToast(error.message || "부적절한 내용이 포함되어 있습니다.", "warning");
-        } else if (error.status === 402) {
-          showToast("에너지가 부족합니다.", "error");
-        } else if (error.status === 429) {
+        } else if (error.errorCode === "INSUFFICIENT_ENERGY" || error.status === 402) {
+          sfx.locked();
+          showToast(error.message || "에너지가 부족합니다.", "error");
+        } else if (error.errorCode === "RATE_LIMITED" || error.status === 429) {
           showToast("요청이 너무 빠릅니다.", "warning");
         } else {
-          const narrationMap = {
-            "연화": "음.. 잠깐 생각에 잠겨버렸네요.. 뭐라고 하셨나요?",
-            "아이리": "잠시만요.. 아이리가 잠깐 바쁜 일이 있어서...",
-            "백루나": "음.. ㄴ,네?! 아, 죄송해요.. 잠깐 멍때려버렸어요.. 헤헤..",
-            "서태리": "..."
-          };
+          // [aichat F-3.c] 공식 4인 하드코딩 폴백 대사 삭제 — UGC·남캐·V2 히로인은 전부
+          //   빈 문자열로 떨어졌고, 무엇보다 다른 캐릭터의 말투를 흉내내면 몰입이 깨진다.
+          //   dialogue(캐릭터 발화)와 narration(연출)의 역할 분리도 함께 정리했다.
           setCurrentScene({
-            dialogue: narrationMap[roomInfo?.characterName] || "잠시 후 다시 시도해주세요.",
+            dialogue: "...잠깐, 뭐라고 하셨죠? 다시 한 번만요.",
             emotion: "SAD",
-            narration: "잠시 후 다시 시도해주세요."
+            narration: "연결이 잠시 흔들렸다."
           });
           setDisplayedEmotion("SAD");
-          showToast("오류가 발생했습니다.", "error");
+          showToast("오류가 발생했습니다. 잠시 후 다시 시도해주세요.", "error");
         }
       },
     }, sseAbortRef.current);
@@ -1828,6 +1842,10 @@ const ChatPage = () => {
   
     let firstSceneReceived = false;
   
+    // [aichat E-1.4/E-1.4b] 이전 스트림을 끊고 새 컨트롤러를 건다 — 종전엔 abortController를
+    //   넘기지 않아, 방을 나가거나 다음 요청을 보내도 이 스트림이 살아남아 뒤늦게 화면 상태를 덮었다.
+    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
+    sseAbortRef.current = new AbortController();
     try {
       await sendDirectorWatchStream(roomId, {
         // ★ Fix 2: event_meta — first_scene보다 먼저 도착
@@ -1908,7 +1926,7 @@ const ChatPage = () => {
           setEnergy(prev => prev + cost);
           showToast(error.message || "지켜보기 처리 중 오류가 발생했습니다.", "error");
         },
-      });
+      }, sseAbortRef.current);
     } catch (err) {
       setIsTyping(false);
       setEnergy(prev => prev + cost);
@@ -1927,6 +1945,10 @@ const ChatPage = () => {
   
     let firstSceneReceived = false;
   
+    // [aichat E-1.4/E-1.4b] 이전 스트림을 끊고 새 컨트롤러를 건다 — 종전엔 abortController를
+    //   넘기지 않아, 방을 나가거나 다음 요청을 보내도 이 스트림이 살아남아 뒤늦게 화면 상태를 덮었다.
+    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
+    sseAbortRef.current = new AbortController();
     try {
       await sendTimeSkipStream(roomId, {
         // ★ Fix 2: event_meta — first_scene보다 먼저 도착
@@ -2016,7 +2038,7 @@ const ChatPage = () => {
           setEnergy(prev => prev + 1);
           showToast(error.message || "시간 넘기기 처리 중 오류가 발생했습니다.", "error");
         },
-      });
+      }, sseAbortRef.current);
     } catch (err) {
       setIsTyping(false);
       setEnergy(prev => prev + 1);

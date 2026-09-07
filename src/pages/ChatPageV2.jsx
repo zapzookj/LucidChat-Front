@@ -192,6 +192,20 @@ const ChatPage = () => {
   const [freeEnergyMax, setFreeEnergyMax] = useState(30);
   const [characters, setCharacters] = useState([]);
 
+  /**
+   * [aichat E-1.10a/E-1.10b] V2 STORY 턴 1회의 실제 소모량.
+   *
+   * 종전엔 메시지 전송이 `setEnergy(prev => prev - 2)`로 **플랫 2를 하드코딩**해,
+   * 부스트 ON·비구독자(실제 10)에게 잔량이 8만큼 부풀어 보였다 — 유저는 남았다고 믿고
+   * 보냈다가 서버에서 거부당한다. 액션 경로는 아예 가드도 차감도 롤백도 없었다.
+   *
+   * 같은 계산식이 지켜보기·시간넘기기에도 흩어져 있어 여기로 수렴시킨다 — 복제하면 갈린다.
+   */
+  const v2SendCost = useMemo(
+    () => (boostMode && !isSubscriber ? 2 * 5 : 2),
+    [boostMode, isSubscriber]
+  );
+
   // ━━━ [Phase 5.2] 싫어요 사유 모달 ━━━
   const [dislikeModal, setDislikeModal] = useState(null); // { logId } | null
 
@@ -202,6 +216,12 @@ const ChatPage = () => {
   });
   const [dynamicRelationTag, setDynamicRelationTag] = useState(null);
   const [characterThought, setCharacterThought] = useState(null);
+  /**
+   * [aichat E-1.11a] 히로인 셀렉터로 **명시 선택**한 히로인 id. null이면 현재 화자를 따른다.
+   * 턴마다 재파생할 때 이 값이 있으면 그 히로인 기준으로 갱신한다 —
+   * 셀렉터로 B를 보는 중에 A가 말했다고 패널이 A로 튀면 안 되고, 그렇다고 B가 동결돼서도 안 된다.
+   */
+  const statsPinnedHeroineIdRef = useRef(null);
 
   // [docs/13 E-1.11 픽스] V2 히로인 DTO는 평탄 필드(statIntimacy…) + statusLevel을 준다.
   //   구 코드가 heroine.stats(중첩)·heroine.relationStatus를 읽어 8축 전부 0 · 관계 영구 STRANGER였다.
@@ -334,6 +354,32 @@ const ChatPage = () => {
     if (!v2Room?.heroines || !currentSpeakerCharacterId) return null;
     return v2Room.heroines.find((h) => h.characterId === currentSpeakerCharacterId) || null;
   }, [v2Room?.heroines, currentSpeakerCharacterId]);
+
+  /** [aichat E-1.11a] 상태창을 닫으면 명시 선택 고정도 해제한다 — 다음 턴부터 현재 화자를 따른다. */
+  const closeStatusPanel = useCallback(() => {
+    statsPinnedHeroineIdRef.current = null;
+    setShowStatusPanel(false);
+  }, []);
+
+  /**
+   * [aichat E-1.11a] 방 재조회 결과로 상태창 스탯을 재파생한다.
+   *
+   * 종전엔 진입 시점(:1155)과 셀렉터 선택 시점에만 `setCharacterStats`가 불렸다 —
+   * 턴이 진행돼 호감도·친밀도가 올라도 **상태창은 세션 내내 진입 시점 값으로 동결**됐다.
+   * 유저가 우회하려면 히로인 셀렉터를 다시 열어야 했다.
+   *
+   * 셀렉터로 명시 선택 중이면 그 히로인을, 아니면 현재 화자를 기준으로 갱신한다.
+   */
+  const syncCharacterStatsFromRoom = useCallback((freshRoom) => {
+    const list = freshRoom?.heroines || [];
+    if (list.length === 0) return;
+    const pinnedId = statsPinnedHeroineIdRef.current;
+    const target = pinnedId
+      ? list.find((h) => h.characterId === pinnedId)
+      : list.find((h) => h.characterId === currentSpeakerCharacterId);
+    if (!target) return;
+    setCharacterStats(heroineToStats(target));
+  }, [currentSpeakerCharacterId, heroineToStats]);
 
   // V2 → V1 호환 roomInfo 매핑 — V1 컴포넌트가 기대하는 단일 캐릭터 시점
   // CharacterDisplay / BiometricStatusPanel / Settings 등이 사용
@@ -616,6 +662,10 @@ const ChatPage = () => {
 
     let firstSceneReceived = false;
 
+    // [aichat E-1.4/E-1.4b] 이전 스트림을 끊고 새 컨트롤러를 건다 — 종전엔 abortController를
+    //   넘기지 않아, 방을 나가거나 다음 요청을 보내도 이 스트림이 살아남아 뒤늦게 화면 상태를 덮었다.
+    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
+    sseAbortRef.current = new AbortController();
     try {
       await sendAutoDirectorResponse(roomId, directiveType, eventContext, {
         onEventMeta: (meta) => {
@@ -728,7 +778,7 @@ const ChatPage = () => {
           setEnergy(prev => prev + cost);
           showToast(error.message || "자동 응답 처리 중 오류가 발생했습니다.", "error");
         },
-      }, undefined, chosenIndex);
+      }, sseAbortRef.current, chosenIndex);
     } catch (err) {
       setIsTyping(false); setAwaitingFinalResult(false); setDirectorAutoProcessing(false);
       setEnergy(prev => prev + cost);
@@ -768,9 +818,17 @@ const ChatPage = () => {
    * - 나레이션 포함 (*narration*)
    * - speaker 태깅 (NPC면 role='NPC')
    */
-  const buildHistoryEntries = useCallback((scenes, resLogId, resHasThought) => {
+  /**
+   * @param ctx [aichat E-1.5/6a~6d] 선택적 컨텍스트 — `{ heroines }`를 주면 state 대신 그 스냅샷으로
+   *   히로인 이름을 판정한다. 스트림 핸들러들은 발사 시점의 `heroinesSnapshot`을 캡처해 쓰므로
+   *   state 의존으로 두면 stale 클로저에서 히로인 전원이 NPC로 기록될 수 있다.
+   *   같은 파일 `expandLogWithScenes(log, ctx)`가 쓰는 검증된 관용구와 같은 형태다.
+   */
+  const buildHistoryEntries = useCallback((scenes, resLogId, resHasThought, ctx) => {
     if (!scenes || scenes.length === 0) return [];
-    const heroNames = isV2 ? (v2Room?.heroines || []).map((h) => h.name) : (roomInfo?.characterName ? [roomInfo.characterName] : []);
+    const heroNames = ctx?.heroines
+      ? ctx.heroines.map((h) => h.name)
+      : (isV2 ? (v2Room?.heroines || []).map((h) => h.name) : (roomInfo?.characterName ? [roomInfo.characterName] : []));
     return scenes.map((s, i) => {
       // [UX#3] 단일 분류기 — 시스템/NPC/히로인
       const sys = isSystemSpeakerName(s.speaker);
@@ -1632,8 +1690,10 @@ const ChatPage = () => {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const handleSendMessageV2 = useCallback(async (text) => {
     if (!text || !text.trim()) return;
-    if (energy <= 0) {
-      showToast("에너지가 부족합니다.", "error");
+    // [aichat E-1.10a] 실제 소모량으로 판정한다 — 부스트 ON·비구독자는 10이 든다.
+    //   종전 `energy <= 0`은 잔량 9인 유저를 통과시켜 서버에서 거부당하게 했다.
+    if (energy < v2SendCost) {
+      showToast(`에너지가 부족합니다. (필요 ${v2SendCost})`, "error");
       return;
     }
     if (isTyping || awaitingFinalResult) return;
@@ -1648,7 +1708,7 @@ const ChatPage = () => {
     };
 
     // 낙관적 UI 업데이트
-    setEnergy(prev => Math.max(0, prev - 2));   // V2 STORY 기본 2 에너지
+    setEnergy(prev => Math.max(0, prev - v2SendCost));   // [E-1.10a] 부스트 배수 반영
     setMessages(prev => [...prev, { role: 'USER', cleanContent: text }]);
     setIsTyping(true);
     setAwaitingFinalResult(true);
@@ -1691,28 +1751,10 @@ const ChatPage = () => {
 
         // [Phase 7-V2 Pivot] V2 buildHistoryEntries — 시스템 화자는 SYSTEM, 매칭되는 히로인은 ASSISTANT
         if (scenes && scenes.length > 0) {
-          const heroNamesSnapshot = heroinesSnapshot.map((h) => h.name);
-          const entries = scenes.map((s, i) => {
-            const isSystem = isSystemSpeaker(s.speaker, heroinesSnapshot);
-            // [리플레이 M4] NPC 분류 정합 — buildHistoryEntries·복원 경로와 동일 3축 규칙
-            const isNpc = !isSystem && !heroNamesSnapshot.includes(s.speaker);
-            const content = [];
-            if (s.narration) content.push(`*${s.narration}*`);
-            if (s.dialogue) content.push(s.dialogue);
-            const isLast = i === scenes.length - 1;
-            return {
-              role: isSystem ? 'SYSTEM' : (isNpc ? 'NPC' : 'ASSISTANT'),
-              cleanContent: content.join('\n'),
-              speaker: isSystem ? null : (s.speaker || null),
-              // [Bug-Thought] 마지막 씬에 logId+속마음 플래그 — 히스토리 해금 버튼/해금 반영(msg.logId 매칭) 복구
-              logId: isLast ? (resLogId || null) : null,
-              hasInnerThought: isLast ? !!resHasThought : false,
-              thoughtUnlocked: false,
-              // [리플레이 E6] 라이브 구간도 씬 감정·복장 보존 — 새로고침 전 리플레이 재현용
-              emotionTag: s.emotion || null,
-              outfit: s.outfit ?? null,
-            };
-          });
+          // [aichat E-1.5] 인라인 복제를 공용 빌더로 치환 — parentLogId가 빠져 있어
+          //   라이브 세션의 멀티씬을 일괄 삭제할 수 없었다(새로고침 후엔 됐다).
+          //   3중 복제를 남기면 이런 필드 누락이 계속 갈린다.
+          const entries = buildHistoryEntries(scenes, resLogId, resHasThought, { heroines: heroinesSnapshot });
           // 시스템 메시지는 dialogue 부분만 보이게 (V1 SYSTEM UI 호환)
           setMessages(prev => [...prev, ...entries]);
         }
@@ -1757,6 +1799,7 @@ const ChatPage = () => {
             sceneStage.notifyLocationChange();
           }
           setV2Room(freshRoom);
+          syncCharacterStatsFromRoom(freshRoom);   // [aichat E-1.11a] 상태창 동결 해제
           if (freshRoom.endingReached && !showV2EndingCredits) {
             const delay = (scenes?.length || 1) * 2500 + 1500;
             setTimeout(() => setShowV2EndingCredits(true), delay);
@@ -1775,13 +1818,19 @@ const ChatPage = () => {
       },
     }, sseAbortRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, energy, isTyping, awaitingFinalResult, showV2EndingCredits, refreshUser, v2Room?.heroines, handleV2StreamError]);
+  }, [roomId, energy, isTyping, awaitingFinalResult, showV2EndingCredits, refreshUser, v2Room?.heroines, handleV2StreamError, buildHistoryEntries, v2SendCost]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  [Phase 7-V2 Pivot] V2 액션 전송 — NEXT_SCENE / TIME_ADVANCE / MOVE
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const handleSendActionV2 = useCallback(async (actionType, payload = null) => {
     if (isTyping || awaitingFinalResult) return;
+    // [aichat E-1.10b] 액션도 같은 턴 비용을 쓴다 — 종전엔 가드·낙관 차감·롤백이 **전부** 없어
+    //   잔량이 부족해도 눌리고, 성공해도 화면 잔량이 안 줄고, 실패해도 되돌릴 게 없었다.
+    if (energy < v2SendCost) {
+      showToast(`에너지가 부족합니다. (필요 ${v2SendCost})`, "error");
+      return;
+    }
 
     const isSystemSpeaker = (speakerName, heroines) => {
       // [D-4] 화자 3축: system = 화자 null/blank일 때만. NPC·히로인(이름 있음)은 named로 취급
@@ -1789,6 +1838,8 @@ const ChatPage = () => {
       return isSystemSpeakerName(speakerName);
     };
 
+    // [aichat E-1.10b] 낙관적 차감 — 메시지 경로와 동일. 실패 시 onError에서 되돌린다.
+    setEnergy(prev => Math.max(0, prev - v2SendCost));
     setIsTyping(true);
     setAwaitingFinalResult(true);
     setCurrentScene(null);
@@ -1825,22 +1876,8 @@ const ChatPage = () => {
 
         // 메시지 히스토리 갱신
         if (scenes && scenes.length > 0) {
-          const entries = scenes.map((s, i) => {
-            const isSystem = isSystemSpeaker(s.speaker, heroinesSnapshot);
-            const content = [];
-            if (s.narration) content.push(`*${s.narration}*`);
-            if (s.dialogue) content.push(s.dialogue);
-            const isLast = i === scenes.length - 1;
-            return {
-              role: isSystem ? 'SYSTEM' : 'ASSISTANT',
-              cleanContent: content.join('\n'),
-              speaker: isSystem ? null : (s.speaker || null),
-              // [Bug-Thought] 마지막 씬에 logId+속마음 플래그 — 히스토리 해금 버튼/해금 반영(msg.logId 매칭) 복구
-              logId: isLast ? (resLogId || null) : null,
-              hasInnerThought: isLast ? !!resHasThought : false,
-              thoughtUnlocked: false,
-            };
-          });
+          // [aichat E-1.6a/6c/6d] 액션도 공용 빌더로 — NPC 오분류·감정 유실·parentLogId 누락 동시 해소.
+          const entries = buildHistoryEntries(scenes, resLogId, resHasThought, { heroines: heroinesSnapshot });
           setMessages(prev => [...prev, ...entries]);
         }
 
@@ -1875,6 +1912,7 @@ const ChatPage = () => {
             sceneStage.notifyLocationChange();
           }
           setV2Room(freshRoom);
+          syncCharacterStatsFromRoom(freshRoom);   // [aichat E-1.11a] 상태창 동결 해제
           if (freshRoom.endingReached && !showV2EndingCredits) {
             const delay = (scenes?.length || 1) * 2500 + 1500;
             setTimeout(() => setShowV2EndingCredits(true), delay);
@@ -1887,12 +1925,14 @@ const ChatPage = () => {
         console.error("[V2-Action] SSE error:", err);
         setIsTyping(false);
         setAwaitingFinalResult(false);
+        // [aichat E-1.10b] 낙관 차감 롤백 — 서버가 거부했으면 잔량을 되돌린다.
+        setEnergy(prev => prev + v2SendCost);
         // [aichat F-8.b 후속] 액션도 에너지를 쓴다 — 메시지 경로와 같은 분기를 타야 충전 모달이 뜬다.
         handleV2StreamError(err, "액션 실행 실패");
       },
     }, sseAbortRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, isTyping, awaitingFinalResult, showV2EndingCredits, refreshUser, v2Room?.heroines, handleV2StreamError]);
+  }, [roomId, energy, v2SendCost, isTyping, awaitingFinalResult, showV2EndingCredits, refreshUser, v2Room?.heroines, handleV2StreamError, buildHistoryEntries]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  [E-3 C-1] 오프닝 자동 생성 — 빈 방 첫 진입 시 디렉터 도입 장면
@@ -1949,22 +1989,8 @@ const ChatPage = () => {
                 hasInnerThought: resHasThought, assistantLogId: resLogId } = data || {};
 
         if (scenes && scenes.length > 0) {
-          const entries = scenes.map((s, i) => {
-            const isSystem = isSystemSpeaker(s.speaker, heroinesSnapshot);
-            const content = [];
-            if (s.narration) content.push(`*${s.narration}*`);
-            if (s.dialogue) content.push(s.dialogue);
-            const isLast = i === scenes.length - 1;
-            return {
-              role: isSystem ? 'SYSTEM' : 'ASSISTANT',
-              cleanContent: content.join('\n'),
-              speaker: isSystem ? null : (s.speaker || null),
-              // [Bug-Thought] 마지막 씬에 logId+속마음 플래그 — 히스토리 해금 버튼/해금 반영(msg.logId 매칭) 복구
-              logId: isLast ? (resLogId || null) : null,
-              hasInnerThought: isLast ? !!resHasThought : false,
-              thoughtUnlocked: false,
-            };
-          });
+          // [aichat E-1.6b/6c/6d] 오프닝도 공용 빌더로 — NPC 3축·emotionTag·parentLogId가 전부 빠져 있었다.
+          const entries = buildHistoryEntries(scenes, resLogId, resHasThought, { heroines: heroinesSnapshot });
           setMessages(prev => [...prev, ...entries]);
         }
         if (scenes && scenes.length > 1) {
@@ -1990,6 +2016,7 @@ const ChatPage = () => {
         void fetchStoryV2RoomDetail(roomId).then((freshRoom) => {
           if (freshRoom?.currentBgmMode) setCurrentBgmMode(freshRoom.currentBgmMode);  // [Bug-BGM]
           setV2Room(freshRoom);
+          syncCharacterStatsFromRoom(freshRoom);   // [aichat E-1.11a] 상태창 동결 해제
         }).catch(() => {});
       },
       onError: (err) => {
@@ -2001,7 +2028,7 @@ const ChatPage = () => {
       },
     }, sseAbortRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomId, v2Room?.heroines]);
+  }, [roomId, v2Room?.heroines, buildHistoryEntries]);
 
   // roomId 변경 시 오프닝 가드 리셋 (같은 컴포넌트 인스턴스가 다른 방으로 전환되는 경우)
   useEffect(() => { openingFiredRef.current = false; setOpeningReady(false); }, [roomId]);
@@ -2041,6 +2068,8 @@ const ChatPage = () => {
       statusLevel: heroine.statusLevel || "STRANGER",
       secretModeActive: v2Room.secretModeActive,
     });
+    // [aichat E-1.11a] 명시 선택을 고정한다 — 이후 턴 재파생이 이 히로인을 따른다(화자로 튀지 않게).
+    statsPinnedHeroineIdRef.current = heroine.characterId;
     setCharacterStats(heroineToStats(heroine));
     setDynamicRelationTag(heroine.dynamicRelationTag || null);
     setCharacterThought(heroine.characterThought || null);
@@ -2483,26 +2512,28 @@ const ChatPage = () => {
         }
  
         // 에러 타입별 처리
+        // [aichat F-8.d] SSE 에러는 HTTP status가 아니라 **errorCode**로 판정한다.
+        //   `error.status`는 SSE 프레임에 실려 오지 않아 402/429 분기가 영구 사문이었다 —
+        //   에너지가 부족해도 충전 모달이 아니라 일반 오류 토스트가 떴다.
+        //   서버가 INSUFFICIENT_ENERGY / RATE_LIMITED를 코드로 내려준다(aichat F-8.a/F-8.c).
         if (error.errorCode === "CONTENT_BLOCKED") {
           showToast(error.message || "부적절한 내용이 포함되어 있습니다.", "warning");
-        } else if (error.status === 402) {
-          showToast("에너지가 부족합니다.", "error");
-        } else if (error.status === 429) {
+        } else if (error.errorCode === "INSUFFICIENT_ENERGY" || error.status === 402) {
+          sfx.locked();
+          showToast(error.message || "에너지가 부족합니다.", "error");
+        } else if (error.errorCode === "RATE_LIMITED" || error.status === 429) {
           showToast("요청이 너무 빠릅니다.", "warning");
         } else {
-          const narrationMap = {
-            "연화": "음.. 잠깐 생각에 잠겨버렸네요.. 뭐라고 하셨나요?",
-            "아이리": "잠시만요.. 아이리가 잠깐 바쁜 일이 있어서...",
-            "백루나": "음.. ㄴ,네?! 아, 죄송해요.. 잠깐 멍때려버렸어요.. 헤헤..",
-            "서태리": "..."
-          };
+          // [aichat F-3.c] 공식 4인 하드코딩 폴백 대사 삭제 — UGC·남캐·V2 히로인은 전부
+          //   빈 문자열로 떨어졌고, 무엇보다 다른 캐릭터의 말투를 흉내내면 몰입이 깨진다.
+          //   dialogue(캐릭터 발화)와 narration(연출)의 역할 분리도 함께 정리했다.
           setCurrentScene({
-            dialogue: narrationMap[roomInfo?.characterName] || "잠시 후 다시 시도해주세요.",
+            dialogue: "...잠깐, 뭐라고 하셨죠? 다시 한 번만요.",
             emotion: "SAD",
-            narration: "잠시 후 다시 시도해주세요."
+            narration: "연결이 잠시 흔들렸다."
           });
           setDisplayedEmotion("SAD");
-          showToast("오류가 발생했습니다.", "error");
+          showToast("오류가 발생했습니다. 잠시 후 다시 시도해주세요.", "error");
         }
       },
     }, sseAbortRef.current);
@@ -2690,6 +2721,10 @@ const ChatPage = () => {
   
     let firstSceneReceived = false;
   
+    // [aichat E-1.4/E-1.4b] 이전 스트림을 끊고 새 컨트롤러를 건다 — 종전엔 abortController를
+    //   넘기지 않아, 방을 나가거나 다음 요청을 보내도 이 스트림이 살아남아 뒤늦게 화면 상태를 덮었다.
+    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
+    sseAbortRef.current = new AbortController();
     try {
       await sendDirectorWatchStream(roomId, {
         // ★ Fix 2: event_meta — first_scene보다 먼저 도착
@@ -2770,7 +2805,7 @@ const ChatPage = () => {
           setEnergy(prev => prev + cost);
           showToast(error.message || "지켜보기 처리 중 오류가 발생했습니다.", "error");
         },
-      });
+      }, sseAbortRef.current);
     } catch (err) {
       setIsTyping(false);
       setEnergy(prev => prev + cost);
@@ -2789,6 +2824,10 @@ const ChatPage = () => {
   
     let firstSceneReceived = false;
   
+    // [aichat E-1.4/E-1.4b] 이전 스트림을 끊고 새 컨트롤러를 건다 — 종전엔 abortController를
+    //   넘기지 않아, 방을 나가거나 다음 요청을 보내도 이 스트림이 살아남아 뒤늦게 화면 상태를 덮었다.
+    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
+    sseAbortRef.current = new AbortController();
     try {
       await sendTimeSkipStream(roomId, {
         // ★ Fix 2: event_meta — first_scene보다 먼저 도착
@@ -2878,7 +2917,7 @@ const ChatPage = () => {
           setEnergy(prev => prev + 1);
           showToast(error.message || "시간 넘기기 처리 중 오류가 발생했습니다.", "error");
         },
-      });
+      }, sseAbortRef.current);
     } catch (err) {
       setIsTyping(false);
       setEnergy(prev => prev + 1);
@@ -3042,7 +3081,7 @@ const ChatPage = () => {
                 });
                 setDynamicRelationTag("낯선 사람");
                 setCharacterThought(null);
-                setShowStatusPanel(false);
+                closeStatusPanel();
                 setLatestStatChanges(null);
                 setShowEndingCredits(false);
                 setCurrentInnerThought(null);
@@ -3244,7 +3283,7 @@ const ChatPage = () => {
        {/* ═══ [Phase 5.5-P] Biometric Status Panel (좌측 전체 활용) ═══ */}
       <BiometricStatusPanel
         isOpen={showStatusPanel}
-        onClose={() => setShowStatusPanel(false)}
+        onClose={() => closeStatusPanel()}
         excludeRef={statusToggleRef}
         stats={characterStats}
         emotion={displayedEmotion}
@@ -3256,7 +3295,7 @@ const ChatPage = () => {
         chatMode={roomInfo?.chatMode}
         /* [docs/19 §F D-26] 시크릿 업셀 배선. V2는 스토어 진입 규약이 달라 handleOpenStoreV2를 탄다
            (ChatPageV2:3322의 onOpenStore와 동일 계약). 미전달 시 패널은 안내형 폴백으로 떨어진다. */
-        onUnlockSecret={() => { setShowStatusPanel(false); (isV2 ? handleOpenStoreV2 : (tab) => { setStoreInitialTab(tab); setShowStore(true); })("secret"); }}
+        onUnlockSecret={() => { closeStatusPanel(); (isV2 ? handleOpenStoreV2 : (tab) => { setStoreInitialTab(tab); setShowStore(true); })("secret"); }}
         /* [docs/19 §F D-32-2] V2는 히로인 전환이 잦아 이 식별자가 없으면 5축 전부에 거짓 '직전 턴 ↓'가 붙는다 */
         characterId={roomInfo?.characterId}
       />
@@ -3359,7 +3398,7 @@ const ChatPage = () => {
         onOpenStatusPanel={
           isV2
             // [폴리싱 #8] 토글 버튼이 excludeRef로 바깥 판정에서 빠지므로, V2에서는 셀렉터를 열 때 상태창을 명시적으로 닫는다
-            ? () => { setShowStatusPanel(false); setShowHeroineSelector(true); }
+            ? () => { closeStatusPanel(); setShowHeroineSelector(true); }
             : () => setShowStatusPanel(true)
         }
         statusToggleRef={statusToggleRef}
