@@ -1621,6 +1621,16 @@ const ChatPage = () => {
     } catch (err) {
       console.error(`Ending generation failed (attempt ${attempt}/${MAX_RETRIES}):`, err);
 
+      // [aichat B-9.6] 4xx는 재시도하지 않는다 — 클라이언트 귀책이거나 서버가 의도적으로 거부한 것이라
+      //   같은 요청을 세 번 더 보내도 결과가 같다. 엔딩 기능이 노브로 꺼져 있으면 400이 오는데,
+      //   종전엔 그 400을 2s·4s·8s 백오프로 3연타한 뒤 "실패했습니다" 토스트로 끝났다.
+      const status = err?.response?.status;
+      if (status >= 400 && status < 500) {
+        setEndingLoading(false);
+        showToast(err?.response?.data?.message || "지금은 엔딩을 생성할 수 없어요.", "error");
+        return;
+      }
+
       if (attempt < MAX_RETRIES) {
         // [Fix #10] 지수 백오프 재시도: 2s, 4s, 8s
         const delay = 2000 * Math.pow(2, attempt - 1);
@@ -3707,6 +3717,7 @@ const ChatPage = () => {
       <EasterEggEffects
         activeEffect={easterEggEffect}
         onEffectEnd={handleEasterEggEnd}
+        characterSlug={roomInfo?.characterSlug}
       />
 
       {/* [Phase 4.4] 업적 획득 모달 */}

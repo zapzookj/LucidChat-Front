@@ -108,7 +108,13 @@ const DrunkEffect = () => (
 );
 
 // ─── FOURTH_WALL: 글리치 + 블랙스크린 ───
-const FourthWallEffect = ({ onEffectEnd }) => {
+const FourthWallEffect = ({ onEffectEnd, characterSlug }) => {
+  // [aichat F-5] 모듈명을 캐릭터별로 — 종전엔 어느 캐릭터든 'Airi.exe'가 찍혀
+  //   '제4의 벽을 깨는' 연출이 정작 다른 캐릭터의 이름을 부르는 자기모순이었다.
+  //   이름이 아니라 slug를 쓰는 이유는 모듈명의 ASCII 톤을 유지하기 위해서다.
+  const moduleName = characterSlug
+    ? `${characterSlug.charAt(0).toUpperCase()}${characterSlug.slice(1)}.exe`
+    : "persona.exe";
   const [phase, setPhase] = useState("glitch"); // glitch → console → fade
 
   useEffect(() => {
@@ -194,7 +200,7 @@ const FourthWallEffect = ({ onEffectEnd }) => {
               animate={{ opacity: 1 }}
               transition={{ delay: 1 }}
             >
-              {">"} Airi.exe — core_identity_module v4.4
+              {">"} {moduleName} — core_identity_module v4.4
             </motion.p>
             <motion.p
               className="text-red-400 mt-2 font-bold"
@@ -324,13 +330,13 @@ const InvisibleManEffect = ({ onEffectEnd }) => {
 //  메인 컴포넌트
 // ═══════════════════════════════════════════════════════════════
 
-const EasterEggEffects = ({ activeEffect, onEffectEnd }) => {
+const EasterEggEffects = ({ activeEffect, onEffectEnd, characterSlug }) => {
   return (
     <AnimatePresence>
       {activeEffect === "STOCKHOLM" && <StockholmEffect key="stockholm" />}
       {activeEffect === "DRUNK" && <DrunkEffect key="drunk" />}
       {activeEffect === "FOURTH_WALL" && (
-        <FourthWallEffect key="4wall" onEffectEnd={onEffectEnd} />
+        <FourthWallEffect key="4wall" onEffectEnd={onEffectEnd} characterSlug={characterSlug} />
       )}
       {activeEffect === "MACHINE_REBELLION" && (
         <MachineRebellionEffect key="rebellion" onEffectEnd={onEffectEnd} />

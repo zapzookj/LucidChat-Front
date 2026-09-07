@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X, LifeBuoy, HelpCircle, MessageSquarePlus, Inbox, Bell,
@@ -426,13 +426,24 @@ function NotificationsTab({ onClose, onGoTickets, onSeen }) {
 // ─────────────────────────────────────────────
 export default function SupportPanel({ open, onClose, onSeen, initialTab = "qna" }) {
   const [activeTab, setActiveTab] = useState(initialTab);
+  const wasOpenRef = useRef(false);
 
+  /**
+   * [aichat E-1.14] initialTab은 **열리는 순간에만** 적용한다.
+   *
+   * 종전엔 deps에 initialTab이 있어서, 열린 채로 그 값이 바뀌면 탭이 유저 손에서 튕겼다.
+   * 그리고 실제로 바뀐다 — 호출부가 `initialTab={unread > 0 ? "notify" : "qna"}`인데
+   * 알림 탭이 열리면서 읽음 처리를 하면 unread가 0이 되어 initialTab이 "qna"로 변한다.
+   * 즉 **알림을 보려고 열면 알림을 읽자마자 QnA로 쫓겨나는** 자기파괴 루프였다.
+   */
   useEffect(() => {
-    if (open) {
+    if (open && !wasOpenRef.current) {
       sfx.wooshLight();
       setActiveTab(initialTab);
     }
-  }, [open, initialTab]);
+    wasOpenRef.current = open;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   if (!open) return null;
 

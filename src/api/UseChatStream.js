@@ -51,18 +51,35 @@ export async function sendTimeSkipStream(roomId, callbacks, abortController) {
  *
  * @returns {DirectorDirective|null} Directive가 있으면 JSON, 없으면 null
  */
+/**
+ * [aichat E-1.3] 토큰 갱신을 태우는 fetch — 디렉터 3종 전용.
+ *
+ * axios 인스턴스는 401에 refresh를 물려 두었지만 이 파일의 세 함수는 **raw fetch**라
+ * 그 배선 밖이었다. 액세스 토큰이 만료되면 peek/consume은 조용히 null(=미소비 directive 폐기),
+ * request는 던져서 유저에게 실패로 보였다 — 재로그인 전까지 회복 경로가 없다.
+ *
+ * 갱신은 refreshLock의 단일 뮤텍스를 탄다(E-1.2) — 동시 호출이 겹쳐도 refresh는 1회다.
+ */
+async function _authedFetch(url, init) {
+  const call = (token) => fetch(url, {
+    ...init,
+    headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` },
+    credentials: 'include',
+  });
+
+  let res = await call(localStorage.getItem('accessToken'));
+  if (res.status !== 401) return res;
+
+  const fresh = await refreshAccessToken();
+  if (!fresh) return res;          // 갱신 실패 — 원 401을 그대로 돌려 호출자 계약을 보존한다
+  return call(fresh);
+}
 export async function peekDirectorDirective(roomId) {
   // const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
-  const token = localStorage.getItem('accessToken');
- 
   try {
-    const res = await fetch(`${BASE_URL}/story/rooms/${roomId}/director/peek`, {
+    const res = await _authedFetch(`${BASE_URL}/story/rooms/${roomId}/director/peek`, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
     });
  
     if (res.status === 204) return null; // No directive
@@ -87,16 +104,10 @@ export async function peekDirectorDirective(roomId) {
  */
 export async function consumeDirectorDirective(roomId) {
   // const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
-  const token = localStorage.getItem('accessToken');
- 
   try {
-    const res = await fetch(`${BASE_URL}/story/rooms/${roomId}/director/consume`, {
+    const res = await _authedFetch(`${BASE_URL}/story/rooms/${roomId}/director/consume`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
     });
  
     if (res.status === 404) return null;
@@ -121,16 +132,10 @@ export async function consumeDirectorDirective(roomId) {
  */
 export async function requestDirectorIntervention(roomId) {
   // const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
-  const token = localStorage.getItem('accessToken');
- 
   try {
-    const res = await fetch(`${BASE_URL}/story/rooms/${roomId}/director/request`, {
+    const res = await _authedFetch(`${BASE_URL}/story/rooms/${roomId}/director/request`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
     });
  
     if (!res.ok) {
