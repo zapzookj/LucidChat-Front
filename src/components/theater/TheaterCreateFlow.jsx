@@ -717,8 +717,11 @@ export default function TheaterCreateFlow({
                             Lucid Pass 전용 기능
                           </div>
                           <div className="text-xs text-white/70 leading-relaxed mb-4 max-w-[320px]">
-                            Lucid Pass 가입자는 시작 단계에서 매력 / 위트 / 대담함 / 지성 / 공감
-                            5개 스탯에 자유롭게 포인트를 분배할 수 있습니다.
+                            {/* [aichat F-1.b] 스탯 이름을 STAT_AXES 단일 출처에서 뽑는다 —
+                                종전엔 '위트 / 대담함 / 공감'으로 하드코딩돼 실제 슬라이더 라벨
+                                ('입담 / 담력 / 감수성')과 어긋났다. 같은 화면 안에서 이름이 둘이었다. */}
+                            Lucid Pass 가입자는 시작 단계에서 {STAT_AXES.map((a) => a.label).join(" / ")}
+                            {" "}{STAT_AXES.length}개 스탯에 자유롭게 포인트를 분배할 수 있습니다.
                           </div>
                         </div>
 
