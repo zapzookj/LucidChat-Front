@@ -325,6 +325,39 @@ const ChatPage = () => {
     };
   }, []);
 
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  //  [적대적 검토 회귀] SSE 턴 in-flight 추적 — ChatPage.jsx와 같은 계약.
+  //
+  //  E-1.4b가 **공유** sseAbortRef를 7개 스트림 경로에 물렸다. 이제 아무 경로나 진행 중인
+  //  남의 턴을 끊는데, 끊기는 쪽 손실이 크다: 서버는 이미 커밋해 에너지를 받고 로그를 저장했고,
+  //  UseChatStream이 AbortError를 삼켜 onError조차 안 불려 유저에게 신호가 없으며,
+  //  onFinalResult의 씬·메시지·스탯 반영이 통째로 유실된다(새로고침해야 되살아난다).
+  //  가드도 못 막는다 — watch/timeskip의 isTyping은 onFirstScene에서 곧바로 false가 된다.
+  //
+  //  결론: **끊는 게 아니라 막는다.** unmount abort(위 이펙트)는 그대로 둔다.
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const sseInFlightRef = useRef(0);            // 0 = 없음, 그 외 = 시작 시각(ms)
+  const SSE_STUCK_MS = 90_000;                 // 이보다 오래 매달린 스트림은 죽은 것으로 본다
+
+  /** 진행 중인 턴이 있으면 true(=거절). 90초 넘게 매달린 스트림은 죽은 것으로 보고 정리 후 false. */
+  const isSseBusy = useCallback(() => {
+    const started = sseInFlightRef.current;
+    if (!started) return false;
+    if (Date.now() - started < SSE_STUCK_MS) return true;
+    // 안전밸브 — onFinalResult/onError가 끝내 안 불리는 스트림(네트워크 정지 등)에
+    //   영구 잠금되지 않도록. 이 경우엔 어차피 잃을 게 없으므로 끊는다.
+    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
+    sseInFlightRef.current = 0;
+    return false;
+  }, []);
+
+  const markSseTurnStart = useCallback(() => {
+    sseInFlightRef.current = Date.now();
+    sseAbortRef.current = new AbortController();
+  }, []);
+
+  const markSseTurnEnd = useCallback(() => { sseInFlightRef.current = 0; }, []);
+
   // [UX Fix] 나레이션 → 유저 클릭 대기 → 다음 플로우 진행
   const pendingDirectorActionRef = useRef(null);
 
@@ -745,6 +778,9 @@ const ChatPage = () => {
    * 캐릭터가 상황에 자동으로 반응하는 응답을 생성.
    */
   const triggerAutoDirectorResponse = useCallback(async (directiveType, eventContext = null, chosenIndex = null, optimisticCost = 1) => {
+    // [적대적 검토 회귀] 진행 중인 SSE 턴이 있으면 거절한다 — 끊으면 서버가 이미 커밋한
+    //   응답이 유실된다(isSseBusy 주석). 90초 넘게 매달린 스트림은 isSseBusy가 정리한다.
+    if (isSseBusy()) { showToast("이전 응답을 받는 중입니다. 잠시만요.", "warning"); return; }
     // [Bug Fix B] setIsTyping(true) 제거 — 나레이션이 이미 표시 중일 때 타이핑 인디케이터가 덮어쓰는 문제 방지
     // 대신 awaitingFinalResult로 하단에 미세한 로딩 표시
     setAwaitingFinalResult(true);
@@ -755,10 +791,10 @@ const ChatPage = () => {
 
     let firstSceneReceived = false;
 
-    // [aichat E-1.4/E-1.4b] 이전 스트림을 끊고 새 컨트롤러를 건다 — 종전엔 abortController를
-    //   넘기지 않아, 방을 나가거나 다음 요청을 보내도 이 스트림이 살아남아 뒤늦게 화면 상태를 덮었다.
-    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
-    sseAbortRef.current = new AbortController();
+    // [aichat E-1.4/E-1.4b] 새 컨트롤러를 건다 — 종전엔 abortController를 넘기지 않아,
+    //   방을 나가도 이 스트림이 살아남아 뒤늦게 화면 상태를 덮었다.
+    //   ★ 이전 스트림 abort는 제거했다(위 isSseBusy 주석). 진입 가드가 이미 막았다.
+    markSseTurnStart();
     try {
       await sendAutoDirectorResponse(roomId, directiveType, eventContext, {
         onEventMeta: (meta) => {
@@ -876,8 +912,10 @@ const ChatPage = () => {
       setIsTyping(false); setAwaitingFinalResult(false); setDirectorAutoProcessing(false);
       setEnergy(prev => prev + cost);
       showToast("자동 응답 처리 중 오류가 발생했습니다.", "error");
+    } finally {
+      markSseTurnEnd();   // [적대적 검토 회귀] 턴 종료 — 다음 요청 진입 허용
     }
-  }, [roomId, roomInfo]);
+  }, [roomId, roomInfo, isSseBusy, markSseTurnStart, markSseTurnEnd, showToast]);
 
   /**
    * [v3 UX Fix] AWAY 이벤트 자동 진행 제거
@@ -1801,6 +1839,9 @@ const ChatPage = () => {
       return;
     }
     if (isTyping || awaitingFinalResult) return;
+    // [적대적 검토 회귀] 진행 중인 SSE 턴이 있으면 거절한다 — 끊으면 서버가 이미 커밋한
+    //   응답이 유실된다(isSseBusy 주석). 90초 넘게 매달린 스트림은 isSseBusy가 정리한다.
+    if (isSseBusy()) { showToast("이전 응답을 받는 중입니다. 잠시만요.", "warning"); return; }
 
     // [Phase 7-V2 Pivot] 헬퍼 — 현재 시점의 heroines를 캡처하여 시스템 메시지 판별에 사용
     //   - speaker가 null이거나 heroines.name 어디에도 매칭 안 되면 *시스템 메시지*로 간주
@@ -1820,8 +1861,7 @@ const ChatPage = () => {
     setDialogueOptions([]);
     setSceneQueue([]);
 
-    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
-    sseAbortRef.current = new AbortController();
+    markSseTurnStart();   // [적대적 검토 회귀] 이전 스트림 abort 제거 — 진입 가드가 막는다
 
     let firstSceneReceived = false;
     // 시스템 메시지 판별을 위해 *최신* heroines 스냅샷 (state는 stale일 수 있음)
@@ -1930,6 +1970,7 @@ const ChatPage = () => {
         handleV2StreamError(err, "오류가 발생했습니다.");
       },
     }, sseAbortRef.current);
+    markSseTurnEnd();   // [적대적 검토 회귀] 턴 종료 — _ssePost는 던지지 않고 스트림 끝에서 resolve한다
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, energy, isTyping, awaitingFinalResult, showV2EndingCredits, refreshUser, v2Room?.heroines, handleV2StreamError, buildHistoryEntries, v2SendCost]);
 
@@ -1938,6 +1979,9 @@ const ChatPage = () => {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const handleSendActionV2 = useCallback(async (actionType, payload = null) => {
     if (isTyping || awaitingFinalResult) return;
+    // [적대적 검토 회귀] 진행 중인 SSE 턴이 있으면 거절한다 — 끊으면 서버가 이미 커밋한
+    //   응답이 유실된다(isSseBusy 주석). 90초 넘게 매달린 스트림은 isSseBusy가 정리한다.
+    if (isSseBusy()) { showToast("이전 응답을 받는 중입니다. 잠시만요.", "warning"); return; }
     // [aichat E-1.10b] 액션도 같은 턴 비용을 쓴다 — 종전엔 가드·낙관 차감·롤백이 **전부** 없어
     //   잔량이 부족해도 눌리고, 성공해도 화면 잔량이 안 줄고, 실패해도 되돌릴 게 없었다.
     if (energy < v2SendCost) {
@@ -1960,8 +2004,7 @@ const ChatPage = () => {
     setSceneQueue([]);
     sfx.click();
 
-    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
-    sseAbortRef.current = new AbortController();
+    markSseTurnStart();   // [적대적 검토 회귀] 이전 스트림 abort 제거 — 진입 가드가 막는다
 
     let firstSceneReceived = false;
     const heroinesSnapshot = v2Room?.heroines || [];
@@ -2044,6 +2087,7 @@ const ChatPage = () => {
         handleV2StreamError(err, "액션 실행 실패");
       },
     }, sseAbortRef.current);
+    markSseTurnEnd();   // [적대적 검토 회귀] 턴 종료 — _ssePost는 던지지 않고 스트림 끝에서 resolve한다
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, energy, v2SendCost, isTyping, awaitingFinalResult, showV2EndingCredits, refreshUser, v2Room?.heroines, handleV2StreamError, buildHistoryEntries]);
 
@@ -2054,6 +2098,8 @@ const ChatPage = () => {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const fireOpeningV2 = useCallback(async (heroinesSnapshotArg) => {
     if (openingFiredRef.current) return;
+    // [적대적 검토 회귀] 진행 중인 턴이 있으면 이번엔 건너뛴다 — 플래그를 세우지 않아 재시도된다.
+    if (isSseBusy()) return;
     openingFiredRef.current = true;
 
     // 시스템 메시지 판별 (handleSendMessageV2와 동일 규칙의 로컬 복사)
@@ -2070,8 +2116,7 @@ const ChatPage = () => {
     setDialogueOptions([]);
     setSceneQueue([]);
 
-    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
-    sseAbortRef.current = new AbortController();
+    markSseTurnStart();   // [적대적 검토 회귀] 이전 스트림 abort 제거 — 진입 가드가 막는다
 
     let firstSceneReceived = false;
 
@@ -2140,6 +2185,7 @@ const ChatPage = () => {
         console.warn("[V2-Opening] failed:", err);
       },
     }, sseAbortRef.current);
+    markSseTurnEnd();   // [적대적 검토 회귀] 턴 종료 — _ssePost는 던지지 않고 스트림 끝에서 resolve한다
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, v2Room?.heroines, buildHistoryEntries]);
 
@@ -2284,6 +2330,9 @@ const ChatPage = () => {
   if (isV2) {
     return handleSendMessageV2(text);
   }
+  // [적대적 검토 회귀] 진행 중인 SSE 턴이 있으면 거절한다 — 끊으면 서버가 이미 커밋한
+  //   응답이 유실된다(isSseBusy 주석). 90초 넘게 매달린 스트림은 isSseBusy가 정리한다.
+  if (isSseBusy()) { showToast("이전 응답을 받는 중입니다. 잠시만요.", "warning"); return; }
 
   if (text && energy <= 0 && !endingTrigger) {
     showToast("에너지가 부족합니다. 충전하거나 자연 회복을 기다려주세요!", "error");
@@ -2333,9 +2382,9 @@ const ChatPage = () => {
     const messagePayload = text || "...";
     setAwaitingFinalResult(true);
 
-    // [Phase6/Tier4 / H-26] 새 메시지 전송 시 이전 SSE 호출 중단 → reader 누수 차단.
-    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
-    sseAbortRef.current = new AbortController();
+    // [Phase6/Tier4 / H-26] 새 컨트롤러 — unmount 시 reader 누수 차단용.
+    //   ★ 이전 스트림 abort는 제거했다(위 isSseBusy 주석). 진입 가드가 이미 막았다.
+    markSseTurnStart();
 
     await sendMessageStream(roomId, messagePayload, {
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2619,6 +2668,7 @@ const ChatPage = () => {
     setIsTyping(false);
     showToast("오류가 발생했습니다.", "error");
   } finally {
+    markSseTurnEnd();   // [적대적 검토 회귀] 턴 종료 — 다음 요청 진입 허용
     // ── 비동기 캐릭터 생각 폴링 (기존과 동일) ──
     setTimeout(async () => {
       try {
@@ -2780,6 +2830,9 @@ const ChatPage = () => {
 
   const handleDirectorWatch = async () => {
     if (energy <= 0 || isTyping) return;
+    // [적대적 검토 회귀] 진행 중인 SSE 턴이 있으면 거절한다 — 끊으면 서버가 이미 커밋한
+    //   응답이 유실된다(isSseBusy 주석). 90초 넘게 매달린 스트림은 isSseBusy가 정리한다.
+    if (isSseBusy()) { showToast("이전 응답을 받는 중입니다. 잠시만요.", "warning"); return; }
   
     setIsTyping(true);
     setCurrentScene(null);
@@ -2791,10 +2844,10 @@ const ChatPage = () => {
   
     let firstSceneReceived = false;
   
-    // [aichat E-1.4/E-1.4b] 이전 스트림을 끊고 새 컨트롤러를 건다 — 종전엔 abortController를
-    //   넘기지 않아, 방을 나가거나 다음 요청을 보내도 이 스트림이 살아남아 뒤늦게 화면 상태를 덮었다.
-    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
-    sseAbortRef.current = new AbortController();
+    // [aichat E-1.4/E-1.4b] 새 컨트롤러를 건다 — 종전엔 abortController를 넘기지 않아,
+    //   방을 나가도 이 스트림이 살아남아 뒤늦게 화면 상태를 덮었다.
+    //   ★ 이전 스트림 abort는 제거했다(위 isSseBusy 주석). 진입 가드가 이미 막았다.
+    markSseTurnStart();
     try {
       await sendDirectorWatchStream(roomId, {
         // ★ Fix 2: event_meta — first_scene보다 먼저 도착
@@ -2880,11 +2933,16 @@ const ChatPage = () => {
       setIsTyping(false);
       setEnergy(prev => prev + cost);
       showToast("지켜보기 처리 중 오류가 발생했습니다.", "error");
+    } finally {
+      markSseTurnEnd();   // [적대적 검토 회귀] 턴 종료 — 다음 요청 진입 허용
     }
   };
 
   const handleTimeSkip = async () => {
     if (energy < 1 || isTyping) return;
+    // [적대적 검토 회귀] 진행 중인 SSE 턴이 있으면 거절한다 — 끊으면 서버가 이미 커밋한
+    //   응답이 유실된다(isSseBusy 주석). 90초 넘게 매달린 스트림은 isSseBusy가 정리한다.
+    if (isSseBusy()) { showToast("이전 응답을 받는 중입니다. 잠시만요.", "warning"); return; }
   
     setIsTyping(true);
     setCurrentScene(null);
@@ -2894,10 +2952,10 @@ const ChatPage = () => {
   
     let firstSceneReceived = false;
   
-    // [aichat E-1.4/E-1.4b] 이전 스트림을 끊고 새 컨트롤러를 건다 — 종전엔 abortController를
-    //   넘기지 않아, 방을 나가거나 다음 요청을 보내도 이 스트림이 살아남아 뒤늦게 화면 상태를 덮었다.
-    try { sseAbortRef.current?.abort(); } catch { /* ignore */ }
-    sseAbortRef.current = new AbortController();
+    // [aichat E-1.4/E-1.4b] 새 컨트롤러를 건다 — 종전엔 abortController를 넘기지 않아,
+    //   방을 나가도 이 스트림이 살아남아 뒤늦게 화면 상태를 덮었다.
+    //   ★ 이전 스트림 abort는 제거했다(위 isSseBusy 주석). 진입 가드가 이미 막았다.
+    markSseTurnStart();
     try {
       await sendTimeSkipStream(roomId, {
         // ★ Fix 2: event_meta — first_scene보다 먼저 도착
@@ -2992,6 +3050,8 @@ const ChatPage = () => {
       setIsTyping(false);
       setEnergy(prev => prev + 1);
       showToast("시간 넘기기 처리 중 오류가 발생했습니다.", "error");
+    } finally {
+      markSseTurnEnd();   // [적대적 검토 회귀] 턴 종료 — 다음 요청 진입 허용
     }
   };
 
