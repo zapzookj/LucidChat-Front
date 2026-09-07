@@ -248,11 +248,12 @@ const ChatPage = () => {
       scene: sc,
       emotion: !sys && !isNpc ? sc.emotion : displayedEmotion,
       outfit: sc.outfit || currentOutfit,
-      // [aichat E-1.9] 리플레이 중에는 그 씬의 장소를 쓴다. 없으면(레거시 로그) 현재값 폴백.
+      // [aichat E-1.9] 리플레이 중에는 그 씬의 장소·시간대를 쓴다. 없으면(레거시 로그) 현재값 폴백.
       location: sc.location || currentLocation,
+      time: sc.time || currentTime,
       npcSpeaker: isNpc ? sc.speaker : null,
     };
-  }, [replay.isReplaying, replay.scene, roomInfo?.characterName, displayedEmotion, currentOutfit, currentLocation]);
+  }, [replay.isReplaying, replay.scene, roomInfo?.characterName, displayedEmotion, currentOutfit, currentLocation, currentTime]);
 
   // ─── [v3] 투명 디렉터 시스템 ───
   const [directorLoading, setDirectorLoading] = useState(false);          // 수동 디렉터 요청 로딩 중
@@ -2383,15 +2384,26 @@ const ChatPage = () => {
       {/* [Phase 4] Dynamic Background */}
       <BackgroundDisplay 
         location={replayView ? replayView.location : currentLocation} 
-        time={currentTime} 
+        time={replayView ? replayView.time : currentTime} 
         characterSlug={roomInfo?.characterSlug}
-        dynamicBackgroundUrl={dynamicBackgroundUrl}
+        /* [aichat E-1.9 잔여] 리플레이 중에는 동적 배경 URL도 함께 끊는다.
+           V1 후보 순서가 `동적 URL이 1순위 → enum 정적 경로`라, AI 장소 전환을 한 번이라도
+           겪은 방(init에서 currentDynamicBgUrl 복원)은 동적 URL이 늘 채워져 있어
+           location만 되돌려 봐야 **아무 효과가 없었다** — 404가 나야만 enum으로 넘어간다.
+           씬 컨텍스트에 그 시점의 배경 URL이 없으므로 정적 경로로 떨어뜨리는 것이 최선이다. */
+        dynamicBackgroundUrl={replayView ? null : dynamicBackgroundUrl}
       />
 
       {/* [Phase 4] Audio Engine (BGM + Ambience + SFX) */}
       <AudioEngine 
         bgmMode={currentBgmMode}
-        location={showEndingCredits ? null : (replayView ? replayView.location : currentLocation)}
+        /* [적대적 검토] 오디오는 리플레이 범위 밖이다 — location prop은 AudioEngine에서
+           순수 표시값이 아니라 **부수효과 트리거**다: [location]이 바뀌면 장소 전환 SFX를
+           1회 재생하고 앰비언스를 800ms 페이드아웃+1000ms 페이드인으로 교체한다.
+           셰브론으로 과거 씬을 훑을 때마다 문소리가 울리고 앰비언스가 크로스페이드된다.
+           E-1.9 커밋이 BGM은 "끊김·재생 위치" 때문에 명시 제외해 놓고 같은 문제가
+           SFX·앰비언스로 들어간 비대칭이라, 라이브 값으로 되돌린다. */
+        location={showEndingCredits ? null : currentLocation}
         time={currentTime}
         masterVolume={bgmVolume}
         isMuted={!isBgmPlaying}
