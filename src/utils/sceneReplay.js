@@ -38,6 +38,10 @@ export function messageToScene(msg) {
       dialogue: "",
       emotion: msg.emotionTag || "NEUTRAL",
       outfit: msg.outfit ?? null,
+      // [aichat E-1.9] 씬 컨텍스트 3종 — 종전엔 outfit만 실어 과거 복장 + **현재** 배경/시간이
+      //   뒤섞인 장면이 재현됐다. 레거시 로그는 null이라 소비처가 현재값으로 폴백한다.
+      location: msg.location ?? null,
+      time: msg.time ?? null,
       isEvent: true, // DialogueBox 보라 나레이션 UI
       __replay: true,
     };
@@ -56,6 +60,8 @@ export function messageToScene(msg) {
     emotion: msg.emotionTag || "NEUTRAL",
     // scenesJson 씬 컨텍스트(2026-08-07 백엔드 영속) — 레거시 로그는 null → 소비처가 현재값 폴백
     outfit: msg.outfit ?? null,
+    location: msg.location ?? null,   // [aichat E-1.9]
+    time: msg.time ?? null,           // [aichat E-1.9]
     isEvent: false,
     __replay: true,
   };

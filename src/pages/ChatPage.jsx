@@ -248,9 +248,11 @@ const ChatPage = () => {
       scene: sc,
       emotion: !sys && !isNpc ? sc.emotion : displayedEmotion,
       outfit: sc.outfit || currentOutfit,
+      // [aichat E-1.9] 리플레이 중에는 그 씬의 장소를 쓴다. 없으면(레거시 로그) 현재값 폴백.
+      location: sc.location || currentLocation,
       npcSpeaker: isNpc ? sc.speaker : null,
     };
-  }, [replay.isReplaying, replay.scene, roomInfo?.characterName, displayedEmotion, currentOutfit]);
+  }, [replay.isReplaying, replay.scene, roomInfo?.characterName, displayedEmotion, currentOutfit, currentLocation]);
 
   // ─── [v3] 투명 디렉터 시스템 ───
   const [directorLoading, setDirectorLoading] = useState(false);          // 수동 디렉터 요청 로딩 중
@@ -645,6 +647,9 @@ const ChatPage = () => {
         // [리플레이 E6] 라이브 구간도 씬 감정·복장 보존 — 새로고침 전 리플레이 재현용
         emotionTag: s.emotion || null,
         outfit: s.outfit ?? null,
+        // [aichat E-1.9] 장소·시간도 — 라이브 구간과 복원 구간의 리플레이 재현이 같아야 한다
+        location: s.location ?? null,
+        time: s.time ?? null,
       };
     });
   }, [roomInfo]);
@@ -702,6 +707,9 @@ const ChatPage = () => {
             emotionTag: scene.emotion || log.emotionTag,
             // [리플레이] 씬 컨텍스트 복장(2026-08-07 백엔드 영속) — 레거시 로그는 null
             outfit: scene.outfit ?? null,
+            // [aichat E-1.9] 장소·시간도 함께 보존 — 복장만 되돌리면 과거 옷 + 현재 배경이 섞인다
+            location: scene.location ?? null,
+            time: scene.time ?? null,
             // [Scene-Polish C] 방 내 절대 서수 — 히스토리 씬 마커 매핑 키 (씬별 분리돼도 원본 로그 서수 공유)
             ordinal: log.ordinal ?? null,
           };
@@ -2331,7 +2339,7 @@ const ChatPage = () => {
       
       {/* [Phase 4] Dynamic Background */}
       <BackgroundDisplay 
-        location={currentLocation} 
+        location={replayView ? replayView.location : currentLocation} 
         time={currentTime} 
         characterSlug={roomInfo?.characterSlug}
         dynamicBackgroundUrl={dynamicBackgroundUrl}
@@ -2340,7 +2348,7 @@ const ChatPage = () => {
       {/* [Phase 4] Audio Engine (BGM + Ambience + SFX) */}
       <AudioEngine 
         bgmMode={currentBgmMode}
-        location={showEndingCredits ? null : currentLocation}
+        location={showEndingCredits ? null : (replayView ? replayView.location : currentLocation)}
         time={currentTime}
         masterVolume={bgmVolume}
         isMuted={!isBgmPlaying}
