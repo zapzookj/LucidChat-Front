@@ -85,6 +85,26 @@ function isSystemSpeakerName(speaker) {
   return SYSTEM_SPEAKER_MARKERS.has(s.toLowerCase());
 }
 
+/**
+ * [aichat E-1.11a 잔여] heroines 목록에서 '현재 화자'를 고른다 — lastSpokenAt DESC의 첫 번째.
+ *
+ * 컴포넌트 밖 순수 함수로 뺀 이유: `syncCharacterStatsFromRoom`이 종전에
+ * `currentSpeakerCharacterId`(v2Room 파생 memo)에 의존했는데, 그 함수는 **스트림 콜백 안**에서
+ * 불린다. 콜백을 만든 useCallback이 턴 시작 **전** 렌더의 것이라 캡처된 화자는 이번 턴이 아니라
+ * **직전 턴의 화자**였다 — 방금 말한 히로인이 아닌 다른 히로인의 스탯이 상태창에 뜬다.
+ * 함수는 이미 `freshRoom`을 인자로 받고 있으므로 그 안에서 화자를 다시 뽑으면 스테일이 원천 차단된다.
+ * memo와 같은 규칙을 쓰도록 한 곳에 둔다(복제하면 갈린다 — §2-6).
+ */
+function pickSpeakerId(heroines) {
+  if (!heroines || heroines.length === 0) return null;
+  const withSpoken = heroines.filter((h) => h.lastSpokenAt);
+  if (withSpoken.length === 0) return heroines[0].characterId;
+  const sorted = [...withSpoken].sort(
+    (a, b) => new Date(b.lastSpokenAt).getTime() - new Date(a.lastSpokenAt).getTime()
+  );
+  return sorted[0].characterId;
+}
+
 const ChatPage = () => {
   const { user, logout, refreshUser } = useAuth();
   const { roomId } = useParams();
@@ -339,15 +359,7 @@ const ChatPage = () => {
   const [showV2EndingCredits, setShowV2EndingCredits] = useState(false);
 
   // V2 현재 화자 추론 — heroines를 lastSpokenAt DESC로 정렬한 첫 번째
-  const currentSpeakerCharacterId = useMemo(() => {
-    if (!v2Room?.heroines || v2Room.heroines.length === 0) return null;
-    const withSpoken = v2Room.heroines.filter((h) => h.lastSpokenAt);
-    if (withSpoken.length === 0) return v2Room.heroines[0].characterId;
-    withSpoken.sort(
-      (a, b) => new Date(b.lastSpokenAt).getTime() - new Date(a.lastSpokenAt).getTime()
-    );
-    return withSpoken[0].characterId;
-  }, [v2Room?.heroines]);
+  const currentSpeakerCharacterId = useMemo(() => pickSpeakerId(v2Room?.heroines), [v2Room?.heroines]);
 
   // V2 현재 화자 객체
   const currentSpeakerHeroine = useMemo(() => {
@@ -369,6 +381,11 @@ const ChatPage = () => {
    * 유저가 우회하려면 히로인 셀렉터를 다시 열어야 했다.
    *
    * 셀렉터로 명시 선택 중이면 그 히로인을, 아니면 현재 화자를 기준으로 갱신한다.
+   *
+   * ★ 화자는 인자로 받은 `freshRoom`에서 **다시 뽑는다**(pickSpeakerId). 컴포넌트 스코프의
+   *   `currentSpeakerCharacterId`를 쓰면 스테일이다 — 이 함수는 스트림 콜백 안에서 불리는데
+   *   그 콜백은 턴 시작 **전** 렌더에서 만들어졌으므로 캡처된 화자가 직전 턴의 것이다.
+   *   그 결과 방금 말한 히로인이 아니라 그 전 히로인의 스탯이 상태창에 실렸다.
    */
   const syncCharacterStatsFromRoom = useCallback((freshRoom) => {
     const list = freshRoom?.heroines || [];
@@ -376,10 +393,10 @@ const ChatPage = () => {
     const pinnedId = statsPinnedHeroineIdRef.current;
     const target = pinnedId
       ? list.find((h) => h.characterId === pinnedId)
-      : list.find((h) => h.characterId === currentSpeakerCharacterId);
+      : list.find((h) => h.characterId === pickSpeakerId(list));
     if (!target) return;
     setCharacterStats(heroineToStats(target));
-  }, [currentSpeakerCharacterId, heroineToStats]);
+  }, [heroineToStats]);
 
   // V2 → V1 호환 roomInfo 매핑 — V1 컴포넌트가 기대하는 단일 캐릭터 시점
   // CharacterDisplay / BiometricStatusPanel / Settings 등이 사용
@@ -1842,7 +1859,11 @@ const ChatPage = () => {
           //   라이브 세션의 멀티씬을 일괄 삭제할 수 없었다(새로고침 후엔 됐다).
           //   3중 복제를 남기면 이런 필드 누락이 계속 갈린다.
           const entries = buildHistoryEntries(scenes, resLogId, resHasThought, { heroines: heroinesSnapshot });
-          // 시스템 메시지는 dialogue 부분만 보이게 (V1 SYSTEM UI 호환)
+          // [aichat E-1.5] SYSTEM 씬은 **narration만** 남는다 — buildHistoryEntries가
+          //   sys일 때 cleanContent를 narration으로만 채우고 dialogue는 버린다.
+          //   복원 경로(expandLogWithScenes)와 같은 규칙이다. 종전 주석은 'dialogue만 보이게'라고
+          //   정반대를 적고 있었다(치환 전 인라인 코드가 narration+dialogue였던 시절에도 이미 틀렸다) —
+          //   그 주석을 근거로 '고치면' 라이브/복원 렌더가 다시 갈린다.
           setMessages(prev => [...prev, ...entries]);
         }
 
@@ -2206,9 +2227,12 @@ const ChatPage = () => {
   // V2 결제 완료 후
   const handlePaymentCompleteV2 = useCallback(() => {
     if (refreshUser) void refreshUser();
-    void fetchStoryV2RoomDetail(roomId).then(setV2Room).catch(() => {});
+    void fetchStoryV2RoomDetail(roomId).then((freshRoom) => {
+      setV2Room(freshRoom);
+      syncCharacterStatsFromRoom(freshRoom);   // [aichat E-1.11a 잔여] 같은 계열의 미배선
+    }).catch(() => {});
     sfx.chime();
-  }, [refreshUser, roomId]);
+  }, [refreshUser, roomId, syncCharacterStatsFromRoom]);
 
   // V2 초기화 (스토리 / 페르소나 포함)
   const handleResetV2 = useCallback(async (includePersona) => {
@@ -2219,6 +2243,14 @@ const ChatPage = () => {
       // 리로드 — 초기 상태로 리셋
       const detail = await fetchStoryV2RoomDetail(roomId);
       setV2Room(detail);
+      // [aichat E-1.11a 잔여] 상태창 스탯도 함께 되돌린다.
+      //   서버는 실제로 0으로 리셋한다(StoryV2Service.cascadeResetRoom → heroine 행 삭제 후
+      //   재생성, ChatRoomHeroine.resetProgress()가 8축 전부 0). 그런데 FE는 setV2Room만 하고
+      //   characterStats를 그대로 뒀다 — **초기화된 방에 친밀도 80이 떠 있었다.**
+      //   E-1.11a가 없애려던 '셀렉터를 다시 열어야 맞춰지는' 우회가 여기 그대로 남아 있었다.
+      //   핀은 먼저 푼다: 리셋은 '처음부터'라 이전 선택을 유지할 이유가 없다.
+      statsPinnedHeroineIdRef.current = null;
+      syncCharacterStatsFromRoom(detail);
       // [블록 B 리뷰픽스] '현재 프로필로 새로 시작' 시 설정창 스냅샷 표시도 즉시 갱신
       setRoomPersona(detail.userPersona || "");
       setCurrentScene(null);
@@ -2230,7 +2262,7 @@ const ChatPage = () => {
     } catch (e) {
       showToast(e.response?.data?.message || "초기화 실패", "error");
     }
-  }, [roomId]);
+  }, [roomId, syncCharacterStatsFromRoom]);
 
   // V2 엔딩 크레딧 종료 → 로비로
   const handleV2EndingComplete = useCallback(() => {
