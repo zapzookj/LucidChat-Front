@@ -198,10 +198,27 @@ const LucidStore = ({
   //   기본값을 false로 두어 조회 실패 시 '노출하지 않는' 쪽으로 안전하게 닫힌다.
   const [secretProductsEnabled, setSecretProductsEnabled] = useState(false);
 
+  // [aichat E-1.13b] 시크릿 탭 가시성 술어를 **한 곳에서만** 정의한다.
+  //
+  //   종전엔 조건이 두 갈래로 갈려 있었다 — 탭 렌더는
+  //   `!!currentCharacterId && secretProductsEnabled`를 보는데, initialTab 폴백은
+  //   `secretProductsEnabled`만 봤다. 그래서 **노브를 켜는 날**(SECRET_PRODUCTS_ENABLED=true)
+  //   캐릭터 문맥이 없는 진입점(로비 · 극장 포털)에서 initialTab="secret"으로 열면
+  //   탭 줄에는 시크릿이 없는데 본문만 시크릿으로 남는 깨진 화면이 됐다.
+  //   지금은 노브가 꺼져 있어 도달하지 않지만, G-4(로비·극장 시크릿 개방)가
+  //   정확히 그 진입점을 여는 결정이라 먼저 닫아 둔다.
+  //
+  //   ⚠ 이건 표시 정합일 뿐 구매 게이트가 아니다 — 서버가 독립적으로 막는다
+  //   (`PaymentService`: `product.isSecretGated() && !secretModeService.isSecretProductsEnabled()`).
+  const canShowSecretTab = (enabled) => !!currentCharacterId && enabled;
+
   useEffect(() => {
     if (isOpen) {
       sfx.wooshLight();
-      setActiveTab(normalizeTab(initialTab));
+      // 캐릭터 문맥은 동기적으로 알 수 있으므로 그 절반은 왕복 없이 먼저 적용한다
+      // (노브 절반은 /users/secret-status 응답을 기다려야 한다 — 아래 then).
+      const wanted = normalizeTab(initialTab);
+      setActiveTab(wanted === "secret" && !currentCharacterId ? "pass" : wanted);
       setStatus("idle");
       setErrorMsg("");
       if (currentCharacterId) setSelectedCharId(currentCharacterId);
@@ -213,7 +230,9 @@ const LucidStore = ({
           setSecretProductsEnabled(on);
           // 시크릿 탭이 숨겨진 상태에서 initialTab="secret"으로 열리면(상태창 업셀·SecretModeFlow 경로)
           // 탭은 없고 본문만 비는 화면이 된다. 가장 가까운 상위 상품 탭으로 떨어뜨린다.
-          if (!on && initialTab === "secret") setActiveTab("pass");
+          // ★ 탭 렌더와 **같은 술어**를 쓴다 — 종전엔 여기만 `on`을 봐서 캐릭터 문맥이 없는
+          //   진입점에서 조건이 어긋났다(E-1.13b).
+          if (!canShowSecretTab(on) && initialTab === "secret") setActiveTab("pass");
         })
         .catch(() => {
           setSecretProductsEnabled(false);
@@ -348,7 +367,7 @@ const LucidStore = ({
                   서버가 지급 트래킹용으로 targetCharacterId를 요구하는데 극장에는 '현재 화자' 개념이 없어
                   탭을 열어 두면 구매가 복구 불가 에러로 끝난다(레지스터 E-1.13a). */}
               {/* [안건 7(b)] 시크릿 상품 롤아웃 토글이 off면 탭 자체를 숨긴다(PG 심사용 완전 게이팅). */}
-              {TABS.filter((t) => t.key !== "secret" || (!!currentCharacterId && secretProductsEnabled)).map((tab) => {
+              {TABS.filter((t) => t.key !== "secret" || canShowSecretTab(secretProductsEnabled)).map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.key;
                 return (
@@ -583,7 +602,11 @@ const LucidStore = ({
             )}
 
             {/* ═══ SECRET TAB ═══ */}
-            {status === "idle" && activeTab === "secret" && (
+            {/* [aichat E-1.13b] 본문에도 같은 술어를 건다 — 탭 필터만으로는 부족하다.
+                activeTab이 "secret"으로 남는 경로가 하나라도 생기면(초기값·비동기 폴백 경합)
+                탭 없이 본문만 뜨는 화면이 재현되기 때문이다. 대조군: PASS 탭은
+                `PASS_PRODUCTS.filter((p) => !p.adultOnly || secretProductsEnabled)`로 이미 본문을 거른다. */}
+            {status === "idle" && activeTab === "secret" && canShowSecretTab(secretProductsEnabled) && (
               <motion.div
                 key="secret"
                 initial={{ opacity: 0, y: 10 }}

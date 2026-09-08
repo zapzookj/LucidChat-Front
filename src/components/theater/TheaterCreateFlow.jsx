@@ -71,6 +71,24 @@ const STAT_AXES = [
   { key: "empathy", label: "감수성", icon: "🌸", color: "rose", desc: "공감과 섬세함" },
 ];
 
+// [aichat F-1.a] 티어별 초기 스탯 분배 한도 — 화면의 모든 티어 숫자는 이 표 하나에서 파생한다.
+//
+//   종전엔 업셀 비교 카드가 "최대 40 P"를 문자열로 하드코딩해 실지급 20 P와 **2배 어긋나** 있었다.
+//   유료 구독 결제 직전 화면에서 지급량을 두 배로 광고하고 있었던 것이고, 원인은 판단 착오가 아니라
+//   **같은 숫자를 두 곳에 적었다는 것** 하나다. 그래서 문자열만 고치지 않고 출처를 하나로 세운다.
+//
+//   ⚠ 백엔드 TheaterLobbyService의 티어 상수와 **1:1로 유지할 것.**
+//     서버가 같은 값으로 위변조를 검증하므로(validateInitialStats) 한쪽만 바꾸면
+//     정상 유저가 "스탯 총합이 한도를 초과했습니다" 400을 맞는다. 반드시 같은 커밋으로 옮긴다.
+//
+//   매핑 근거: LUCID_PASS_PREMIUM은 실제 결제 모델에 존재하지 않는 deprecated enum이라
+//   FREE로 흡수한다(서버도 default 분기에서 FREE로 떨어뜨린다).
+const STAT_TIER_LIMITS = {
+  LUCID_MIDNIGHT_PASS: { total: 500, perStat: 100, label: "프리미엄" },
+  LUCID_PASS: { total: 20, perStat: 10, label: "표준" },
+  FREE: { total: 0, perStat: 0, label: null },
+};
+
 // [Phase III · B-4] 스텝 인디케이터 라벨
 const STEP_LABELS = [
   { n: 1, label: "히로인" },
@@ -122,22 +140,12 @@ export default function TheaterCreateFlow({
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  // 구독 티어로 스탯 분배 한도 결정.
-  // [Polish · P0] 매핑 재정렬:
-  //   - LUCID_MIDNIGHT_PASS (24,900원/월, 프리미엄) → 40 / perStat 20
-  //   - LUCID_PASS         (14,900원/월, 표준)    → 20 / perStat 10
-  //   - 그 외(미구독, deprecated LUCID_PASS_PREMIUM) → 0 (분배 잠김)
-  //   기존엔 LUCID_PASS_PREMIUM이 Premium에 매핑되었지만 실제 결제 모델에는
-  //   LUCID_PASS_PREMIUM이 존재하지 않아 모든 유저가 사실상 STANDARD(20/10) 또는
-  //   FREE(0/0)였다. 백엔드(TheaterLobbyService.validateInitialStats)와 동일한
-  //   매핑을 사용해 위변조 시도 시 검증 실패가 나도록 정합성 확보.
-  // ⚠️ LUCID_MIDNIGHT_PASS는 추후 "분배 무제한" 정책으로 전환될 예정 — 지금은 임시 40/20.
-  const statTier = useMemo(() => {
-    const tier = user?.subscriptionTier;
-    if (tier === "LUCID_MIDNIGHT_PASS") return { total: 500, perStat: 100, label: "프리미엄" };
-    if (tier === "LUCID_PASS") return { total: 20, perStat: 10, label: "표준" };
-    return { total: 0, perStat: 0, label: null };
-  }, [user]);
+  // 구독 티어로 스탯 분배 한도 결정 — 값은 STAT_TIER_LIMITS(단일 출처)에서만 읽는다.
+  //   미구독과 deprecated LUCID_PASS_PREMIUM은 FREE로 떨어진다(서버 default 분기와 동일).
+  const statTier = useMemo(
+    () => STAT_TIER_LIMITS[user?.subscriptionTier] ?? STAT_TIER_LIMITS.FREE,
+    [user]
+  );
 
   // [Phase 7-V2 Pivot] 통합 로비에서 히로인 선택 완료 → step 2(아바타)부터 시작
   const MIN_STEP = skipHeroineSelection ? 2 : 1;
@@ -741,9 +749,13 @@ export default function TheaterCreateFlow({
                               <Gem size={9} />
                               Lucid Pass
                             </div>
-                            <div className="text-sm text-amber-100 font-bold mb-0.5">최대 40 P</div>
+                            {/* [aichat F-1.a] 숫자를 STAT_TIER_LIMITS에서 파생한다 —
+                                하드코딩된 "최대 40 P"가 실지급 20 P와 2배 어긋나 있었다. */}
+                            <div className="text-sm text-amber-100 font-bold mb-0.5">
+                              최대 {STAT_TIER_LIMITS.LUCID_PASS.total} P
+                            </div>
                             <div className="text-[11px] text-amber-200/65 leading-relaxed">
-                              자유 분배 + 분기 해금
+                              스탯 {STAT_AXES.length}종에 자유 분배
                             </div>
                           </div>
                         </div>
