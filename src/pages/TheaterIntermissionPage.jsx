@@ -102,9 +102,13 @@ export default function TheaterIntermissionPage() {
         activityId: activity.id,
         useExtraEnergy,
       });
+      // [aichat F-2] 종전엔 세 번째 분기가 "CRIT"을 봤는데 서버는 그 값을 낸 적이 없다
+      //   (IntermissionCatalog: GREAT_SUCCESS / SUCCESS / FAIL 3종).
+      //   그래서 **가장 좋은 결과인 '대성공'만 소리가 없었다** — 화면은 정상이라 눈치채기 어렵다.
+      //   값을 열거하는 대신 'FAIL이 아니면 성공음'으로 뒤집는다. 서버가 등급을 하나 더
+      //   추가해도 무음으로 새지 않는다(같은 형태의 재발 방지).
       if (result?.outcome === "FAIL") sfx.thud();
-      else if (result?.outcome === "SUCCESS") sfx.chime();
-      else if (result?.outcome === "CRIT") sfx.chime();
+      else if (result?.outcome) sfx.chime();
       setActivityResult(result);
       setRollPhase("revealed");
 
