@@ -84,7 +84,10 @@ const STAT_AXES = [
 //   매핑 근거: LUCID_PASS_PREMIUM은 실제 결제 모델에 존재하지 않는 deprecated enum이라
 //   FREE로 흡수한다(서버도 default 분기에서 FREE로 떨어뜨린다).
 const STAT_TIER_LIMITS = {
-  LUCID_MIDNIGHT_PASS: { total: 500, perStat: 100, label: "프리미엄" },
+  // [G-6 · aichat decisions_confirmed.md §G-6 · 2026-09-08] 500 → 300 정정.
+  //   ⚠ 서버(TheaterLobbyService.PREMIUM_TOTAL_POINTS)와 반드시 함께 배포할 것 —
+  //     화면만 300으로 내리면 무해하지만, 서버만 내리면 500 슬라이더가 400을 맞는다.
+  LUCID_MIDNIGHT_PASS: { total: 300, perStat: 100, label: "프리미엄" },
   LUCID_PASS: { total: 20, perStat: 10, label: "표준" },
   FREE: { total: 0, perStat: 0, label: null },
 };
