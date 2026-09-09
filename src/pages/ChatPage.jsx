@@ -1602,11 +1602,24 @@ const ChatPage = () => {
         sceneStage.register(data.sceneIllustration);
 
         //   // ── [Phase 5.5-Illust] 일러스트 생성 트리거 ──
-        if (data.generateIllustration) {
-          setIllustrationAvailable(true);
-          // 일정 시간 후 자동 소멸 (유저가 놓칠 경우)
-          setTimeout(() => setIllustrationAvailable(false), 30000);
-        }
+        // [aichat G-2 · blockd §B#5] 옛 캐릭터 CG(ModelsLab) 트랙 영구 동결 —
+        //   이 FAB을 누르면 서버가 100% 400을 던진다(IllustrationController가
+        //   legacy.illustration.legacy-cg-enabled 게이트에서 차감 전에 거부).
+        //   즉 **누르면 반드시 실패하는 버튼**이 주력 채팅 화면에 떠 있었다.
+        //   종원 확정: "ModelsLab 관련 기능은 피벗을 진행하며 진작에 정리했어야 할 기능이다."
+        //
+        //   FAB의 JSX 블록과 모달은 **그대로 둔다** — 신호만 끊는다.
+        //   ① '코드 보존, 진입만 차단'이 이 저장소의 레거시 처분 관례다(되돌릴 여지)
+        //   ② JSX 블록을 잘라내는 편집은 과절단 사고 유형이다(2026-08-21 260줄).
+        //   되살리려면 아래 두 줄의 주석을 풀고 서버 노브를 켜면 된다.
+        //
+        //   ⚠ 서버는 여전히 매 턴 generateIllustration을 내려보내고 프롬프트도 그 필드를
+        //     요구한다 — 그 토큰 세금은 별건이다(CharacterPromptAssembler의 스키마 축소는
+        //     V1 전 턴의 파싱에 영향이 가므로 단독 배치로).
+        // if (data.generateIllustration) {
+        //   setIllustrationAvailable(true);
+        //   setTimeout(() => setIllustrationAvailable(false), 30000);
+        // }
 
         // ── [Phase 5.5-Illust / Phase 6 hotfix] 장소 전환 처리 ──
         if (data.locationTransition && data.locationTransition.isNewLocation) {
