@@ -124,6 +124,7 @@ const ChatPage = () => {
   });
   const [roomPersona, setRoomPersona] = useState("");  // [Bug #3 Fix] 채팅방 전용 페르소나
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isRefreshingPersona, setIsRefreshingPersona] = useState(false);  // [2026-09-11] 자유 방 프로필 재적용
 
   // [BGM Volume]
   const [bgmVolume, setBgmVolume] = useState(() => {
@@ -981,12 +982,32 @@ const ChatPage = () => {
     try {
       // [블록 B] 방 단위 페르소나 편집 제거 — 페르소나는 시작 시점 프로필 스냅샷(중도 교체 불가)
       await api.patch("/users/update", { nickname: userInfo.nickname });
-      showToast("프로필이 성공적으로 저장되었습니다.", "success");
+      // [2026-09-11] AuthContext(localStorage)까지 갱신 — 종전엔 로컬 사본이 로그인 시점 값으로
+      //   남아, 로비 진입 직후 /users/me 도착 전 한 프레임이 옛 이름으로 그려졌다(이름 깜빡임).
+      if (refreshUser) {
+        try { await refreshUser(); } catch { /* 표시 갱신 실패가 저장을 되돌리진 않는다 */ }
+      }
+      showToast("계정 닉네임을 저장했습니다.", "success");
     } catch (err) {
       console.error(err);
       showToast("저장에 실패했습니다.", "error");
     } finally {
       setIsSavingProfile(false);
+    }
+  };
+
+  // [2026-09-11] 자유 모드 페르소나 재적용 — 대화는 그대로 두고 현재 프로필만 다시 스냅샷
+  const handleRefreshPersona = async () => {
+    setIsRefreshingPersona(true);
+    try {
+      const res = await api.post(`/chat/rooms/${roomId}/persona/refresh`);
+      setRoomInfo(res.data);
+      setRoomPersona(res.data.userPersona || "");
+      showToast("현재 프로필을 적용했어요.", "success");
+    } catch (err) {
+      showToast(err.response?.data?.message || "적용에 실패했습니다.", "error");
+    } finally {
+      setIsRefreshingPersona(false);
     }
   };
 
@@ -1087,7 +1108,10 @@ const ChatPage = () => {
 
         setRoomInfo(roomRes.data);
         // [Bug #3 Fix] 채팅방 전용 페르소나 초기화
-        setRoomPersona(roomRes.data.userPersona || userRes.data.profileDescription || "");
+        // [2026-09-11] 방 스냅샷이 정본 — user.profileDescription 폴백 제거.
+        //   새 프로필 시스템은 user_personas에 쓰므로 그 레거시 필드는 사실상 항상 비어 있어,
+        //   스냅샷이 비면 '소개가 비었다'고 잘못 안내하던 경로였다.
+        setRoomPersona(roomRes.data.userPersona || "");
         // [Phase 5.5] 상태창 데이터 복원
         if (roomRes.data.stats) setCharacterStats(roomRes.data.stats);
         if (roomRes.data.dynamicRelationTag) setDynamicRelationTag(roomRes.data.dynamicRelationTag);
@@ -2410,6 +2434,13 @@ const ChatPage = () => {
                     if (freshUser.data.freeEnergy !== undefined) setFreeEnergy(freshUser.data.freeEnergy);
                     if (freshUser.data.paidEnergy !== undefined) setPaidEnergy(freshUser.data.paidEnergy);
                 } catch (_) { /* ignore energy sync failure */ }
+                // [2026-09-11] 초기화 = 처음부터 다시 — 서버가 현재 프로필을 재적용하므로
+                //   설정창 표시도 새 스냅샷으로 맞춘다(종전엔 첫 생성 시점 값이 그대로 남았다).
+                try {
+                    const freshRoom = await api.get(`/chat/rooms/${roomId}`);
+                    setRoomInfo(freshRoom.data);
+                    setRoomPersona(freshRoom.data.userPersona || "");
+                } catch (_) { /* 표시 갱신 실패는 초기화 자체를 되돌리지 않는다 */ }
                 showToast("초기화되었습니다. 새로운 만남을 시작합니다.", "success");
                 closeConfirm();
                 
@@ -3076,7 +3107,10 @@ const ChatPage = () => {
                         </h3>
                         <div className="space-y-4">
                             <div>
-                                <label className="block text-xs text-gray-500 mb-1">Nickname</label>
+                                {/* [2026-09-11] 이름 소스가 둘이라 유저가 '고쳤는데 어떤 데선 안 바뀐다'고
+                                    느끼던 자리 — 여긴 계정 닉네임(로비 표시)이고, 캐릭터 호칭은
+                                    보관함 › 페르소나의 '이름'이 정본임을 라벨로 갈라 놓는다. */}
+                                <label className="block text-xs text-gray-500 mb-1">계정 닉네임 <span className="text-white/25">(로비 표시용)</span></label>
                                 <div className="relative">
                                   <input 
                                       type="text" 
@@ -3098,14 +3132,28 @@ const ChatPage = () => {
                                 </div>
                             </div>
                             
-                            {/* [블록 B] 방 페르소나 = 시작 시점 프로필 스냅샷(읽기 전용) — 편집은 보관함 > 페르소나 */}
+                            {/* [2026-09-11] 자유 모드는 페르소나를 풀어놓는다 — 이 방에 적용된 스냅샷을
+                                보여주고, 프로필을 고쳤으면 여기서 바로 다시 적용할 수 있다. */}
                             <div className="relative">
-                                <label className="block text-xs text-gray-500 mb-1">이 이야기의 내 페르소나</label>
+                                <label className="block text-xs text-gray-500 mb-1">이 대화의 내 페르소나</label>
+                                {roomInfo?.userNickname && (
+                                  <p className="mb-1.5 text-[11px] text-white/40">
+                                    캐릭터가 부르는 이름 · <span className="text-white/70 font-medium">{roomInfo.userNickname}</span>
+                                  </p>
+                                )}
                                 <div className="w-full max-h-32 overflow-y-auto custom-scrollbar bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white/70 text-sm leading-relaxed whitespace-pre-wrap">
-                                  {roomPersona || "시작할 때의 프로필 소개가 비어 있었어요."}
+                                  {roomPersona || "이 대화에 적용된 소개가 없어요. 보관함에서 프로필을 채운 뒤 아래로 적용하세요."}
                                 </div>
+                                <button
+                                    onClick={handleRefreshPersona}
+                                    disabled={isRefreshingPersona}
+                                    className="mt-2 w-full py-2 rounded-lg text-xs font-medium transition disabled:opacity-50
+                                        bg-white/5 border border-white/10 text-white/70 hover:bg-white/10 hover:text-white"
+                                >
+                                    {isRefreshingPersona ? "적용 중…" : "현재 프로필 적용"}
+                                </button>
                                 <p className="mt-1.5 text-[10px] text-white/25">
-                                  시작 시점의 프로필이 그대로 적용돼요 — 프로필을 바꾸면 새 이야기부터 반영됩니다. (보관함 › 페르소나)
+                                  대화는 그대로 두고 페르소나만 지금 프로필로 바꿉니다. (편집은 보관함 › 페르소나)
                                 </p>
                             </div>
 

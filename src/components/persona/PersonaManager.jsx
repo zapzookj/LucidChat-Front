@@ -172,7 +172,9 @@ export default function PersonaManager({
     <div className="space-y-6">
       {/* ── 활성 프로필 편집 ── */}
       <div className="space-y-4">
-        {/* 아키타입 — 소개 빠른 채우기 */}
+        {/* 아키타입 — 소개 빠른 채우기.
+            [2026-09-11] 라벨대로 '소개'만 채운다 — 종전엔 name·gender까지 덮어써서
+            "회귀자"를 누르면 내 이름이 회귀자가 됐다(캐릭터 호칭이 흔들린 원인 하나). */}
         <div>
           <label className="text-[11px] text-white/50 mb-1.5 block flex items-center gap-1">
             <Sparkles size={11} className="text-amber-300" /> 아키타입으로 소개 채우기 (선택)
@@ -180,7 +182,7 @@ export default function PersonaManager({
           <div className="flex flex-wrap gap-1.5">
             {PERSONA_ARCHETYPES.map((a) => (
               <button key={a.key}
-                onClick={() => { uiClick(0.2); setDraft((p) => ({ ...p, name: a.name, gender: a.gender, personaText: a.personaText })); }}
+                onClick={() => { uiClick(0.2); setDraft((p) => ({ ...p, personaText: a.personaText })); }}
                 className="text-[11px] px-2.5 py-1.5 rounded-full border border-white/15 bg-white/[0.04] text-white/60 hover:border-amber-400/40 hover:text-amber-200 transition">
                 {a.name}
               </button>
