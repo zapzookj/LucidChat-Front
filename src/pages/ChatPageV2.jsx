@@ -1,3 +1,6 @@
+import EntryExperience from "../components/experience/EntryExperience";
+import EntryPreparation from "../components/experience/EntryPreparation";
+import { getIntroVideo } from "../utils/introPresentation";
 import { Fragment, useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
@@ -151,7 +154,22 @@ const ChatPage = () => {
   // 인트로 시퀀스 상태 ('none' | 'door' | 'greeting')
   const [introStep, setIntroStep] = useState('none');
   const [openingReady, setOpeningReady] = useState(false); // [UX] V2 오프닝 첫 씬 도착 여부 (인트로 영상 스킵 게이트)
-  const [isLoading, setIsLoading] = useState(true); // 깜빡임 방지용
+  const [isLoading, setIsLoading] = useState(true);
+  const [introError, setIntroError] = useState(null);
+  const [entryLoadError, setEntryLoadError] = useState(null);
+  const introRequestRef = useRef(null);
+  const introMountedRef = useRef(false);
+  const introRoomRef = useRef(roomId);
+  useEffect(() => {
+    introMountedRef.current = true;
+    introRoomRef.current = roomId;
+    return () => {
+      introMountedRef.current = false;
+      introRequestRef.current?.abort();
+      introRequestRef.current = null;
+    };
+  }, [roomId]);
+  const [openingCandidateRoomId, setOpeningCandidateRoomId] = useState(null);
   
   // [UI 상태]
   const [showHistory, setShowHistory] = useState(false);
@@ -1310,7 +1328,11 @@ const ChatPage = () => {
       if (initCalledRef.current === roomId) return;
       initCalledRef.current = roomId;
 
-      setIsLoading(true); 
+      setIsLoading(true);
+      setEntryLoadError(null);
+      setIntroError(null);
+      setOpeningReady(false);
+      setIntroStep('none');
 
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       //  [Phase 7-V2 Pivot] V2 방 우선 시도 — 성공 시 V1 init 건너뜀
@@ -1321,6 +1343,7 @@ const ChatPage = () => {
 
         setIsV2(true);
         setV2Room(v2Detail);
+        setOpeningCandidateRoomId(null);
 
         // V2 → V1 호환 roomInfo 매핑 (첫 히로인 기준 — currentSpeakerHeroine memo가 추후 갱신)
         const firstHeroine = v2Detail.heroines?.[0];
@@ -1376,7 +1399,13 @@ const ChatPage = () => {
         // V2 채팅 로그 (대화 기록용) — V1과 동일 endpoint 재사용
         try {
           const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=50`);
-          const logs = (logsRes.data?.content || []).reverse();
+          if (!Array.isArray(logsRes.data?.content)) throw new Error('INVALID_HISTORY');
+          const logs = [...logsRes.data.content].reverse();
+          // Only a successful history read can establish that this is a new room.
+          // A network failure must not create a second opening in an existing room.
+          const needsOpening = logs.length === 0 && !v2Detail.endingReached;
+          setOpeningCandidateRoomId(needsOpening ? roomId : null);
+          setIntroStep(needsOpening ? 'door' : 'none');
           // [Scene-Polish D] 씬 복원 K-윈도우 판정 입력 — 방 로그 총수(Spring Page.totalElements) 전달
           sceneStage.notifyLogTotal(logsRes.data?.totalElements ?? logs.length);
           const expandedLogs = [];
@@ -1429,7 +1458,10 @@ const ChatPage = () => {
           }
           // [Bug-Restore] topicConcluded 복원 — V1 init에는 있던 복원이 V2 init에 누락돼 있었음.
           if (v2Detail.topicConcluded !== undefined) setTopicConcluded(v2Detail.topicConcluded);
-        } catch (e) { console.warn("[V2-Init] logs load failed", e); }
+        } catch (e) {
+          console.warn("[V2-Init] logs load failed", e);
+          setEntryLoadError("대화 기록을 확인하지 못했어요. 연결 상태를 확인하고 다시 불러와 주세요.");
+        }
 
         // 알림
         try {
@@ -1443,8 +1475,7 @@ const ChatPage = () => {
           setShowV2EndingCredits(true);
         }
 
-        // 인트로 스킵 — V2는 CreateFlow에서 처리
-        setIntroStep('none');  // [Bug-BGM] 'none' 통일 — BGM 자동시작 effect(introStep==='none')가 V2에서 영원히 불발하던 근본 수정
+        // Existing rooms resume quietly; only a confirmed empty room gets an entrance.
         setIsLoading(false);
         return;  // V1 init 건너뜀
 
@@ -1511,7 +1542,8 @@ const ChatPage = () => {
           setDynamicBackgroundUrl(roomRes.data.currentDynamicBgUrl);
         }
 
-        const logs = logsRes.data?.content || [];
+        if (!Array.isArray(logsRes.data?.content)) throw new Error('INVALID_HISTORY');
+        const logs = logsRes.data.content;
         // [Scene-Polish D] 씬 복원 K-윈도우 판정 입력 — 방 로그 총수(Spring Page.totalElements) 전달 (V1 폴백)
         sceneStage.notifyLogTotal(logsRes.data?.totalElements ?? logs.length);
 
@@ -1551,6 +1583,7 @@ const ChatPage = () => {
         }
       } catch (err) {
         console.error("Init Error", err);
+        setEntryLoadError("연결 상태를 확인하고 다시 불러와 주세요.");
         showToast("초기화 중 오류가 발생했습니다.", "error");
       } finally {
         setIsLoading(false);
@@ -1560,15 +1593,24 @@ const ChatPage = () => {
   }, [roomId]);
 
   const startIntroSequence = async (roomId, roomData) => {
-      setIntroStep('door'); // 1. 영상 재생 시작
+      if (!introMountedRef.current || introRoomRef.current !== roomId || introRequestRef.current) return;
+      const request = new AbortController();
+      introRequestRef.current = request;
+      setCurrentScene(null);
+      setSceneQueue([]);
+      setOpeningReady(false);
+      setIntroError(null);
+      setIntroStep('door'); // Presentation and first-scene preparation run together.
       
       try {
           // 2. 백엔드 init (나레이션 + 첫인사 생성)
-          await api.post(`/chat/rooms/${roomId}/init`);
+          await api.post(`/chat/rooms/${roomId}/init`, {}, { signal: request.signal });
           
           // 3. 생성된 로그 가져오기
-          const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=5`);
-          const newLogs = logsRes.data.content.reverse();
+          const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=5`, { signal: request.signal });
+          if (request.signal.aborted) return;
+          if (!Array.isArray(logsRes.data?.content)) throw new Error('INVALID_HISTORY');
+          const newLogs = [...logsRes.data.content].reverse();
           
           setMessages(newLogs);
 
@@ -1577,7 +1619,7 @@ const ChatPage = () => {
           const queue = [];
           
           // (1) 나레이션 씬
-          const narrationLog = newLogs.find(l => l.role === 'SYSTEM');
+          const narrationLog = newLogs.find(l => l.role === 'SYSTEM' && typeof l.cleanContent === 'string' && l.cleanContent.trim());
           if (narrationLog) {
             const parts = splitNarration(narrationLog.cleanContent, 140);
             parts.forEach(part => {
@@ -1596,7 +1638,7 @@ const ChatPage = () => {
           // [Scene-Polish A] 하드코딩 narrationMap 삭제 — 서버가 이미 생성해 로그로 도착한
           //   SYSTEM 인트로 나레이션의 *마지막 문장*을 첫인사 씬 나레이션으로 재사용.
           //   SYSTEM 로그가 없는 레거시 UGC 방만 제네릭 폴백 — V1과 동일하게 받침 조사 처리('가' 고정 버그 픽스).
-          const greetingLog = newLogs.find(l => l.role === 'ASSISTANT');
+          const greetingLog = newLogs.find(l => l.role === 'ASSISTANT' && typeof l.cleanContent === 'string' && l.cleanContent.trim());
           if (greetingLog) {
               const charName = roomData?.characterName || "캐릭터";
               const introTail = narrationLog ? extractLastSentence(narrationLog.cleanContent) : "";
@@ -1609,15 +1651,22 @@ const ChatPage = () => {
               });
           }
           
-          setSceneQueue(queue); // 큐에 넣고 대기 (영상 끝나면 Scene logic이 돌 것임)
+          if (queue.length === 0) throw new Error('EMPTY_OPENING');
+          setSceneQueue(queue);
+          setOpeningReady(true);
           
       } catch (e) {
+          if (request.signal.aborted) return;
           console.error("Intro Sequence Failed", e);
+          setIntroError("연결 상태를 확인한 뒤 다시 시도해 주세요.");
+      } finally {
+          if (introRequestRef.current === request) introRequestRef.current = null;
       }
   };
 
   const handleIntroVideoEnd = () => {
-      setIntroStep('none'); // 오버레이 제거 -> 이때부터 DialogueBox가 보임
+      if (!openingReady || introError) return;
+      setIntroStep('none'); // Only the ready scene can be revealed.
       // DialogueBox는 sceneQueue에 들어있는 첫 번째(나레이션)를 자동으로 재생 시작
   };
 
@@ -2125,10 +2174,13 @@ const ChatPage = () => {
   //    백엔드 generateOpeningStream이 멱등(로그 존재 시 빈 완료)이라 중복 발사에도 안전.
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   const fireOpeningV2 = useCallback(async (heroinesSnapshotArg) => {
+    if (!introMountedRef.current || introRoomRef.current !== roomId) return;
     if (openingFiredRef.current) return;
     // [적대적 검토 회귀] 진행 중인 턴이 있으면 이번엔 건너뛴다 — 플래그를 세우지 않아 재시도된다.
     if (isSseBusy()) return;
     openingFiredRef.current = true;
+    setOpeningReady(false);
+    setIntroError(null);
 
     // 시스템 메시지 판별 (handleSendMessageV2와 동일 규칙의 로컬 복사)
     const isSystemSpeaker = (speakerName, heroines) => {
@@ -2146,12 +2198,19 @@ const ChatPage = () => {
 
     const sseTurn = markSseTurnStart();   // [적대적 검토 회귀] 이전 스트림 abort 제거 — 진입 가드가 막는다
 
+    const openingAbort = sseAbortRef.current;
+    introRequestRef.current = openingAbort;
+    const isOpeningActive = () => introMountedRef.current && introRoomRef.current === roomId && !openingAbort?.signal.aborted;
     let firstSceneReceived = false;
-
-    await sendV2Opening(roomId, {
-      onFirstScene: (scene) => {
+    let openingFailed = false;
+    let finalResultReceived = false;
+    const receiveFirstScene = (scene) => {
+        if (!isOpeningActive() || openingFailed) return;
+        const playable = typeof scene?.dialogue === 'string' && scene.dialogue.trim()
+          || typeof scene?.narration === 'string' && scene.narration.trim();
+        if (firstSceneReceived || !playable) return;
         firstSceneReceived = true;
-        setOpeningReady(true);   // [UX] 오프닝 첫 씬 도착 → 인트로 영상 스킵 버튼 활성
+        setOpeningReady(true); // The first playable scene unlocks the presentation gate.
         setIsTyping(false);
         const isSystem = isSystemSpeaker(scene.speaker, heroinesSnapshot);
         setCurrentScene({
@@ -2167,13 +2226,32 @@ const ChatPage = () => {
         // 시스템/비-히로인 화자는 currentSpeaker로 두지 않음 (CharacterDisplay 혼동 방지)
         if (scene.speaker && !isSystem) setCurrentSpeaker(scene.speaker);
         setDisplayedEmotion(scene.emotion || "NEUTRAL");
-      },
+    };
+
+    const handleOpeningError = (err) => {
+      if (!isOpeningActive() || openingFailed) return;
+      setIsTyping(false);
+      setAwaitingFinalResult(false);
+      // Only an explicit retry rechecks history and starts another opening.
+      openingFailed = true;
+      if (!firstSceneReceived) setIntroError("첫 장면을 준비하지 못했어요. 다시 시도해 주세요.");
+      else showToast("첫 장면은 준비됐지만 연결이 끊겼어요. 잠시 후 다시 대화해 주세요.", "warning");
+      console.warn("[V2-Opening] failed:", err);
+    };
+
+    const openingCallbacks = {
+      onFirstScene: receiveFirstScene,
       onFinalResult: (data) => {
+        if (!isOpeningActive() || openingFailed || finalResultReceived) return;
+        finalResultReceived = true;
         if (!firstSceneReceived) setIsTyping(false);
         setAwaitingFinalResult(false);
         const { scenes, dialogueOptions: opts, topicConcluded: tc, locationTransition: locTr,
                 hasInnerThought: resHasThought, assistantLogId: resLogId } = data || {};
 
+        // A final-only stream is valid too: expose its first scene and queue the rest.
+        // Without this, a dropped first_scene event leaves a ready story behind the gate.
+        if (!firstSceneReceived && scenes?.length) receiveFirstScene(scenes[0]);
         if (scenes && scenes.length > 0) {
           // [aichat E-1.6b/6c/6d] 오프닝도 공용 빌더로 — NPC 3축·emotionTag·parentLogId가 전부 빠져 있었다.
           const entries = buildHistoryEntries(scenes, resLogId, resHasThought, { heroines: heroinesSnapshot });
@@ -2200,36 +2278,50 @@ const ChatPage = () => {
         }
 
         void fetchStoryV2RoomDetail(roomId).then((freshRoom) => {
+          if (!isOpeningActive()) return;
           if (freshRoom?.currentBgmMode) setCurrentBgmMode(freshRoom.currentBgmMode);  // [Bug-BGM]
           setV2Room(freshRoom);
           syncCharacterStatsFromRoom(freshRoom);   // [aichat E-1.11a] 상태창 동결 해제
         }).catch(() => {});
       },
-      onError: (err) => {
-        setIsTyping(false);
-        setAwaitingFinalResult(false);
-        // 오프닝 실패는 치명적이지 않음 — 유저는 첫 메시지로 시작 가능. 재시도 허용.
-        openingFiredRef.current = false;
-        console.warn("[V2-Opening] failed:", err);
-      },
-    }, sseAbortRef.current);
-    markSseTurnEnd(sseTurn);   // [적대적 검토 회귀] 턴 종료(자기 턴일 때만) — _ssePost는 던지지 않고 스트림 끝에서 resolve한다
+      onError: handleOpeningError,
+    };
+    try {
+      await sendV2Opening(roomId, openingCallbacks, openingAbort);
+    } catch (err) {
+      handleOpeningError(err);
+    } finally {
+      markSseTurnEnd(sseTurn);
+      if (introRequestRef.current === openingAbort) introRequestRef.current = null;
+    }
+    // A stream can close without a final event (including a server no-op). Never
+    // silently unlock an empty chat or spin an automatic retry loop in that case.
+    if ((!firstSceneReceived || !finalResultReceived) && !openingFailed && isOpeningActive()) {
+      setIsTyping(false);
+      setAwaitingFinalResult(false);
+      if (!firstSceneReceived) setIntroError("첫 장면을 받지 못했어요. 다시 준비하거나 로비로 돌아갈 수 있어요.");
+      else showToast("첫 장면은 준비됐지만 연결이 끊겼어요. 잠시 후 다시 대화해 주세요.", "warning");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, v2Room?.heroines, buildHistoryEntries]);
 
   // roomId 변경 시 오프닝 가드 리셋 (같은 컴포넌트 인스턴스가 다른 방으로 전환되는 경우)
-  useEffect(() => { openingFiredRef.current = false; setOpeningReady(false); }, [roomId]);
+  useEffect(() => {
+    openingFiredRef.current = false;
+    setOpeningReady(false);
+    setOpeningCandidateRoomId(null);
+  }, [roomId]);
 
   // 빈 방 진입 감지 → 오프닝 1회 자동 발사 (init이 messages를 비우고 v2Room을 채운 뒤)
   useEffect(() => {
-    if (!isV2 || isLoading) return;
+    if (!isV2 || isLoading || entryLoadError || openingCandidateRoomId !== roomId) return;
     if (openingFiredRef.current) return;
     if (!v2Room) return;                 // heroines 로드 완료 후
     if (messages.length > 0) return;     // 이미 대화/오프닝 존재
     if (v2Room.endingReached) return;    // 엔딩 도달 방은 오프닝 생략
-    setIntroStep('door');                // [UX] 시네마틱 인트로 영상 — 영상 재생과 오프닝 생성을 병렬로
+    setIntroStep('door'); // Presentation is independent from this single opening request.
     fireOpeningV2(v2Room.heroines);
-  }, [isV2, isLoading, messages.length, v2Room, fireOpeningV2]);
+  }, [isV2, isLoading, entryLoadError, openingCandidateRoomId, roomId, messages.length, v2Room, fireOpeningV2]);
 
   // V2 알림 클릭 처리
   const handleNotificationClickV2 = useCallback(async (notification) => {
@@ -2331,6 +2423,8 @@ const ChatPage = () => {
       //   → 씬도 대사도 없는 방. 새로고침(리마운트)해야 복구된다.
       openingFiredRef.current = false;
       setOpeningReady(false);
+      setIntroError(null);
+      setOpeningCandidateRoomId(roomId);
       // [블록 B 리뷰픽스] '현재 프로필로 새로 시작' 시 설정창 스냅샷 표시도 즉시 갱신
       setRoomPersona(detail.userPersona || "");
       setCurrentScene(null);
@@ -3135,13 +3229,13 @@ const ChatPage = () => {
   // 큐 자동 재생 (초기 진입 시)
   // [리플레이 E2] 리플레이 중엔 라이브 큐 소비를 홀드 — 복귀 시 이 effect가 이어서 재생
   useEffect(() => {
-    if (replay.isReplaying) return;
+    if (replay.isReplaying || introStep !== 'none') return;
     if (!currentScene && sceneQueue.length > 0) {
       const nextScene = sceneQueue[0];
       setCurrentScene(nextScene);
       setSceneQueue(prev => prev.slice(1));
     }
-  }, [sceneQueue, currentScene, replay.isReplaying]);
+  }, [sceneQueue, currentScene, replay.isReplaying, introStep]);
 
   // ━━━ [Phase 5.1] 단건 메시지 삭제 핸들러 ━━━
   // [Bug #1 Fix] 씬 분리된 메시지의 전체 씬을 일괄 삭제 (parentLogId 기반)
@@ -3347,7 +3441,9 @@ const ChatPage = () => {
   }, [roomId, historyPage, hasMoreHistory, historyLoading, isV2, v2Room?.heroines,
       roomInfo?.characterName, expandLogWithScenes]);
 
-  if (isLoading || !roomInfo) return <div className="h-full flex items-center justify-center bg-gray-900 text-white/30 animate-pulse">Loading Lucid Chat...</div>;
+  if (entryLoadError || !roomInfo || (isLoading && introStep !== 'door')) {
+    return <EntryPreparation error={entryLoadError} onRetry={() => window.location.reload()} onLeave={() => navigate('/')} />;
+  }
 
   return (
     <div className="relative w-full h-screen font-sans overflow-hidden bg-gray-900">
@@ -3376,51 +3472,23 @@ const ChatPage = () => {
         worldId={isV2 ? v2Room?.worldId : null}
       />
 
-      {/* ================= Intro — 경량 페이드 (§G-12: '문' 영상 교체) =================
-          영상은 UGC 월드 전부가 동일 폴백(2단 404)이라 플랫폼 스케일과 충돌 — 빛이 스며드는
-          페이드로 교체. 오프닝 레이턴시 마스킹(openingReady 게이트·스킵 UI)은 그대로 보존. */}
-      <AnimatePresence>
-          {introStep === 'door' && (
-              <motion.div
-                  initial={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 1.2 }}
-                  className="absolute inset-0 z-[999] bg-black flex items-center justify-center cursor-pointer"
-                  onClick={handleIntroVideoEnd}
-              >
-                  <motion.div
-                      className="absolute inset-0"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: [0, 0.55, 0.85] }}
-                      transition={{ duration: 2.0, times: [0, 0.6, 1], ease: "easeInOut" }}
-                      style={{ background: "radial-gradient(58% 42% at 50% 50%, rgba(178,160,255,0.33), rgba(90,80,160,0.12) 55%, transparent 78%)" }}
-                      onAnimationComplete={handleIntroVideoEnd}
-                  />
-                  <motion.div
-                      className="relative text-center pointer-events-none"
-                      initial={{ opacity: 0, scale: 0.96 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 1.1, delay: 0.25 }}
-                  >
-                      <div className="text-white/85 text-xl tracking-[0.4em] font-light">✦</div>
-                      <div className="mt-3 text-white/55 text-[13px] tracking-[0.35em]">꿈으로 건너가는 중</div>
-                  </motion.div>
-                  <div className="absolute bottom-10 w-full flex justify-center">
-                      {openingReady ? (
-                        <button
-                          onClick={handleIntroVideoEnd}
-                          className="px-5 py-2 rounded-full bg-white/15 backdrop-blur-sm border border-white/25 text-white/90 text-sm tracking-wide hover:bg-white/25 transition-colors"
-                        >
-                          스킵 ▶
-                        </button>
-                      ) : (
-                        <span className="text-white/30 text-xs tracking-widest animate-pulse">CLICK TO SKIP</span>
-                      )}
-                  </div>
-              </motion.div>
-          )}
-      </AnimatePresence>
-
+      {introStep === 'door' && <EntryExperience
+        key={roomId}
+        title={isV2 ? v2Room?.worldDisplayName : roomInfo?.characterName}
+        subtitle={isV2 ? '당신의 선택으로 이어질 새로운 세계' : '지금, 우리만의 이야기가 시작됩니다'}
+        kind={isV2 ? 'world' : 'character'}
+        videoSrc={assetUrl(getIntroVideo({ isWorld: isV2, worldId: v2Room?.worldId, characterSlug: roomInfo?.characterSlug }))}
+        ready={openingReady}
+        error={introError}
+        onComplete={handleIntroVideoEnd}
+        onRetry={() => {
+          // Re-read history first: the server may have saved the opening before a
+          // connection failure. Reloading resumes it instead of generating again.
+          if (isV2) window.location.reload();
+          else startIntroSequence(roomId, roomInfo);
+        }}
+        onLeave={() => navigate('/')}
+      />}
 
       {/* ═══ 캐릭터 디스플레이 + 속마음 말풍선 ═══ */}
       <div className="absolute inset-0 z-0">
@@ -3551,7 +3619,7 @@ const ChatPage = () => {
       {/* [2026-08-07 디오라마 이식] 리플레이 컨트롤 — 루트 레벨 마운트(딤 z-10 < 대사창 z-20 < 컨트롤 z-30) */}
       <SceneReplayOverlay replay={replay} portrait={isMobile} />
 
-      <DialogueBox
+      {introStep === 'none' && <DialogueBox
         mobile={isMobile}
         characterName={roomInfo?.characterName}
         scene={replayView ? replayView.scene : currentScene}
@@ -3610,7 +3678,7 @@ const ChatPage = () => {
             void handleSendActionV2(type);
           }
         }}
-      />
+      />}
 
       {/* [Phase 7-V2 Pivot] dialogue_options + 액션바는 DialogueBox 내부로 통합됨 — 외부 중복 컴포넌트 제거 */}
 

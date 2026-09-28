@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import useOverlayFocus from "../mobile/useOverlayFocus";
 import {
   X, Check, Sparkles, Wand2, RefreshCw, Zap, ArrowLeft, Globe, MapPin,
   Plus, Trash2, AlertTriangle, Image as ImageIcon,
@@ -14,6 +15,7 @@ import {
 } from "../../api/WorldStudioApi";
 import useUgcWorldJob from "../../hooks/useUgcWorldJob";
 import { sfx } from "../../utils/sfx";
+import "../../styles/aurora-secondary.css";
 
 /**
  * [World Builder v1] WorldCreateFlow — UGC 세계관 생성 전체화면 위저드
@@ -89,7 +91,7 @@ function resolveStep(job) {
 
 const SpinnerRing = ({ size = 40, className = "" }) => (
   <motion.div
-    className={`border-2 border-amber-400/30 border-t-amber-400 rounded-full ${className}`}
+    className={`border-2 border-lobby-accent/30 border-t-lobby-accent rounded-full ${className}`}
     style={{ width: size, height: size }}
     animate={{ rotate: 360 }}
     transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
@@ -108,7 +110,7 @@ const CyclingCopy = ({ lines, interval = 3500, className = "" }) => {
       <AnimatePresence mode="wait">
         <motion.p
           key={idx}
-          className="absolute inset-0 text-center text-sm text-amber-100/80"
+          className="absolute inset-0 text-center text-sm text-lobby-accent/80"
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -6 }}
@@ -122,7 +124,10 @@ const CyclingCopy = ({ lines, interval = 3500, className = "" }) => {
 };
 
 /** confirm 모달 — 비용/포기 등 확인 (z-[130], 위저드 위) */
-const ConfirmModal = ({ data, busy, onConfirm, onCancel }) => (
+const ConfirmModal = ({ data, busy, onConfirm, onCancel }) => {
+  const dialogRef = useRef(null);
+  useOverlayFocus(Boolean(data), dialogRef, busy ? undefined : onCancel);
+  return (
   <AnimatePresence>
     {data && (
       <motion.div
@@ -133,11 +138,12 @@ const ConfirmModal = ({ data, busy, onConfirm, onCancel }) => (
       >
         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={busy ? undefined : onCancel} />
         <motion.div
-          className={`relative z-10 w-full max-w-sm rounded-2xl p-6 border ${
-            data.danger ? "border-rose-400/25" : "border-amber-400/25"
+          ref={dialogRef} role="dialog" aria-modal="true" aria-label={data.title} tabIndex={-1}
+          className={`relative z-10 w-full max-w-sm max-h-[calc(100dvh-32px)] overflow-y-auto rounded-[24px] p-7 border ${
+            data.danger ? "border-rose-400/25" : "border-lobby-accent/25"
           }`}
           style={{
-            background: "linear-gradient(145deg, rgba(28,18,8,0.97), rgba(20,12,6,0.96))",
+            background: "linear-gradient(145deg, rgba(42,50,74,0.98), rgba(28,39,58,0.98))",
             boxShadow: "0 30px 60px rgba(0,0,0,0.6)",
           }}
           initial={{ scale: 0.92, y: 16, opacity: 0 }}
@@ -145,16 +151,16 @@ const ConfirmModal = ({ data, busy, onConfirm, onCancel }) => (
           exit={{ scale: 0.92, y: 16, opacity: 0 }}
           transition={{ type: "spring", stiffness: 300, damping: 28 }}
         >
-          <h3 className={`font-bold mb-2 ${data.danger ? "text-rose-200" : "text-amber-100"}`}>
+          <h3 className={`font-bold mb-2 ${data.danger ? "text-rose-200" : "text-lobby-accent"}`}>
             {data.title}
           </h3>
-          <p className="text-white/60 text-sm leading-relaxed mb-5 whitespace-pre-line">{data.desc}</p>
+          <p className="text-lobby-tx1 text-sm leading-relaxed mb-5 whitespace-pre-line">{data.desc}</p>
           <div className="flex gap-3">
             <button
               type="button"
               disabled={busy}
               onClick={() => { sfx.click(); onCancel(); }}
-              className="flex-1 py-2.5 rounded-xl bg-white/5 text-white/50 hover:bg-white/10 transition text-sm disabled:opacity-50"
+              className="flex-1 py-2.5 rounded-xl bg-white/5 text-lobby-tx1 hover:bg-white/10 transition text-sm disabled:opacity-50"
             >
               취소
             </button>
@@ -165,7 +171,7 @@ const ConfirmModal = ({ data, busy, onConfirm, onCancel }) => (
               className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1.5 disabled:opacity-50 ${
                 data.danger
                   ? "bg-rose-600/80 hover:bg-rose-500/80 text-white"
-                  : "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/20"
+                  : "aurora-secondary-primary"
               }`}
             >
               {busy ? "처리 중…" : data.confirmLabel || "확인"}
@@ -175,10 +181,11 @@ const ConfirmModal = ({ data, busy, onConfirm, onCancel }) => (
       </motion.div>
     )}
   </AnimatePresence>
-);
+  );
+};
 
 const fieldClass =
-  "w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm leading-relaxed placeholder:text-white/25 focus:border-amber-400/60 outline-none";
+  "w-full bg-lobby-surface/80 border border-white/15 rounded-xl px-3.5 py-3 text-white text-sm leading-relaxed placeholder:text-lobby-tx2 focus:border-lobby-accent/60 outline-none";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  STEP 1 — 컨셉 입력
@@ -190,7 +197,7 @@ const WORLD_CONCEPT_PLACEHOLDER = `예시처럼 자유롭게 적어주세요.
 · 백 년째 밤이 끝나지 않는 왕국. 사람들은 달빛 정원에서 꿈을 수확하며 살아간다.
 · 폐교 직전의 산골 학교. 오래된 괴담이 하나씩 현실이 되기 시작한다.`;
 
-const WorldConceptStep = ({ busy, error, energy, onSubmitRequest }) => {
+export const WorldConceptStep = ({ busy, error, energy, onSubmitRequest }) => {
   const [name, setName] = useState("");
   const [moodHint, setMoodHint] = useState("");
   const [concept, setConcept] = useState("");
@@ -201,17 +208,18 @@ const WorldConceptStep = ({ busy, error, energy, onSubmitRequest }) => {
   return (
     <div className="max-w-xl mx-auto w-full">
       <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-        <Globe size={16} className="text-amber-300" />
+        <Globe size={16} className="text-lobby-accent" />
         어떤 세계를 빚을까요?
       </h3>
-      <p className="text-xs text-white/50 mb-5">
+      <p className="text-xs text-lobby-tx1 mb-5">
         떠오르는 세계의 인상을 자유롭게 적어주세요. 설정과 장소는 스튜디오가 채워드려요.
       </p>
 
       {/* 이름 (선택) */}
       <div className="mb-4">
-        <label className="text-xs text-white/60 mb-1.5 block">세계관 이름 (선택)</label>
+        <label htmlFor="studio-world-name" className="text-xs text-lobby-tx1 mb-1.5 block">세계관 이름 (선택)</label>
         <input
+          id="studio-world-name"
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -223,8 +231,9 @@ const WorldConceptStep = ({ busy, error, energy, onSubmitRequest }) => {
 
       {/* 무드 힌트 (선택) */}
       <div className="mb-4">
-        <label className="text-xs text-white/60 mb-1.5 block">무드 힌트 (선택)</label>
+        <label htmlFor="studio-world-mood" className="text-xs text-lobby-tx1 mb-1.5 block">무드 힌트 (선택)</label>
         <input
+          id="studio-world-mood"
           type="text"
           value={moodHint}
           onChange={(e) => setMoodHint(e.target.value)}
@@ -236,8 +245,9 @@ const WorldConceptStep = ({ busy, error, energy, onSubmitRequest }) => {
 
       {/* 컨셉 */}
       <div className="mb-5">
-        <label className="text-xs text-white/60 mb-1.5 block">컨셉 *</label>
+        <label htmlFor="studio-world-concept" className="text-xs text-lobby-tx1 mb-1.5 block">컨셉 *</label>
         <textarea
+          id="studio-world-concept" aria-describedby="studio-world-concept-length"
           value={concept}
           onChange={(e) => setConcept(e.target.value)}
           placeholder={WORLD_CONCEPT_PLACEHOLDER}
@@ -245,13 +255,13 @@ const WorldConceptStep = ({ busy, error, energy, onSubmitRequest }) => {
           maxLength={CONCEPT_MAX}
           className={`${fieldClass} resize-none`}
         />
-        <div className={`mt-1 text-right text-[11px] tabular-nums ${valid ? "text-white/40" : "text-amber-300/70"}`}>
+        <div id="studio-world-concept-length" className={`mt-1 text-right text-xs tabular-nums ${valid ? "text-lobby-tx2" : "text-lobby-accent/70"}`}>
           {len} / {CONCEPT_MIN}~{CONCEPT_MAX}자
         </div>
       </div>
 
       {/* 에너지 고지 */}
-      <div className="flex items-center gap-1.5 mb-5 text-amber-300/85">
+      <div className="flex items-center flex-wrap gap-1.5 mb-5 text-lobby-accent/85">
         <Zap size={14} />
         <span className="text-xs font-semibold">생성 시작 시 에너지 {CREATE_COST} 소모</span>
         {lackEnergy && <span className="text-xs text-rose-300/80 ml-1">· 에너지가 부족해요</span>}
@@ -276,8 +286,8 @@ const WorldConceptStep = ({ busy, error, energy, onSubmitRequest }) => {
         whileTap={{ scale: valid && !busy ? 0.98 : 1 }}
         className={`w-full py-3.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
           valid && !busy && !lackEnergy
-            ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/25"
-            : "bg-white/5 text-white/25 cursor-not-allowed"
+            ? "aurora-secondary-primary"
+            : "bg-white/5 text-lobby-tx2 cursor-not-allowed"
         }`}
       >
         <Sparkles size={16} />
@@ -297,11 +307,11 @@ const ConceptProcessingView = () => (
         animate={{ scale: [1, 1.08, 1] }}
         transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
       >
-        <Globe size={26} className="text-amber-300" />
+        <Globe size={26} className="text-lobby-accent" />
       </motion.div>
     </div>
     <CyclingCopy lines={WORLD_CONCEPT_COPY} className="w-full mb-2" />
-    <p className="text-xs text-white/35">보통 10~30초 정도 걸려요. 잠시만 기다려 주세요.</p>
+    <p className="text-xs text-lobby-tx2">보통 10~30초 정도 걸려요. 잠시만 기다려 주세요.</p>
   </div>
 );
 
@@ -363,7 +373,7 @@ const WorldEditStep = ({ job, busy, error, onSave, onIllustrateRequest }) => {
     return (
       <div className="flex flex-col items-center justify-center py-24">
         <SpinnerRing size={48} className="mb-4" />
-        <p className="text-sm text-white/45">설정 초안을 불러오는 중…</p>
+        <p className="text-sm text-lobby-tx2">설정 초안을 불러오는 중…</p>
       </div>
     );
   }
@@ -418,17 +428,17 @@ const WorldEditStep = ({ job, busy, error, onSave, onIllustrateRequest }) => {
   return (
     <div className="max-w-2xl mx-auto w-full">
       <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-        <Wand2 size={16} className="text-amber-300" />
+        <Wand2 size={16} className="text-lobby-accent" />
         세계관 다듬기
       </h3>
-      <p className="text-xs text-white/50 mb-5">
+      <p className="text-xs text-lobby-tx1 mb-5">
         AI가 쓴 초안이에요. 마음껏 고쳐도 좋아요 — 일러스트를 시작하면 장소 구성은 바꿀 수 없어요.
       </p>
 
       <div className="space-y-4 mb-5">
         {/* 이름 */}
         <div>
-          <label className="text-[11px] text-white/50 mb-1 block">세계관 이름</label>
+          <label className="text-xs text-lobby-tx1 mb-1 block">세계관 이름</label>
           <input
             type="text"
             value={form.name}
@@ -440,7 +450,7 @@ const WorldEditStep = ({ job, busy, error, onSave, onIllustrateRequest }) => {
 
         {/* 소개 */}
         <div>
-          <label className="text-[11px] text-white/50 mb-1 block">소개</label>
+          <label className="text-xs text-lobby-tx1 mb-1 block">소개</label>
           <textarea
             value={form.intro}
             rows={3}
@@ -453,7 +463,7 @@ const WorldEditStep = ({ job, busy, error, onSave, onIllustrateRequest }) => {
 
         {/* 설정 본문 (lore) */}
         <div>
-          <label className="text-[11px] text-white/50 mb-1 block">설정 본문</label>
+          <label className="text-xs text-lobby-tx1 mb-1 block">설정 본문</label>
           <textarea
             value={form.lore}
             rows={8}
@@ -462,14 +472,14 @@ const WorldEditStep = ({ job, busy, error, onSave, onIllustrateRequest }) => {
             placeholder="세계의 규칙·역사·분위기를 자유롭게"
             className={`${fieldClass} resize-none`}
           />
-          <div className="mt-1 text-right text-[11px] tabular-nums text-white/40">
+          <div className="mt-1 text-right text-xs tabular-nums text-lobby-tx2">
             {form.lore.length} / {LORE_MAX}자
           </div>
         </div>
 
         {/* 무드 태그 */}
         <div>
-          <label className="text-[11px] text-white/50 mb-1 block">무드 태그</label>
+          <label className="text-xs text-lobby-tx1 mb-1 block">무드 태그</label>
           <input
             type="text"
             value={form.moodTags}
@@ -483,11 +493,11 @@ const WorldEditStep = ({ job, busy, error, onSave, onIllustrateRequest }) => {
         {/* 장소 리스트 */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="text-[11px] text-white/50 flex items-center gap-1.5">
-              <MapPin size={11} className="text-amber-300/70" />
+            <label className="text-xs text-lobby-tx1 flex items-center gap-1.5">
+              <MapPin size={11} className="text-lobby-accent/70" />
               장소 ({locs.length}/{maxLocations})
             </label>
-            <span className="text-[10px] text-amber-200/45">
+            <span className="text-xs text-lobby-accent/80">
               각 장소가 대화 배경 일러스트가 돼요
             </span>
           </div>
@@ -495,13 +505,13 @@ const WorldEditStep = ({ job, busy, error, onSave, onIllustrateRequest }) => {
             {locs.map((loc, idx) => (
               <div
                 key={loc.locationKey || `new-${idx}`}
-                className="rounded-2xl border border-white/10 hover:border-amber-400/40 bg-white/[0.03] p-4 transition-colors"
+                className="rounded-2xl border border-white/10 hover:border-lobby-accent/40 bg-white/[0.03] p-4 transition-colors"
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] font-bold text-white/45 uppercase tracking-wider">
+                  <span className="text-xs font-bold text-lobby-tx2 uppercase tracking-wider">
                     장소 {idx + 1}
                     {!loc.locationKey && (
-                      <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-200 border border-amber-400/30 normal-case tracking-normal">
+                      <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-lobby-accent/15 text-lobby-accent border border-lobby-accent/30 normal-case tracking-normal">
                         신규
                       </span>
                     )}
@@ -511,7 +521,7 @@ const WorldEditStep = ({ job, busy, error, onSave, onIllustrateRequest }) => {
                     disabled={busy || saving || locs.length <= 1}
                     onClick={() => removeLoc(idx)}
                     aria-label="장소 삭제"
-                    className="w-7 h-7 flex items-center justify-center rounded-full bg-white/5 hover:bg-rose-500/15 text-white/40 hover:text-rose-300 transition-colors disabled:opacity-30"
+                    className="w-7 h-7 flex items-center justify-center rounded-full bg-white/5 hover:bg-rose-500/15 text-lobby-tx2 hover:text-rose-300 transition-colors disabled:opacity-30"
                   >
                     <Trash2 size={12} />
                   </button>
@@ -541,7 +551,7 @@ const WorldEditStep = ({ job, busy, error, onSave, onIllustrateRequest }) => {
             disabled={busy || saving || locs.length >= maxLocations}
             onClick={addLoc}
             onMouseEnter={() => sfx.hover()}
-            className="mt-3 w-full py-3 rounded-2xl border border-dashed border-white/20 hover:border-amber-400/50 bg-white/[0.02] hover:bg-amber-500/[0.04] text-white/50 hover:text-amber-100 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="mt-3 w-full py-3 rounded-2xl border border-dashed border-white/20 hover:border-lobby-accent/50 bg-white/[0.02] hover:bg-lobby-accent/[0.04] text-lobby-tx1 hover:text-lobby-accent text-xs font-bold transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Plus size={13} />
             {locs.length >= maxLocations ? `장소는 최대 ${maxLocations}개까지예요` : "장소 추가"}
@@ -550,7 +560,7 @@ const WorldEditStep = ({ job, busy, error, onSave, onIllustrateRequest }) => {
       </div>
 
       {!locsValid && (
-        <p className="mb-3 text-[11px] text-amber-300/70">
+        <p className="mb-3 text-xs text-lobby-accent/70">
           모든 장소에 이름과 설명을 채워주세요. (1~{maxLocations}개)
         </p>
       )}
@@ -569,8 +579,8 @@ const WorldEditStep = ({ job, busy, error, onSave, onIllustrateRequest }) => {
           onClick={handleSave}
           className={`flex-1 py-3.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1.5 ${
             dirty && valid && !saving && !busy
-              ? "bg-white/5 hover:bg-white/10 border border-white/10 hover:border-amber-400/40 text-white/70 hover:text-amber-100"
-              : "bg-white/5 text-white/25 cursor-not-allowed border border-transparent"
+              ? "bg-white/5 hover:bg-white/10 border border-white/10 hover:border-lobby-accent/40 text-white/70 hover:text-lobby-accent"
+              : "bg-white/5 text-lobby-tx2 cursor-not-allowed border border-transparent"
           }`}
         >
           <Check size={14} />
@@ -588,8 +598,8 @@ const WorldEditStep = ({ job, busy, error, onSave, onIllustrateRequest }) => {
           whileTap={{ scale: valid && !busy ? 0.98 : 1 }}
           className={`flex-[2] py-3.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
             valid && !saving && !busy
-              ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/25"
-              : "bg-white/5 text-white/25 cursor-not-allowed"
+              ? "aurora-secondary-primary"
+              : "bg-white/5 text-lobby-tx2 cursor-not-allowed"
           }`}
         >
           <ImageIcon size={15} />
@@ -623,13 +633,13 @@ const BindingView = () => (
   <div className="flex flex-col items-center justify-center py-20">
     <SpinnerRing size={64} className="mb-6" />
     <motion.p
-      className="text-sm text-amber-100/85 font-medium mb-2"
+      className="text-sm text-lobby-accent/85 font-medium mb-2"
       animate={{ opacity: [0.55, 1, 0.55] }}
       transition={{ duration: 2, repeat: Infinity }}
     >
       세계를 봉인하는 중…
     </motion.p>
-    <p className="text-xs text-white/35">마지막 손질이에요. 곧 완성됩니다.</p>
+    <p className="text-xs text-lobby-tx2">마지막 손질이에요. 곧 완성됩니다.</p>
   </div>
 );
 
@@ -647,8 +657,8 @@ const AssetCell = ({ title, asset, wide = false, busy, rerollCost, onZoom, onRer
   return (
     <div
       className={`relative rounded-2xl overflow-hidden border transition-colors bg-white/[0.03] ${
-        failed ? "border-rose-400/40" : "border-white/10 hover:border-amber-400/40"
-      } ${wide ? "border-amber-400/25" : ""}`}
+        failed ? "border-rose-400/40" : "border-white/10 hover:border-lobby-accent/40"
+      } ${wide ? "border-lobby-accent/25" : ""}`}
     >
       <button
         type="button"
@@ -658,7 +668,7 @@ const AssetCell = ({ title, asset, wide = false, busy, rerollCost, onZoom, onRer
         {url ? (
           <img src={url} alt={title} className="w-full h-full object-cover" draggable={false} />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-b from-stone-900/40 to-black/60">
+          <div className="w-full h-full flex items-center justify-center bg-gradient-to-b from-lobby-surface2/60 to-lobby-bg">
             {failed ? (
               <AlertTriangle size={20} className="text-rose-300/80" />
             ) : (
@@ -670,14 +680,14 @@ const AssetCell = ({ title, asset, wide = false, busy, rerollCost, onZoom, onRer
         {generating && url && (
           <div className="absolute inset-0 bg-black/55 flex flex-col items-center justify-center gap-2">
             <SpinnerRing size={26} />
-            <span className="text-[10px] text-amber-100/70">다시 그리는 중…</span>
+            <span className="text-xs text-lobby-accent/70">다시 그리는 중…</span>
           </div>
         )}
       </button>
       {/* 하단 컨트롤 바 */}
       <div className="flex items-center justify-between px-2.5 py-1.5 bg-black/40">
-        <span className="text-[10px] text-white/65 truncate flex items-center gap-1">
-          {wide && <ImageIcon size={9} className="text-amber-300/70 flex-shrink-0" />}
+        <span className="text-xs text-white/65 truncate flex items-center gap-1">
+          {wide && <ImageIcon size={9} className="text-lobby-accent/70 flex-shrink-0" />}
           {title}
         </span>
         {failed ? (
@@ -685,7 +695,7 @@ const AssetCell = ({ title, asset, wide = false, busy, rerollCost, onZoom, onRer
             type="button"
             disabled={busy}
             onClick={() => { sfx.click(); onReroll(true); }}
-            className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-rose-500/20 border border-rose-400/40 text-rose-200 text-[9px] font-bold disabled:opacity-50"
+            className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-rose-500/20 border border-rose-400/40 text-rose-200 text-xs font-bold disabled:opacity-50"
           >
             <RefreshCw size={8} /> 무료 재시도
           </button>
@@ -694,7 +704,7 @@ const AssetCell = ({ title, asset, wide = false, busy, rerollCost, onZoom, onRer
             type="button"
             disabled={busy}
             onClick={() => { sfx.click(); onReroll(true); }}
-            className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[9px] font-bold disabled:opacity-50"
+            className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-xs font-bold disabled:opacity-50"
             title="직전 다시 그리기가 실패해 1회 무료예요"
           >
             <RefreshCw size={8} /> 무료 1회
@@ -704,13 +714,13 @@ const AssetCell = ({ title, asset, wide = false, busy, rerollCost, onZoom, onRer
             type="button"
             disabled={busy}
             onClick={() => { sfx.click(); onReroll(false); }}
-            className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/15 border border-white/15 text-white/60 hover:text-amber-100 text-[9px] font-bold transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/15 border border-white/15 text-lobby-tx1 hover:text-lobby-accent text-xs font-bold transition-colors disabled:opacity-50"
             title={`에너지 ${rerollCost}로 다시 그리기`}
           >
-            <RefreshCw size={8} /> <Zap size={8} className="text-amber-300" />{rerollCost}
+            <RefreshCw size={8} /> <Zap size={8} className="text-lobby-accent" />{rerollCost}
           </button>
         ) : (
-          <span className="text-[9px] text-white/35">그리는 중</span>
+          <span className="text-xs text-lobby-tx2">그리는 중</span>
         )}
       </div>
     </div>
@@ -748,10 +758,10 @@ const WorldReviewStep = ({ job, busy, error, onRerollRequest, onVersionSelect, o
   return (
     <div className="max-w-3xl mx-auto w-full">
       <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-        <ImageIcon size={16} className="text-amber-300" />
+        <ImageIcon size={16} className="text-lobby-accent" />
         세계의 풍경 검수
       </h3>
-      <p className="text-xs text-white/50 mb-5">
+      <p className="text-xs text-lobby-tx1 mb-5">
         마음에 들지 않는 컷은 다시 그릴 수 있어요. 탭하면 크게 보고 버전을 고를 수 있습니다.
       </p>
 
@@ -805,8 +815,8 @@ const WorldReviewStep = ({ job, busy, error, onRerollRequest, onVersionSelect, o
         whileTap={{ scale: canConfirm && !busy ? 0.98 : 1 }}
         className={`w-full py-3.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
           canConfirm && !busy
-            ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/25"
-            : "bg-white/5 text-white/25 cursor-not-allowed"
+            ? "aurora-secondary-primary"
+            : "bg-white/5 text-lobby-tx2 cursor-not-allowed"
         }`}
       >
         <Check size={16} />
@@ -816,7 +826,7 @@ const WorldReviewStep = ({ job, busy, error, onRerollRequest, onVersionSelect, o
           ? "세계의 풍경을 그리는 중이에요…"
           : "모든 컷이 준비되면 확정할 수 있어요"}
       </motion.button>
-      <p className="mt-3 text-center text-[11px] text-white/35">
+      <p className="mt-3 text-center text-xs text-lobby-tx2">
         생성은 서버에서 계속 진행돼요. 나가서 기다려도 괜찮아요.
       </p>
 
@@ -837,7 +847,7 @@ const WorldReviewStep = ({ job, busy, error, onRerollRequest, onVersionSelect, o
               animate={{ scale: 1 }}
               exit={{ scale: 0.92 }}
             >
-              <div className="relative rounded-2xl overflow-hidden border border-amber-400/30 mx-auto">
+              <div className="relative rounded-2xl overflow-hidden border border-lobby-accent/30 mx-auto">
                 {zoomAsset.url ? (
                   <img
                     src={zoomAsset.url}
@@ -853,7 +863,7 @@ const WorldReviewStep = ({ job, busy, error, onRerollRequest, onVersionSelect, o
                 {zoomInProgress && zoomAsset.url && (
                   <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2">
                     <SpinnerRing size={32} />
-                    <span className="text-[11px] text-amber-100/70">다시 그리는 중…</span>
+                    <span className="text-xs text-lobby-accent/70">다시 그리는 중…</span>
                   </div>
                 )}
               </div>
@@ -862,11 +872,11 @@ const WorldReviewStep = ({ job, busy, error, onRerollRequest, onVersionSelect, o
               {zoomVersions.length > 1 && (
                 <div className="mt-3">
                   <div className="flex items-center gap-1.5 mb-1.5">
-                    <span className="text-[11px] text-white/55 font-bold">버전 선택</span>
-                    <span className="px-1.5 py-0.5 rounded-full bg-teal-500/15 border border-teal-400/30 text-teal-200 text-[9px] font-bold">
+                    <span className="text-xs text-white/55 font-bold">버전 선택</span>
+                    <span className="px-1.5 py-0.5 rounded-full bg-teal-500/15 border border-teal-400/30 text-teal-200 text-xs font-bold">
                       무료
                     </span>
-                    <span className="text-[10px] text-white/35">이전에 그린 컷으로 언제든 바꿀 수 있어요</span>
+                    <span className="text-xs text-lobby-tx2">이전에 그린 컷으로 언제든 바꿀 수 있어요</span>
                   </div>
                   <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1.5">
                     {zoomVersions.map((url, vi) => {
@@ -879,13 +889,13 @@ const WorldReviewStep = ({ job, busy, error, onRerollRequest, onVersionSelect, o
                           onClick={() => { sfx.click(); onVersionSelect(zoomTarget, vi); }}
                           className={`relative flex-shrink-0 w-28 aspect-video rounded-lg overflow-hidden border-2 transition-colors ${
                             isSelected
-                              ? "border-amber-400"
-                              : "border-white/10 hover:border-amber-300/60"
+                              ? "border-lobby-accent"
+                              : "border-white/10 hover:border-lobby-accent/60"
                           } disabled:cursor-default ${busy || zoomInProgress ? "opacity-60" : ""}`}
                         >
                           <img src={url} alt={`버전 ${vi + 1}`} className="w-full h-full object-cover" draggable={false} />
                           {isSelected && (
-                            <span className="absolute inset-x-0 bottom-0 bg-amber-500/85 text-[8px] text-white font-bold text-center py-0.5">
+                            <span className="absolute inset-x-0 bottom-0 bg-lobby-accent/95 text-xs text-[#25253b] font-bold text-center py-0.5">
                               사용 중
                             </span>
                           )}
@@ -897,7 +907,7 @@ const WorldReviewStep = ({ job, busy, error, onRerollRequest, onVersionSelect, o
               )}
 
               <div className="flex items-center justify-between mt-3">
-                <span className="text-sm text-amber-100 font-bold">{zoomTitle}</span>
+                <span className="text-sm text-lobby-accent font-bold">{zoomTitle}</span>
                 <button
                   type="button"
                   onClick={() => { sfx.click(); setZoom(null); }}
@@ -936,7 +946,7 @@ const WorldCompleteStep = ({ job, onExit, onCreateCharacter }) => {
     <div className="max-w-2xl mx-auto w-full">
       {/* 썸네일 히어로 */}
       <motion.div
-        className="relative rounded-2xl overflow-hidden border border-amber-400/25 mb-5 shadow-[0_0_60px_rgba(251,191,36,0.12)]"
+        className="relative rounded-2xl overflow-hidden border border-lobby-accent/25 mb-5 shadow-[0_0_60px_rgba(210,195,250,0.12)]"
         initial={{ opacity: 0, scale: 0.97 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.8, ease: "easeOut" }}
@@ -944,15 +954,15 @@ const WorldCompleteStep = ({ job, onExit, onCreateCharacter }) => {
         {thumbUrl ? (
           <img src={thumbUrl} alt={draft.name || "완성된 세계"} className="w-full aspect-video object-cover" draggable={false} />
         ) : (
-          <div className="w-full aspect-video flex items-center justify-center bg-gradient-to-b from-stone-900/40 to-black/60">
-            <Globe size={40} className="text-amber-300/40" />
+          <div className="w-full aspect-video flex items-center justify-center bg-gradient-to-b from-lobby-surface2/60 to-lobby-bg">
+            <Globe size={40} className="text-lobby-accent/40" />
           </div>
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
         <div className="absolute bottom-0 left-0 right-0 p-5">
           <div className="flex items-center gap-2 mb-1.5">
-            <Sparkles size={14} className="text-amber-300" />
-            <span className="text-[10px] uppercase tracking-[0.3em] text-amber-200/70 font-bold">
+            <Sparkles size={14} className="text-lobby-accent" />
+            <span className="text-xs uppercase tracking-[0.3em] text-lobby-accent/70 font-bold">
               World Complete
             </span>
           </div>
@@ -962,7 +972,7 @@ const WorldCompleteStep = ({ job, onExit, onCreateCharacter }) => {
               {moodTags.map((tag) => (
                 <span
                   key={tag}
-                  className="px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/30 text-amber-200 text-[10px] font-medium"
+                  className="px-2 py-0.5 rounded-full bg-lobby-accent/15 border border-lobby-accent/30 text-lobby-accent text-xs font-medium"
                 >
                   {tag}
                 </span>
@@ -975,7 +985,7 @@ const WorldCompleteStep = ({ job, onExit, onCreateCharacter }) => {
       {/* 소개 */}
       {draft.intro && (
         <motion.p
-          className="text-sm text-white/60 leading-relaxed mb-5 px-1"
+          className="text-sm text-lobby-tx1 leading-relaxed mb-5 px-1"
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.25, duration: 0.6 }}
@@ -992,7 +1002,7 @@ const WorldCompleteStep = ({ job, onExit, onCreateCharacter }) => {
         transition={{ delay: 0.35, duration: 0.6 }}
       >
         <div className="flex items-center gap-1.5 mb-3">
-          <MapPin size={13} className="text-amber-300/80" />
+          <MapPin size={13} className="text-lobby-accent/80" />
           <span className="text-xs font-bold text-white/70">
             이 세계의 장소 {draft.locations?.length || 0}곳
           </span>
@@ -1016,7 +1026,7 @@ const WorldCompleteStep = ({ job, onExit, onCreateCharacter }) => {
               </div>
               <div className="min-w-0">
                 <div className="text-xs font-bold text-white truncate">{loc.displayName}</div>
-                <div className="text-[11px] text-white/40 truncate mt-0.5">{loc.description}</div>
+                <div className="text-xs text-lobby-tx2 truncate mt-0.5">{loc.description}</div>
               </div>
             </div>
           ))}
@@ -1036,13 +1046,13 @@ const WorldCompleteStep = ({ job, onExit, onCreateCharacter }) => {
           type="button"
           onClick={() => { sfx.click(); onCreateCharacter(); }}
           onMouseEnter={() => sfx.hover()}
-          className="flex-1 py-3 rounded-xl text-sm font-bold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/25 transition flex items-center justify-center gap-1.5"
+          className="flex-1 py-3 rounded-xl text-sm font-bold aurora-secondary-primary transition flex items-center justify-center gap-1.5"
         >
           <Wand2 size={15} />
           캐릭터 만들러 가기
         </button>
       </div>
-      <p className="mt-3 text-center text-[11px] text-white/35">
+      <p className="mt-3 text-center text-xs text-lobby-tx2">
         이 세계에서 살아갈 캐릭터를 소환하고 연결해 보세요.
       </p>
     </div>
@@ -1276,17 +1286,17 @@ export default function WorldCreateFlow({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] flex flex-col bg-gradient-to-br from-amber-950 via-stone-950 to-orange-950"
+      className="fixed inset-0 z-[100] flex flex-col aurora-auth-background"
     >
       {/* ═══ 헤더 ═══ */}
-      <div className="flex-shrink-0 px-5 sm:px-8 pt-4">
+      <div className="flex-shrink-0 px-5 sm:px-8 pt-4 pb-5 border-b border-white/[0.08] bg-lobby-bg/20">
         <div className="flex items-center justify-between mb-4">
           {/* 좌: 이탈 */}
           {!hasJob ? (
             <button
               type="button"
               onClick={handleLeave}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/30 backdrop-blur-md border border-white/10 text-white/60 hover:text-white hover:bg-black/50 transition-colors"
+              className="flex items-center gap-1.5 min-h-11 px-3 py-1.5 rounded-full bg-white/[0.035] backdrop-blur-md border border-white/10 text-lobby-tx1 hover:text-white hover:bg-black/50 transition-colors"
             >
               <X size={14} />
               <span className="text-xs tracking-wide">닫기</span>
@@ -1295,7 +1305,7 @@ export default function WorldCreateFlow({
             <button
               type="button"
               onClick={handleLeave}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/30 backdrop-blur-md border border-white/10 text-white/60 hover:text-white hover:bg-black/50 transition-colors"
+              className="flex items-center gap-1.5 min-h-11 px-3 py-1.5 rounded-full bg-white/[0.035] backdrop-blur-md border border-white/10 text-lobby-tx1 hover:text-white hover:bg-black/50 transition-colors"
             >
               <ArrowLeft size={14} />
               <span className="text-xs tracking-wide">나가서 기다리기</span>
@@ -1304,14 +1314,14 @@ export default function WorldCreateFlow({
             <div className="w-8" />
           )}
 
-          <div className="flex items-center gap-2 text-xs text-white/40 uppercase tracking-[0.3em]">
-            <Globe size={12} className="text-amber-300/70" />
+          <div className="flex items-center gap-2 text-[10px] sm:text-xs text-lobby-tx1 uppercase tracking-[0.14em] sm:tracking-[0.2em]">
+            <Globe size={12} className="text-lobby-accent/70" />
             World Builder
           </div>
 
           {/* 우: 에너지 */}
           <div className="flex items-center gap-1.5 bg-black/20 backdrop-blur-md rounded-full px-3 py-1.5 border border-white/10">
-            <Zap size={13} className="text-amber-300" />
+            <Zap size={13} className="text-lobby-accent" />
             <span className="text-sm font-semibold text-white tabular-nums">{energy}</span>
           </div>
         </div>
@@ -1327,19 +1337,19 @@ export default function WorldCreateFlow({
                   <div key={n} className="flex items-start gap-1.5 sm:gap-2 flex-1 last:flex-initial">
                     <div className="flex flex-col items-center min-w-0">
                       <motion.div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border transition-colors ${
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border transition-colors ${
                           isPast
-                            ? "bg-amber-500 border-amber-300 text-white shadow-md shadow-amber-500/20"
+                            ? "bg-lobby-accent border-lobby-accent text-[#25253b]"
                             : isCurrent
-                            ? "bg-amber-500/22 border-amber-300 text-amber-100"
-                            : "bg-white/[0.04] border-white/15 text-white/45"
+                            ? "bg-lobby-accent/22 border-lobby-accent text-lobby-accent"
+                            : "bg-white/[0.04] border-white/15 text-lobby-tx2"
                         }`}
                       >
                         {isPast ? <Check size={14} /> : n}
                       </motion.div>
                       <span
-                        className={`mt-1.5 text-[9px] sm:text-[10px] tracking-wider font-medium uppercase whitespace-nowrap transition-colors ${
-                          isCurrent ? "text-amber-100" : isPast ? "text-amber-200/70" : "text-white/35"
+                        className={`mt-1.5 text-xs sm:text-xs tracking-wider font-medium uppercase whitespace-nowrap transition-colors ${
+                          isCurrent ? "text-lobby-accent" : isPast ? "text-lobby-accent/70" : "text-lobby-tx2"
                         }`}
                       >
                         {label}
@@ -1347,8 +1357,8 @@ export default function WorldCreateFlow({
                     </div>
                     {n < STEP_LABELS.length && (
                       <div
-                        className={`flex-1 h-[1px] mt-3.5 transition-colors ${
-                          isPast ? "bg-amber-300/60" : "bg-white/10"
+                        className={`flex-1 h-[1px] mt-4 transition-colors ${
+                          isPast ? "bg-lobby-accent/60" : "bg-white/10"
                         }`}
                       />
                     )}
@@ -1369,7 +1379,7 @@ export default function WorldCreateFlow({
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.35 }}
-            className="min-h-full flex flex-col justify-center"
+            className="min-h-full flex flex-col justify-center py-3 sm:py-6"
           >
             {/* 잡 초기 로딩 — 로드 실패 시 이탈 경로 제공 */}
             {hasJob && !job && !isFailed && (
@@ -1388,7 +1398,7 @@ export default function WorldCreateFlow({
                 ) : (
                   <>
                     <SpinnerRing size={48} className="mb-4" />
-                    <p className="text-sm text-white/45">세계 생성 상태를 불러오는 중…</p>
+                    <p className="text-sm text-lobby-tx2">세계 생성 상태를 불러오는 중…</p>
                   </>
                 )}
               </div>
@@ -1403,7 +1413,7 @@ export default function WorldCreateFlow({
                 <h3 className="text-lg font-bold text-white mb-2">
                   {status === "EXPIRED" ? "생성 작업이 만료되었어요" : "세계 생성에 실패했어요"}
                 </h3>
-                <p className="text-sm text-white/50 leading-relaxed mb-3 whitespace-pre-line">
+                <p className="text-sm text-lobby-tx1 leading-relaxed mb-3 whitespace-pre-line">
                   {job?.failReason ||
                     (status === "EXPIRED"
                       ? "오랫동안 진행되지 않아 작업이 만료되었습니다."
@@ -1424,14 +1434,14 @@ export default function WorldCreateFlow({
                     type="button"
                     disabled={actionBusy}
                     onClick={() => { sfx.click(); handleRestartRequest(); }}
-                    className="flex-1 py-3 rounded-xl text-sm font-bold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/25 transition disabled:opacity-50"
+                    className="flex-1 py-3 rounded-xl text-sm font-bold aurora-secondary-primary transition disabled:opacity-50"
                   >
                     처음부터 다시
                   </button>
                   <button
                     type="button"
                     onClick={handleLeave}
-                    className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-sm transition-colors"
+                    className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-lobby-tx1 hover:text-white text-sm transition-colors"
                   >
                     스튜디오로 돌아가기
                   </button>
@@ -1502,7 +1512,7 @@ export default function WorldCreateFlow({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute bottom-5 left-5 sm:bottom-7 sm:left-7 z-[105] px-3 py-1.5 rounded-full text-[11px] text-white/30 hover:text-rose-300 hover:bg-rose-500/10 border border-transparent hover:border-rose-400/25 transition-colors disabled:opacity-40"
+            className="absolute bottom-5 left-5 sm:bottom-7 sm:left-7 z-[105] px-3 py-1.5 rounded-full text-xs text-lobby-tx2 hover:text-rose-300 hover:bg-rose-500/10 border border-transparent hover:border-rose-400/25 transition-colors disabled:opacity-40"
           >
             중도 포기
           </motion.button>

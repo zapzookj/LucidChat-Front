@@ -8,6 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "check:tdz": "node scripts/check-hook-tdz.mjs",
+    "check:entry": "node scripts/check-entry-experience.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

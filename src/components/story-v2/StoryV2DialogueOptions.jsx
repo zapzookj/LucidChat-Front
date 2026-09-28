@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageCircle } from "lucide-react";
-import { sfx } from "../../utils/sfx";
+import "../../styles/aurora-chat.css";
 
 /**
  * [Story V2] 디렉터의 선택지 — LLM이 자율적으로 제공한 dialogue_options를
@@ -34,7 +34,7 @@ export default function StoryV2DialogueOptions({ options, isStreaming, onSelect 
               {/* 라벨 */}
               <div className="flex items-center gap-1.5 mb-2 ml-1">
                 <MessageCircle size={11} className="text-amber-300" />
-                <span className="text-[10px] uppercase tracking-wider text-amber-300/70 font-medium">
+                <span className="text-xs uppercase tracking-wider text-lobby-accent font-medium">
                   디렉터의 제안
                 </span>
               </div>
@@ -47,17 +47,17 @@ export default function StoryV2DialogueOptions({ options, isStreaming, onSelect 
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: i * 0.06, duration: 0.25 }}
-                    onClick={() => { sfx.click(); onSelect?.(opt); }}
+                    onClick={() => onSelect?.(opt)}
                     disabled={isStreaming}
-                    className="group relative w-full text-left px-4 py-2 bg-gradient-to-r from-amber-500/10 to-amber-500/5 hover:from-amber-500/20 hover:to-amber-500/10 border border-amber-400/30 hover:border-amber-400/50 rounded-lg disabled:opacity-40 transition-all duration-200"
+                    className="aurora-story-choice group relative w-full text-left px-4 py-3 rounded-xl disabled:opacity-40 transition-colors duration-200"
                   >
                     {/* 인덱스 — 호버 시 노출 (향후 1~9 키바인딩 hint) */}
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-amber-300/40 font-mono opacity-0 group-hover:opacity-100 transition">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-lobby-tx2 font-mono opacity-0 group-hover:opacity-100 transition">
                       {i + 1}
                     </span>
                     <span className="ml-3 text-sm text-amber-100 leading-snug">{opt}</span>
                     {/* 호버 시 우측 화살표 */}
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-300/60 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200">
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-lobby-accent opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200">
                       →
                     </span>
                   </motion.button>

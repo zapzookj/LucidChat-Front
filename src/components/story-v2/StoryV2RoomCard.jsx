@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Play, Sparkles, Star, Users, Clock, MapPin } from "lucide-react";
-import { playSfx } from "../../utils/sfx";
+import "../../styles/aurora-chat.css";
 
 /**
  * [Chunk D] Story V2 방 카드 — 기억의 끈 패널 (Continue) 전용.
@@ -28,7 +28,7 @@ export default function StoryV2RoomCard({ room, onSelect }) {
   const currentDay = room.currentDay ?? 0;
   const heroineCount = room.heroineCount ?? 0;
 
-  const worldName = room.characterName || "(unknown world)";
+  const worldName = room.characterName || "나의 이야기";
   const worldThumb = room.characterThumbnailUrl;
 
   // 엔딩 상태 시각화 (V1과 동일 톤)
@@ -37,15 +37,14 @@ export default function StoryV2RoomCard({ room, onSelect }) {
     : null;
 
   return (
-    <motion.div
+    <motion.button
+      type="button"
       onClick={() => {
-        playSfx(`/sounds/sfx_button_click.wav`, 0.3);
         onSelect(room.roomId);
       }}
-      onMouseEnter={() => playSfx(`/sounds/sfx_button_hover.ogg`, 0.12)}
       whileHover={{ scale: 1.01, transition: { type: "spring", stiffness: 400, damping: 25 } }}
       whileTap={{ scale: 0.99 }}
-      className="relative group p-4 rounded-xl border border-amber-400/15 bg-gradient-to-br from-amber-500/5 via-white/[0.02] to-purple-500/5 hover:from-amber-500/10 hover:to-purple-500/10 hover:border-amber-400/30 cursor-pointer transition-colors duration-200 overflow-hidden"
+      className="aurora-story-room relative group p-4 rounded-2xl cursor-pointer transition-colors duration-200 overflow-hidden"
     >
       {/* V2 식별 sparkle accent — 우상단 미세 마크 */}
       <div className="absolute top-2 right-2 opacity-60 group-hover:opacity-100 transition">
@@ -76,8 +75,8 @@ export default function StoryV2RoomCard({ room, onSelect }) {
             <span className="font-semibold text-amber-100 text-sm truncate max-w-[180px]">
               {worldName}
             </span>
-            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full border bg-amber-400/15 text-amber-300 border-amber-400/30">
-              스토리 · V2
+            <span className="text-xs font-medium px-1.5 py-0.5 rounded-full border bg-amber-400/15 text-amber-300 border-amber-400/30">
+              스토리
             </span>
           </div>
 
@@ -106,12 +105,12 @@ export default function StoryV2RoomCard({ room, onSelect }) {
 
           {/* 마지막 활동 시간 + 엔딩 표시 */}
           <div className="flex items-center gap-2 mt-1.5">
-            <MapPin size={10} className="text-amber-300/40" />
-            <span className="text-[11px] text-white/30 truncate">
+            <MapPin size={10} className="text-lobby-tx2" />
+            <span className="text-xs text-white/30 truncate">
               {formatRelativeTime(room.lastActiveAt)}
             </span>
             {room.endingReached && (
-              <span className="text-[10px] text-amber-200/60 ml-auto italic">
+              <span className="text-xs text-amber-200/60 ml-auto italic">
                 {room.endingTitle ||
                   (room.endingType === "HAPPY" ? "결말 도달" : "이야기 종결")}
               </span>
@@ -121,10 +120,10 @@ export default function StoryV2RoomCard({ room, onSelect }) {
 
         {/* 진입 아이콘 */}
         <div className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-400/10 group-hover:bg-amber-400/20 transition-colors duration-200 mt-1">
-          <Play size={12} className="text-amber-300/70 group-hover:text-amber-200 transition-colors duration-200 ml-0.5" />
+          <Play size={12} className="text-lobby-accent group-hover:text-amber-200 transition-colors duration-200 ml-0.5" />
         </div>
       </div>
-    </motion.div>
+    </motion.button>
   );
 }
 

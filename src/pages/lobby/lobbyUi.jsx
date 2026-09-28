@@ -1,6 +1,8 @@
-import { useState } from "react";
-import { RotateCcw } from "lucide-react";
+import { useId, useState } from "react";
+import { RotateCcw, ArrowUpRight, Sparkles, PencilLine, CloudOff } from "lucide-react";
 import { DIFFICULTY_META } from "../../utils/difficultyMeta";
+import { getCharacterPresentation } from "../../utils/characterPresentation";
+import { assetUrl } from "../../utils/assetUrl";
 
 /**
  * [블록 A R2] 로비 공용 UI 원자 — 디자인 정본: aichat docs/15_assets/lobby_redesign_mockup.html
@@ -15,7 +17,7 @@ import { DIFFICULTY_META } from "../../utils/difficultyMeta";
 
 /** 전 화면 공용 중앙 컨테이너 — max 1200 중앙 정렬 (P3) */
 export const LobbyContainer = ({ children, className = "" }) => (
-  <div className={`relative max-w-[1200px] mx-auto px-4 sm:px-8 ${className}`}>{children}</div>
+  <div className={`aurora-container ${className}`}>{children}</div>
 );
 
 /** 429 공용 문구 — ErrorState message 분기용 단일 소스 */
@@ -23,18 +25,18 @@ export const RATE_LIMIT_MSG = "지금은 찾는 분이 많아요, 잠시 후 다
 
 /** 페이지 헤더 — 탭 이름 + 1줄 기능 설명 (P2) */
 export const PageHead = ({ title, desc }) => (
-  <div className="mt-8">
-    <h1 className="text-lb-page text-white tracking-tight">{title}</h1>
-    {desc && <p className="text-lb-meta text-lobby-tx1 mt-1.5">{desc}</p>}
+  <div className="aurora-page-head">
+    <h1>{title}</h1>
+    {desc && <p>{desc}</p>}
   </div>
 );
 
 /** 섹션 헤더 — 제목(기능어) + 서브(감성 1겹 허용) + 우측 액션 */
 export const SectionHead = ({ title, sub, action }) => (
-  <div className="flex items-baseline justify-between mb-4">
-    <div>
-      <h2 className="text-lb-sec text-white tracking-tight">{title}</h2>
-      {sub && <p className="text-lb-meta text-lobby-tx2 mt-0.5">{sub}</p>}
+  <div className="aurora-section-head">
+    <div className="min-w-0">
+      <h2>{title}</h2>
+      {sub && <p>{sub}</p>}
     </div>
     {action}
   </div>
@@ -74,8 +76,8 @@ export const ModeBadge = ({ mode, suffix }) => {
 /** 제작자 크레딧 — 'UGC' 용어 대체 (P1). 닉네임 ellipsis 방어 */
 export const CreditTag = ({ nickname, className = "" }) => (
   <span className={`inline-flex items-center gap-1 text-lb-badge text-lobby-tx2 min-w-0 ${className}`}>
-    <span className="opacity-70 flex-none">✎</span>
-    <span className="truncate max-w-[88px]">{nickname}</span>
+    <PencilLine size={11} aria-hidden="true" className="flex-none" />
+    <span className="truncate max-w-[100px]" title={nickname}>{nickname}</span>
   </span>
 );
 
@@ -102,25 +104,35 @@ export const fallbackGrad = (name = "") => {
  * 캐릭터 아트 3:4 — 썸네일 or 그라데이션+이니셜 폴백 + 하단 스크림.
  * URL이 있어도 로드 실패(404·네트워크)하면 폴백으로 강등 — "썸네일이 없어도 성립하는 카드".
  */
-export const CharacterArt = ({ name, thumbnailUrl, className = "" }) => {
-  const [broken, setBroken] = useState(false);
-  const showImg = Boolean(thumbnailUrl) && !broken;
+export const CharacterArt = ({ name, thumbnailUrl, character = {}, className = "" }) => {
+  const [brokenSrc, setBrokenSrc] = useState(null);
+  const [brokenBackground, setBrokenBackground] = useState(null);
+  const src = assetUrl(thumbnailUrl);
+  const art = getCharacterPresentation({ ...character, name, thumbnailUrl });
+  const showImg = Boolean(src) && brokenSrc !== src;
   return (
-    <span className={`relative block aspect-[3/4] overflow-hidden ${showImg ? "bg-slate-900" : fallbackGrad(name)} ${className}`}>
+    <span className={`aurora-character-art ${className}`} style={{ '--character-glow': art.glow, '--character-accent': art.accent }}>
+      {art.artMode === 'cutout' && <>
+        {art.backgroundUrl && brokenBackground !== art.backgroundUrl && <img src={art.backgroundUrl} className="character-place" alt="" loading="lazy" decoding="async" onError={() => setBrokenBackground(art.backgroundUrl)} />}
+        <span className="character-atmosphere" /><span className="character-arch" />
+      </>}
       {showImg ? (
         <img
-          src={thumbnailUrl}
+          src={src}
           alt=""
-          className="absolute inset-0 w-full h-full object-cover"
+          className="character-portrait"
+          style={{ objectPosition: art.objectPosition }}
+          loading="lazy" decoding="async"
           draggable={false}
-          onError={() => setBroken(true)}
+          onError={() => setBrokenSrc(src)}
         />
       ) : (
-        <span className="absolute inset-0 flex items-center justify-center text-[44px] font-extrabold text-white/25 tracking-tight">
+        <span className="character-fallback">
           {name?.[0] ?? ""}
         </span>
       )}
-      <span className="absolute inset-x-0 bottom-0 h-[46%] bg-gradient-to-b from-transparent to-black/45" />
+      <span className="character-scrim" />
+      {art.artMode === 'cutout' && <span className="aurora-character-origin"><Sparkles size={10} aria-hidden="true" />루시드 오리지널</span>}
     </span>
   );
 };
@@ -130,17 +142,19 @@ export const CharacterArt = ({ name, thumbnailUrl, className = "" }) => {
  * 그라데이션만 필요할 때 name 해시 폴백을 쓴다.
  */
 export const ImageOrGrad = ({ src, name, className = "" }) => {
-  const [broken, setBroken] = useState(false);
-  const showImg = Boolean(src) && !broken;
+  const [brokenSrc, setBrokenSrc] = useState(null);
+  const resolved = assetUrl(src);
+  const showImg = Boolean(resolved) && brokenSrc !== resolved;
   return (
     <span className={`absolute inset-0 ${showImg ? "bg-slate-900" : fallbackGrad(name)} ${className}`}>
       {showImg && (
         <img
-          src={src}
+          src={resolved}
           alt=""
           className="absolute inset-0 w-full h-full object-cover"
           draggable={false}
-          onError={() => setBroken(true)}
+          loading="lazy" decoding="async"
+          onError={() => setBrokenSrc(resolved)}
         />
       )}
     </span>
@@ -151,32 +165,38 @@ export const ImageOrGrad = ({ src, name, className = "" }) => {
  * 캐릭터 카드 — 홈 그리드·신작 레일·온보딩 공용.
  * item: { characterId, name, tagline, thumbnailUrl, difficulty, ugc, creatorNickname }
  */
-export const CharacterCard = ({ item, onClick, selected = false, className = "" }) => (
+export const CharacterCard = ({ item, onClick, selected = false, selectionMode = false, className = "" }) => {
+  const descriptionId = useId();
+  return (
   <button
+    type="button"
     onClick={onClick}
-    className={`block w-full text-left rounded-2xl overflow-hidden border bg-white/[0.035] transition-all duration-200 ease-out
-      hover:-translate-y-[3px] hover:bg-white/[0.06]
-      ${selected ? "border-violet-400/60 shadow-[0_0_36px_rgba(167,139,250,0.16)]" : "border-white/[0.09] hover:border-violet-400/45"}
-      ${className}`}
+    aria-label={`${item.name} ${selectionMode ? '선택' : '프로필 보기'}`}
+    aria-describedby={descriptionId}
+    aria-pressed={selectionMode ? selected : undefined}
+    className={`aurora-character-card ${selected ? 'is-selected' : ''} ${className}`}
   >
-    <CharacterArt name={item.name} thumbnailUrl={item.thumbnailUrl} />
-    <span className="block px-3.5 pt-3 pb-3.5">
-      <span className="block text-lb-card font-bold text-white truncate">{item.name}</span>
-      <span className="block text-lb-meta text-lobby-tx1 mt-0.5 truncate">{item.tagline}</span>
-      <span className="flex items-center gap-1.5 mt-2 flex-wrap">
+    <CharacterArt name={item.name} thumbnailUrl={item.thumbnailUrl || item.defaultImageUrl} character={item} />
+    <span className="aurora-character-copy">
+      <span className="aurora-character-title"><span title={item.name}>{item.name}</span><ArrowUpRight size={15} aria-hidden="true" /></span>
+      <span id={descriptionId}>
+      <span className="aurora-character-tagline" title={item.tagline}>{item.tagline}</span>
+      <span className="aurora-character-meta">
         <DifficultyBadge difficulty={item.difficulty} />
         {item.ugc && item.creatorNickname && <CreditTag nickname={item.creatorNickname} />}
       </span>
+      </span>
     </span>
   </button>
-);
+  );
+};
 
 /* ── 상태 3종 (표면 × 상태 매트릭스 — 디자인 정본 '상태' 화면) ── */
 
 /** 스켈레톤: 카드형(3:4) */
 export const SkeletonCard = () => (
-  <div className="rounded-2xl overflow-hidden border border-white/[0.09]">
-    <div className="aspect-[3/4] bg-white/[0.05] animate-pulse" />
+  <div className="aurora-skeleton" aria-hidden="true">
+    <div className="aspect-[3/3.8] aurora-skeleton-shimmer" />
     <div className="px-3.5 py-3 space-y-2">
       <div className="h-3 rounded bg-white/[0.07] animate-pulse" />
       <div className="h-3 w-3/5 rounded bg-white/[0.05] animate-pulse" />
@@ -186,8 +206,8 @@ export const SkeletonCard = () => (
 
 /** 스켈레톤: 월드형(16:7) */
 export const SkeletonHero = () => (
-  <div className="rounded-[20px] overflow-hidden border border-white/[0.09]">
-    <div className="aspect-[16/7] bg-white/[0.05] animate-pulse" />
+  <div className="aurora-skeleton" aria-hidden="true">
+    <div className="aspect-[16/7] aurora-skeleton-shimmer" />
     <div className="px-5 py-4 space-y-2">
       <div className="h-3.5 rounded bg-white/[0.07] animate-pulse" />
       <div className="h-3 w-1/2 rounded bg-white/[0.05] animate-pulse" />
@@ -208,8 +228,8 @@ export const SkeletonRow = () => (
 
 /** 빈 상태 — 세그별 카피는 호출부에서 주입(정본 표 참조) */
 export const EmptyState = ({ icon = "🌙", title, desc, ctaLabel, onCta }) => (
-  <div className="flex flex-col items-center justify-center text-center py-14 gap-1.5">
-    <div className="w-14 h-14 mb-2 rounded-full flex items-center justify-center text-[22px] border border-violet-400/25 bg-gradient-to-br from-violet-300/15 to-sky-300/10">
+  <div className="aurora-state">
+    <div className="aurora-state-icon" aria-hidden="true">
       {icon}
     </div>
     <p className="text-lb-card font-bold text-white">{title}</p>
@@ -217,7 +237,7 @@ export const EmptyState = ({ icon = "🌙", title, desc, ctaLabel, onCta }) => (
     {ctaLabel && (
       <button
         onClick={onCta}
-        className="mt-3.5 px-5 py-2.5 rounded-full text-lb-meta font-bold text-slate-900 bg-gradient-to-r from-violet-300 to-sky-300 hover:-translate-y-px hover:shadow-[0_4px_20px_rgba(167,139,250,0.35)] transition-all"
+        className="aurora-button-primary mt-4"
       >
         {ctaLabel}
       </button>
@@ -227,16 +247,16 @@ export const EmptyState = ({ icon = "🌙", title, desc, ctaLabel, onCta }) => (
 
 /** 오류 상태 — 429 포함 동일 패턴(문구만 분기), 섹션 단위 부분 실패에도 재사용 */
 export const ErrorState = ({ message = "네트워크를 확인하고 다시 시도해 주세요", onRetry }) => (
-  <div className="flex flex-col items-center justify-center text-center py-14 gap-1.5">
-    <div className="w-14 h-14 mb-2 rounded-full flex items-center justify-center text-[22px] border border-white/10 bg-white/[0.04] grayscale">
-      🌫
+  <div className="aurora-state" role="alert">
+    <div className="aurora-state-icon" aria-hidden="true">
+      <CloudOff size={24} />
     </div>
-    <p className="text-lb-card font-bold text-white">잠시 연결이 흐려졌어요</p>
+    <p className="text-lb-card font-semibold text-lobby-tx0">정보를 불러오지 못했어요</p>
     <p className="text-lb-meta text-lobby-tx2">{message}</p>
     {onRetry && (
       <button
         onClick={onRetry}
-        className="mt-3.5 inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full text-lb-meta font-semibold text-lobby-tx1 border border-white/[0.09] hover:text-white hover:border-white/[0.16] transition-colors"
+        className="aurora-button-secondary mt-4"
       >
         <RotateCcw size={13} /> 다시 시도
       </button>

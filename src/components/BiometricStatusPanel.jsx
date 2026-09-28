@@ -1,10 +1,11 @@
 import { useEffect, useRef, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Lock } from "lucide-react";
-import { sfx } from "../utils/sfx";
 import BottomSheet from "./mobile/BottomSheet";
+import useOverlayFocus from "./mobile/useOverlayFocus";
 import useDeviceProfile from "../hooks/useDeviceProfile";
 import useSecretStatus from "../hooks/useSecretStatus";
+import "../styles/aurora-chat.css";
 import {
   NORMAL_AXES,
   SECRET_AXES,
@@ -46,7 +47,7 @@ const RELATION_THEME = {
 const SectionTitle = ({ icon, children }) => (
   <div className="flex items-center gap-2 mb-3">
     <span className="text-[13px]" aria-hidden="true">{icon}</span>
-    <span className="text-[11px] uppercase tracking-[0.18em] font-black text-white/60">{children}</span>
+    <span className="aurora-status-title">{children}</span>
   </div>
 );
 
@@ -76,14 +77,14 @@ const AxisRow = ({ axis, value, prevValue, name }) => {
         : "text-white/60 bg-white/[0.07]";
 
   return (
-    <div className="py-[11px] border-b border-white/[0.06] last:border-b-0">
+    <div className="aurora-status-axis py-[11px] border-b border-white/[0.06] last:border-b-0">
       <div className="flex items-center gap-2 mb-1.5 flex-wrap">
         <span className="w-[7px] h-[7px] rounded-full flex-none" style={{ background: axis.color }} aria-hidden="true" />
         <span className="text-xs font-extrabold text-white/[0.78]">{axis.label}</span>
-        <span className={`text-[10.5px] font-extrabold px-[7px] py-[2px] rounded-full ${cold ? "text-red-300 bg-red-400/15" : "text-white/[0.78] bg-white/[0.08]"}`}>
+        <span className={`text-xs font-extrabold px-[7px] py-[2px] rounded-full ${cold ? "text-red-300 bg-red-400/15" : "text-white/[0.78] bg-white/[0.08]"}`}>
           {bandLabel(axis.key, value)}
         </span>
-        <span className={`ml-auto text-[10.5px] font-extrabold px-[7px] py-[2px] rounded-full whitespace-nowrap ${trendTone}`}>
+        <span className={`ml-auto text-xs font-extrabold px-[7px] py-[2px] rounded-full whitespace-nowrap ${trendTone}`}>
           {trend.label}
         </span>
       </div>
@@ -106,9 +107,11 @@ const BiometricStatusPanel = ({
   isSecretMode = false,
   onUnlockSecret,          // [§G-9] 봉인 카드 CTA — 미전달이면 안내 전용 카드로 폴백(D-26)
   excludeRef = null,
+  loadSecretStatus = true,
 }) => {
   const panelRef = useRef(null);
   const { isMobile } = useDeviceProfile();
+  useOverlayFocus(isOpen && !isMobile, panelRef, onClose, { trapFocus: false });
   const theme = RELATION_THEME[statusLevel] || RELATION_THEME.STRANGER;
 
   // [적대적 리뷰 P1 · 안건 7(b) 확정(decisions_confirmed.md §A #7)] 시크릿 노출 노브.
@@ -118,7 +121,7 @@ const BiometricStatusPanel = ({
   //   공용 스토어(hooks/useSecretStatus)를 구독한다(각자 fetch하면 판정이 갈린다).
   //   조회 실패·비로그인은 false(닫힘) 폴백. useSyncExternalStore 기반이라
   //   effect 안 동기 setState를 새로 만들지 않는다(react-hooks/set-state-in-effect).
-  const { secretProductsEnabled } = useSecretStatus({ active: isOpen });
+  const { secretProductsEnabled } = useSecretStatus({ active: isOpen && loadSecretStatus });
   // 노브 off면 CTA를 걷어내고, 아래 D-26 폴백(안내 전용 블록) 경로를 그대로 재사용한다.
   const unlockCta = secretProductsEnabled ? onUnlockSecret : null;
 
@@ -172,7 +175,6 @@ const BiometricStatusPanel = ({
   // 데스크톱 패널만 바깥 클릭으로 닫는다(모바일은 BottomSheet가 백드롭을 처리).
   useEffect(() => {
     if (!isOpen || isMobile) return undefined;
-    sfx.wooshLight();
     const handler = (e) => {
       if (!panelRef.current || panelRef.current.contains(e.target)) return;
       if (excludeRef?.current?.contains(e.target)) return;
@@ -184,7 +186,7 @@ const BiometricStatusPanel = ({
 
   // ── 본문 (데스크톱/모바일 공용) ──
   const body = (
-    <>
+    <div className="aurora-status-body">
       {/* 헤더 — 이름 + 박동 */}
       <div className="px-[18px] pt-[15px] pb-3 border-b border-white/[0.06]">
         <div className="flex items-center gap-2.5">
@@ -198,7 +200,7 @@ const BiometricStatusPanel = ({
               style={{ background: pulse.color, boxShadow: `0 0 9px ${pulse.color}`, animationDuration: `${pulse.beatSec}s` }}
               aria-hidden="true"
             />
-            <span className="text-[10.5px] font-extrabold tracking-[0.05em] text-white/[0.78]">심박 · {pulse.label}</span>
+            <span className="text-xs font-extrabold tracking-[0.05em] text-white/[0.78]">심박 · {pulse.label}</span>
           </span>
         </div>
       </div>
@@ -210,7 +212,7 @@ const BiometricStatusPanel = ({
           className="rounded-xl px-3.5 py-3 border"
           style={{ borderColor: `${theme.accent}40`, background: `${theme.accent}12` }}
         >
-          <div className="text-[10.5px] font-black tracking-[0.14em] uppercase" style={{ color: theme.accent }}>
+          <div className="text-xs font-black tracking-[0.14em] uppercase" style={{ color: theme.accent }}>
             {theme.ko}
           </div>
           <p className="mt-1.5 m-0 text-[14.5px] leading-[1.65] text-white/[0.94]" style={{ fontFamily: "'Noto Serif KR', serif" }}>
@@ -239,7 +241,7 @@ const BiometricStatusPanel = ({
                 {[...NORMAL_AXES, ...(isSecretMode ? SECRET_AXES : [])].map((a) => (
                   <div key={a.key}>
                     <span style={{ color: a.color }}>{a.label}</span> {safeStats[a.key]}
-                    <span className="text-white/[0.46]"> / 100</span>
+                    <span className="text-lobby-tx2"> / 100</span>
                   </div>
                 ))}
               </div>
@@ -284,7 +286,7 @@ const BiometricStatusPanel = ({
                 {/* [적대적 리뷰 P1] 노브 off면 상품 혜택 문구도 지운다 —
                     '영구 해금'은 판매 중인 상품의 혜택 설명이라 게이팅 대상이다. */}
                 {secretProductsEnabled && (
-                  <p className="mt-1 m-0 text-[11px] leading-[1.6] text-white/[0.46]">
+                  <p className="mt-1 m-0 text-xs leading-[1.6] text-lobby-tx2">
                     한 번 해금하면 <span className="text-red-300/90 font-bold">전 캐릭터에 영구 적용</span>돼요.
                   </p>
                 )}
@@ -293,7 +295,7 @@ const BiometricStatusPanel = ({
                 ) : (
                   /* 폴백 — 진입점이 배선되기 전에도, 그리고 노브 off일 때도 안내 전용 블록이 된다.
                      노브 off에서는 '상점에서 해금' 안내가 거짓이 되므로(탭 자체가 숨겨짐) 문구를 바꾼다. */
-                  <span className="inline-block mt-2 text-[11px] font-bold text-white/[0.46]">
+                  <span className="inline-block mt-2 text-xs font-bold text-lobby-tx2">
                     {secretProductsEnabled ? "상점의 시크릿에서 해금할 수 있어요." : "지금은 준비 중이에요."}
                   </span>
                 )}
@@ -302,7 +304,7 @@ const BiometricStatusPanel = ({
             return unlockCta ? (
               <button
                 type="button"
-                onClick={() => { sfx.click(); unlockCta(); }}
+                onClick={unlockCta}
                 className={`${cardClass} hover:bg-red-500/[0.11] transition`}
               >
                 {inner}
@@ -323,7 +325,7 @@ const BiometricStatusPanel = ({
           </p>
         </div>
       )}
-    </>
+    </div>
   );
 
   // 박동 애니메이션·reduced-motion 대응은 전역(index.css .lucid-pulse-dot)으로 일원화.
@@ -340,7 +342,7 @@ const BiometricStatusPanel = ({
     return (
       <>
         {pulseStyle}
-        <BottomSheet open={isOpen} onClose={onClose} title="상태창" zIndex={70} maxHeight="78vh">
+        <BottomSheet open={isOpen} onClose={onClose} title="우리 사이" zIndex={70} maxHeight="78vh">
           {body}
         </BottomSheet>
       </>
@@ -355,6 +357,7 @@ const BiometricStatusPanel = ({
         {isOpen && (
           <motion.div
             ref={panelRef}
+            tabIndex={-1}
             role="dialog"
             aria-label={`${characterName} 상태창`}
             initial={{ opacity: 0, x: -30 }}
@@ -362,26 +365,21 @@ const BiometricStatusPanel = ({
             exit={{ opacity: 0, x: -30 }}
             transition={{ type: "spring", stiffness: 280, damping: 26 }}
             className="fixed left-3 sm:left-5 z-[65] flex flex-col"
-            style={{ top: "72px", bottom: "72px", width: "min(330px, 42vw)", willChange: "transform, opacity", transform: "translateZ(0)" }}
+            style={{ top: "88px", bottom: "28px", width: "min(370px, 42vw)", willChange: "transform, opacity", transform: "translateZ(0)" }}
           >
             <div
-              className="h-full rounded-2xl border border-white/[0.08] flex flex-col overflow-hidden"
-              style={{
-                background: "linear-gradient(160deg, rgba(8,4,20,0.82), rgba(15,8,30,0.88))",
-                backdropFilter: "blur(28px) saturate(1.3)",
-                boxShadow: `0 12px 60px rgba(0,0,0,0.5), 0 0 80px ${theme.glow}, inset 0 1px 0 rgba(255,255,255,0.04)`,
-              }}
+              className="aurora-status-surface h-full border flex flex-col overflow-hidden"
             >
               <div className="h-[2px] w-full flex-none" style={{ background: `linear-gradient(90deg, transparent, ${theme.accent}, transparent)`, opacity: 0.75 }} />
               <button
                 type="button"
-                onClick={() => { sfx.click(); onClose?.(); }}
+                onClick={onClose}
                 aria-label="상태창 닫기"
-                className="absolute right-3 top-4 z-10 p-1 rounded-lg text-white/40 hover:text-white/70 hover:bg-white/[0.08] transition"
+                className="aurora-icon-close absolute right-3 top-3 z-10 transition"
               >
-                <X size={14} />
+                <X size={18} />
               </button>
-              <div className="status-scroll flex-1 overflow-y-auto" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+              <div className="status-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
                 {body}
               </div>
             </div>

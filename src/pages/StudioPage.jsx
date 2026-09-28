@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { TONE_MAX } from "../utils/ugcTextLimits";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useLocation, Link } from "react-router-dom";
@@ -17,7 +17,9 @@ import {
 // [World Builder v1] 내 세계관 섹션 + 세계관 연결 셀렉터
 import { fetchMyUgcWorlds, OFFICIAL_WORLDS } from "../api/WorldStudioApi";
 import useUgcCreationJob from "../hooks/useUgcCreationJob";
-import StudioCreateFlow from "../components/studio/StudioCreateFlow";
+import StudioCreateFlow, { CHARACTER_START_COST, STAGE_TOTAL_COST } from "../components/studio/StudioCreateFlow";
+import AuroraBackdrop from "../components/lobby/AuroraBackdrop";
+import { withWaGwa } from "../utils/josa";
 import UgcStatusBadge from "../components/studio/UgcStatusBadge";
 // [World Builder v1.1] 세계관 상세/수정/장소 추가 시트
 import WorldDetailSheet from "../components/studio/WorldDetailSheet";
@@ -29,6 +31,7 @@ import { sfx } from "../utils/sfx";
 import { DIFFICULTY_META, DIFFICULTY_ORDER, difficultyFilledStars } from "../utils/difficultyMeta";
 // [블록 A R2] 셸 임베드 크롬 정합 — 로비 공용 페이지 헤드 재사용
 import { PageHead } from "./lobby/lobbyUi";
+import "../styles/aurora-secondary.css";
 
 /**
  * [Studio v1] StudioPage — UGC 캐릭터 생성 스튜디오
@@ -44,18 +47,6 @@ import { PageHead } from "./lobby/lobbyUi";
  *
  * 라우트: /studio
  */
-
-const CREATE_COST = 20;
-
-// ── 앰버 틴트 반짝임 파티클 (LobbyPage TwinkleStar 패턴) ──
-const AmberTwinkle = ({ style }) => (
-  <motion.div
-    className="absolute w-[2px] h-[2px] bg-amber-200/30 rounded-full pointer-events-none"
-    style={style}
-    animate={{ opacity: [0.15, 0.7, 0.15], scale: [0.8, 1.2, 0.8] }}
-    transition={{ duration: Math.random() * 3 + 2, repeat: Infinity, delay: Math.random() * 5 }}
-  />
-);
 
 // ── 진행 중 잡 카드 메타 ──
 const JOB_STAGE_META = {
@@ -84,7 +75,7 @@ function resolveJobStage(job) {
 //  진행 중 잡 카드
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const ActiveJobCard = ({ job, onClick }) => {
+export const ActiveJobCard = ({ job, onClick }) => {
   const stage = resolveJobStage(job);
   if (!stage) return null;
   const isWait = Boolean(stage.wait);
@@ -103,13 +94,13 @@ const ActiveJobCard = ({ job, onClick }) => {
         isFailed
           ? "bg-rose-500/[0.05] border-rose-400/30 hover:border-rose-400/50"
           : isWait
-          ? "bg-amber-500/[0.06] border-amber-400/40 hover:border-amber-300/60"
-          : "bg-white/[0.04] border-white/10 hover:border-amber-400/30"
+          ? "bg-lobby-accent/[0.06] border-lobby-accent/40 hover:border-lobby-accent/60"
+          : "bg-white/[0.04] border-white/10 hover:border-lobby-accent/30"
       }`}
     >
       {isWait && !isFailed && (
         <motion.div
-          className="absolute inset-0 pointer-events-none bg-gradient-to-r from-transparent via-amber-400/[0.06] to-transparent"
+          className="absolute inset-0 pointer-events-none bg-gradient-to-r from-transparent via-lobby-accent/[0.06] to-transparent"
           animate={{ x: ["-100%", "100%"] }}
           transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
         />
@@ -119,7 +110,7 @@ const ActiveJobCard = ({ job, onClick }) => {
           className={`w-12 h-12 rounded-xl flex-shrink-0 flex items-center justify-center border ${
             isFailed
               ? "bg-rose-500/10 border-rose-400/30"
-              : "bg-amber-500/10 border-amber-400/30"
+              : "bg-lobby-accent/10 border-lobby-accent/30"
           }`}
         >
           {isFailed ? (
@@ -133,7 +124,7 @@ const ActiveJobCard = ({ job, onClick }) => {
                   : { duration: 6, repeat: Infinity, ease: "linear" }
               }
             >
-              <Wand2 size={20} className="text-amber-300" />
+              <Wand2 size={20} className="text-lobby-accent" />
             </motion.div>
           )}
         </div>
@@ -141,18 +132,18 @@ const ActiveJobCard = ({ job, onClick }) => {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-bold text-white">진행 중인 소환</span>
             <span
-              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+              className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
                 isFailed
                   ? "bg-rose-500/15 text-rose-300 border-rose-400/30"
                   : isWait
-                  ? "bg-amber-400/15 text-amber-200 border-amber-400/40"
-                  : "bg-white/5 text-white/50 border-white/10"
+                  ? "bg-lobby-accent/15 text-lobby-accent border-lobby-accent/40"
+                  : "bg-white/5 text-lobby-tx1 border-white/10"
               }`}
             >
               {stage.label}
             </span>
           </div>
-          <p className={`text-xs mt-1 ${isWait && !isFailed ? "text-amber-200/90 font-medium" : "text-white/40"}`}>
+          <p className={`text-xs mt-1 ${isWait && !isFailed ? "text-lobby-accent/90 font-medium" : "text-lobby-tx2"}`}>
             {isFailed
               ? "문제가 발생했어요. 눌러서 확인해 주세요."
               : isWait
@@ -165,7 +156,7 @@ const ActiveJobCard = ({ job, onClick }) => {
               className={`h-full rounded-full ${
                 isFailed
                   ? "bg-rose-500/70"
-                  : "bg-gradient-to-r from-amber-500 via-orange-400 to-amber-300"
+                  : "bg-gradient-to-r from-lobby-accent via-[#bbc9df] to-lobby-teal"
               }`}
               initial={{ width: 0 }}
               animate={{ width: `${stage.pct}%` }}
@@ -173,7 +164,7 @@ const ActiveJobCard = ({ job, onClick }) => {
             />
           </div>
         </div>
-        <ChevronRight size={16} className="text-white/30 flex-shrink-0" />
+        <ChevronRight size={16} className="text-lobby-tx2 flex-shrink-0" />
       </div>
     </motion.button>
   );
@@ -183,14 +174,14 @@ const ActiveJobCard = ({ job, onClick }) => {
 //  내 캐릭터 카드
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-const MyCharacterCard = ({ character, index, onChat, onMenu }) => {
+export const MyCharacterCard = ({ character, index = 0, onChat, onMenu }) => {
   const imgSrc = character.thumbnailUrl || character.defaultImageUrl;
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.05 + index * 0.05 }}
-      className="group relative rounded-2xl overflow-hidden border border-white/10 hover:border-amber-400/40 bg-white/[0.03] transition-colors"
+      className="group relative rounded-[22px] overflow-hidden border border-white/[0.12] hover:border-lobby-accent/40 bg-lobby-surface/65 transition-colors"
     >
       <button
         type="button"
@@ -198,7 +189,7 @@ const MyCharacterCard = ({ character, index, onChat, onMenu }) => {
         onMouseEnter={() => sfx.hover()}
         className="block w-full text-left"
       >
-        <div className="relative aspect-[3/4] overflow-hidden bg-gradient-to-b from-stone-800/60 to-stone-950">
+        <div className="relative aspect-[3/4] overflow-hidden bg-gradient-to-b from-lobby-surface2 to-lobby-bg">
           {imgSrc ? (
             <img
               src={imgSrc}
@@ -220,7 +211,7 @@ const MyCharacterCard = ({ character, index, onChat, onMenu }) => {
           </div>
           <div className="absolute bottom-0 left-0 right-0 p-3">
             <div className="text-sm font-bold text-white truncate">{character.name}</div>
-            <div className="text-[11px] text-white/50 truncate mt-0.5">
+            <div className="text-xs text-lobby-tx1 truncate mt-0.5">
               {character.tagline || "아직 소개가 없어요"}
             </div>
           </div>
@@ -230,8 +221,8 @@ const MyCharacterCard = ({ character, index, onChat, onMenu }) => {
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); sfx.click(); onMenu(character); }}
-        aria-label="캐릭터 메뉴"
-        className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded-full bg-black/50 backdrop-blur-sm border border-white/10 text-white/60 hover:text-white hover:bg-black/70 transition-colors"
+        aria-label={`${character.name} 메뉴`}
+        className="absolute top-2 right-2 w-11 h-11 flex items-center justify-center rounded-full bg-black/50 backdrop-blur-sm border border-white/10 text-lobby-tx1 hover:text-white hover:bg-black/70 transition-colors"
       >
         <MoreHorizontal size={14} />
       </button>
@@ -261,7 +252,7 @@ const WORLD_JOB_STAGE_LABELS = {
 };
 
 // [World Builder v1.1] 카드 클릭 → WorldDetailSheet (상세/수정/장소 추가)
-const MyWorldCard = ({ world, index, onClick }) => {
+export const MyWorldCard = ({ world, index = 0, onClick }) => {
   const review = WORLD_REVIEW_META[world.reviewStatus] || null;
   return (
     <motion.button
@@ -271,9 +262,9 @@ const MyWorldCard = ({ world, index, onClick }) => {
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.05 + index * 0.05 }}
-      className="group relative w-full text-left rounded-2xl overflow-hidden border border-white/10 hover:border-amber-400/40 bg-white/[0.03] transition-colors"
+      className="group relative w-full text-left rounded-[22px] overflow-hidden border border-white/[0.12] hover:border-lobby-accent/40 bg-lobby-surface/65 transition-colors"
     >
-      <div className="relative aspect-video overflow-hidden bg-gradient-to-b from-stone-800/60 to-stone-950">
+      <div className="relative aspect-video overflow-hidden bg-gradient-to-b from-lobby-surface2 to-lobby-bg">
         {world.thumbnailUrl ? (
           <img
             src={world.thumbnailUrl}
@@ -290,14 +281,14 @@ const MyWorldCard = ({ world, index, onClick }) => {
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
         {review && (
           <span
-            className={`absolute top-2 left-2 inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${review.cls}`}
+            className={`absolute top-2 left-2 inline-flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded-full border ${review.cls}`}
           >
             {review.label}
           </span>
         )}
         <div className="absolute bottom-0 left-0 right-0 p-3">
           <div className="text-sm font-bold text-white truncate">{world.name}</div>
-          <div className="text-[11px] text-white/50 truncate mt-0.5">
+          <div className="text-xs text-lobby-tx1 truncate mt-0.5">
             {world.intro || "아직 소개가 없어요"}
           </div>
         </div>
@@ -318,9 +309,9 @@ const ExploreCard = ({ item, index, onClick }) => (
     initial={{ opacity: 0, y: 16 }}
     animate={{ opacity: 1, y: 0 }}
     transition={{ delay: Math.min(index % 20, 8) * 0.04 }}
-    className="group relative rounded-2xl overflow-hidden border border-white/10 hover:border-amber-400/40 bg-white/[0.03] text-left transition-colors"
+    className="group relative rounded-[22px] overflow-hidden border border-white/[0.12] hover:border-lobby-accent/40 bg-lobby-surface/65 text-left transition-colors"
   >
-    <div className="relative aspect-[3/4] overflow-hidden bg-gradient-to-b from-stone-800/60 to-stone-950">
+    <div className="relative aspect-[3/4] overflow-hidden bg-gradient-to-b from-lobby-surface2 to-lobby-bg">
       {item.thumbnailUrl ? (
         <img
           src={item.thumbnailUrl}
@@ -337,14 +328,14 @@ const ExploreCard = ({ item, index, onClick }) => (
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
       {/* 창작자 닉네임 뱃지 */}
       <div className="absolute top-2 left-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-sm border border-white/10">
-        <User size={8} className="text-amber-200/70" />
+        <User size={8} className="text-lobby-accent" />
         <span className="text-[9px] text-white/70 max-w-[90px] truncate">
           {item.creatorNickname || "익명의 창작자"}
         </span>
       </div>
       <div className="absolute bottom-0 left-0 right-0 p-3">
         <div className="text-sm font-bold text-white truncate">{item.name}</div>
-        <div className="text-[11px] text-white/50 truncate mt-0.5">{item.tagline || ""}</div>
+        <div className="text-xs text-lobby-tx1 truncate mt-0.5">{item.tagline || ""}</div>
       </div>
     </div>
   </motion.button>
@@ -615,32 +606,15 @@ export default function StudioPage({ embedded = false }) {
     }
   };
 
-  const stars = useMemo(
-    () =>
-      Array.from({ length: 40 }, () => ({
-        left: `${Math.random() * 100}%`,
-        top: `${Math.random() * 100}%`,
-      })),
-    []
-  );
-
   const displayEnergy = userInfo?.energy ?? user?.energy ?? 0;
   const displayNickname = userInfo?.nickname ?? user?.nickname ?? "";
 
   return (
     // [블록 A R2] embedded = 셸이 배경(bg-lobby-bg + 글로우 + 별)·탑바·스크롤을 제공 —
     // 자체 배경/자체 높이/자체 스크롤러 없이 콘텐츠만 렌더(잔존 자체 크롬 제거, 설계 문서 §5).
-    <div className={embedded ? "relative w-full" : "relative w-full overflow-hidden bg-stone-950 h-screen"}>
+    <div className={embedded ? "relative w-full" : "relative w-full overflow-hidden bg-lobby-bg h-screen"}>
       {/* ═══ 배경 — 비임베드 전용 (임베드는 셸 배경 사용) ═══ */}
-      {!embedded && (
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute inset-0 bg-gradient-to-br from-amber-950 via-stone-950 to-orange-950" />
-        {stars.map((style, i) => (
-          <AmberTwinkle key={i} style={style} />
-        ))}
-        <div className="absolute bottom-0 inset-x-0 h-1/3 bg-gradient-to-t from-stone-950 to-transparent" />
-      </div>
-      )}
+      {!embedded && <AuroraBackdrop />}
 
       {/* ═══ Topbar — TheaterPortalPage와 동일 폼팩터 (셸 임베드 시 셸 탑바가 대체) ═══ */}
       {!embedded && (
@@ -650,13 +624,13 @@ export default function StudioPage({ embedded = false }) {
             onClick={() => { sfx.click(); navigate("/"); }}
             whileHover={{ x: -3 }}
             whileTap={{ scale: 0.94 }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/30 backdrop-blur-md border border-white/10 text-white/60 hover:text-white hover:bg-black/50 transition-colors duration-200"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/30 backdrop-blur-md border border-white/10 text-lobby-tx1 hover:text-white hover:bg-black/50 transition-colors duration-200"
           >
             <ArrowLeft size={14} />
             <span className="text-xs tracking-wide">로비로</span>
           </motion.button>
 
-          <Link to="/" className="flex items-center gap-2 cursor-pointer" aria-label="Lucid Station으로 돌아가기">
+          <Link to="/" className="flex items-center gap-2 cursor-pointer" aria-label="LUCID CHAT 로비로 돌아가기">
             <img
               src="/logo_icon.png"
               alt=""
@@ -669,10 +643,10 @@ export default function StudioPage({ embedded = false }) {
             >
               LUCID CHAT
             </span>
-            <span className="text-white/30 mx-1.5">·</span>
+            <span className="text-lobby-tx2 mx-1.5">·</span>
             <span
               className="text-sm sm:text-base font-bold tracking-[0.18em]"
-              style={{ color: "rgba(253,230,138,0.9)", fontFamily: "'Pretendard', sans-serif" }}
+              style={{ color: "rgba(210,195,250,0.9)", fontFamily: "'Pretendard', sans-serif" }}
             >
               스튜디오
             </span>
@@ -681,10 +655,10 @@ export default function StudioPage({ embedded = false }) {
 
         <div className="flex items-center gap-3 sm:gap-4">
           <div className="flex items-center gap-1.5 bg-black/20 backdrop-blur-md rounded-full px-3 py-1.5 border border-white/10">
-            <Zap size={14} className="text-amber-300" />
+            <Zap size={14} className="text-lobby-accent" />
             <span className="text-sm font-semibold text-white tabular-nums">{displayEnergy}</span>
           </div>
-          <div className="hidden sm:flex items-center gap-1.5 text-white/60 text-sm">
+          <div className="hidden sm:flex items-center gap-1.5 text-lobby-tx1 text-sm">
             <User size={14} />
             <span>{displayNickname}</span>
           </div>
@@ -694,11 +668,29 @@ export default function StudioPage({ embedded = false }) {
 
       {/* ═══ 본문 — 임베드: 셸 main이 스크롤 담당 · 비임베드: 자체 스크롤 ═══ */}
       <div className={embedded ? "relative z-10" : "relative z-10 flex-1 overflow-y-auto custom-scrollbar h-[calc(100%-80px)]"}>
-        <div className={embedded ? "max-w-[1200px] mx-auto px-5 sm:px-8" : "max-w-6xl mx-auto px-5 sm:px-8 py-6 sm:py-10"}>
+        <div className={embedded ? "max-w-[1400px] mx-auto px-5 sm:px-8" : "max-w-6xl mx-auto px-5 sm:px-8 py-6 sm:py-10"}>
           {/* ─── 페이지 헤더 — 임베드: 로비 공용 PageHead(카피는 목업 원문) ─── */}
           {embedded ? (
-            <div className="mb-12">
+            <div className="mb-10">
               <PageHead title="스튜디오" desc="나만의 캐릭터와 세계를 만드는 공간이에요." />
+              <div className="aurora-studio-invite mt-7 rounded-[26px] px-6 sm:px-8 py-7 sm:py-8 flex flex-col lg:flex-row lg:items-center gap-6">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-semibold tracking-[0.2em] text-lobby-teal mb-2.5">LUCID STUDIO</p>
+                  <h2 className="text-[23px] sm:text-[28px] tracking-tight font-semibold text-lobby-tx0">한 사람에서, 하나의 세계까지.</h2>
+                  <p className="text-sm text-lobby-tx1 leading-relaxed mt-2">몇 줄의 상상으로 시작해 보세요. 캐릭터의 모습과 이야기를 함께 만들어 가요.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2.5 shrink-0">
+                  <button type="button" onClick={handleOpenCreate} className="aurora-secondary-primary rounded-2xl py-3.5 px-4 sm:px-5 text-left">
+                    <span className="flex items-center gap-2 text-sm font-bold"><Wand2 size={16} />캐릭터 만들기</span>
+                    <span className="flex items-center gap-1 mt-1.5 text-xs"><Zap size={11} />시작 {CHARACTER_START_COST}E</span>
+                    <span className="block text-[11px] mt-1 opacity-80">기본 완성까지 {STAGE_TOTAL_COST}E</span>
+                  </button>
+                  <button type="button" onClick={() => navigate("/studio/world")} className="rounded-2xl py-3.5 px-4 sm:px-5 text-left border border-lobby-accent/20 bg-white/[0.035] hover:bg-white/[0.07] transition-colors">
+                    <span className="flex items-center gap-2 text-sm font-semibold text-lobby-tx0"><Globe size={16} className="text-lobby-teal" />세계관 만들기</span>
+                    <span className="flex items-center gap-1 mt-1.5 text-xs text-lobby-tx1"><Zap size={11} />에너지 10</span>
+                  </button>
+                </div>
+              </div>
             </div>
           ) : (
           <motion.div
@@ -708,8 +700,8 @@ export default function StudioPage({ embedded = false }) {
             transition={{ duration: 0.6 }}
           >
             <div className="inline-flex items-center gap-2 mb-3">
-              <Wand2 size={18} className="text-amber-300/80" />
-              <span className="text-[10px] uppercase tracking-[0.4em] text-amber-200/55 font-medium">
+              <Wand2 size={18} className="text-lobby-accent/80" />
+              <span className="text-xs uppercase tracking-[0.4em] text-lobby-accent/80 font-medium">
                 Lucid Studio
               </span>
             </div>
@@ -719,7 +711,7 @@ export default function StudioPage({ embedded = false }) {
             >
               당신의 상상을 소환하세요
             </h1>
-            <p className="text-xs sm:text-sm text-white/40 tracking-wider">
+            <p className="text-xs sm:text-sm text-lobby-tx2 tracking-wider">
               몇 문장이면 충분해요. 스튜디오가 살아 숨쉬는 캐릭터로 빚어냅니다
             </p>
           </motion.div>
@@ -729,7 +721,7 @@ export default function StudioPage({ embedded = false }) {
           {mineLoading && (
             <div className="flex items-center justify-center py-24">
               <motion.div
-                className="w-10 h-10 border-2 border-amber-400/40 border-t-amber-400 rounded-full"
+                className="w-10 h-10 border-2 border-lobby-accent/40 border-t-lobby-accent rounded-full"
                 animate={{ rotate: 360 }}
                 transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
               />
@@ -763,21 +755,21 @@ export default function StudioPage({ embedded = false }) {
                 <div className="flex items-end justify-between mb-4">
                   <div>
                     <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2 tracking-wide">
-                      <Sparkles size={18} className="text-amber-300" />
+                      <Sparkles size={18} className="text-lobby-accent" />
                       내 캐릭터
                     </h2>
-                    <p className="text-xs text-white/40 mt-0.5 tracking-wider">
+                    <p className="text-xs text-lobby-tx2 mt-0.5 tracking-wider">
                       당신의 손에서 태어난 존재들
                     </p>
                   </div>
                   {mine.characters.length > 0 && (
-                    <span className="text-[11px] text-white/35 tracking-widest uppercase">
+                    <span className="text-xs text-lobby-tx2 tracking-widest uppercase">
                       {mine.characters.length}명
                     </span>
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                   {mine.characters.map((c, i) => (
                     <MyCharacterCard
                       key={c.characterId}
@@ -799,19 +791,20 @@ export default function StudioPage({ embedded = false }) {
                     transition={{ delay: 0.1 + mine.characters.length * 0.05 }}
                     whileHover={{ scale: 1.02, y: -3 }}
                     whileTap={{ scale: 0.98 }}
-                    className="group relative rounded-2xl border border-dashed border-white/20 hover:border-amber-400/50 bg-white/[0.02] hover:bg-amber-500/[0.04] transition-colors aspect-[3/4] flex flex-col items-center justify-center gap-3 hover:shadow-[0_0_40px_rgba(251,191,36,0.12)]"
+                    className="group relative rounded-2xl border border-dashed border-white/20 hover:border-lobby-accent/50 bg-lobby-accent/[0.035] hover:bg-lobby-accent/[0.07] transition-colors aspect-[3/4] flex flex-col items-center justify-center gap-3 hover:shadow-[0_8px_30px_rgba(210,195,250,0.08)]"
                   >
-                    <div className="w-12 h-12 rounded-full bg-white/5 group-hover:bg-amber-500/15 border border-white/10 group-hover:border-amber-400/40 flex items-center justify-center transition-colors">
-                      <Plus size={22} className="text-white/40 group-hover:text-amber-200 transition-colors" />
+                    <div className="w-12 h-12 rounded-full bg-white/5 group-hover:bg-lobby-accent/15 border border-white/10 group-hover:border-lobby-accent/40 flex items-center justify-center transition-colors">
+                      <Plus size={22} className="text-lobby-tx2 group-hover:text-lobby-accent transition-colors" />
                     </div>
                     <div className="text-center px-3">
-                      <div className="text-sm font-bold text-white/70 group-hover:text-amber-100 transition-colors">
+                      <div className="text-sm font-bold text-white/70 group-hover:text-lobby-accent transition-colors">
                         새 캐릭터 소환
                       </div>
-                      <div className="flex items-center justify-center gap-1 mt-1.5 text-amber-300/70">
+                      <div className="flex items-center justify-center gap-1 mt-1.5 text-lobby-accent">
                         <Zap size={11} />
-                        <span className="text-[11px] font-semibold">에너지 {CREATE_COST}</span>
+                        <span className="text-xs font-semibold">시작 {CHARACTER_START_COST}E</span>
                       </div>
+                      <p className="mt-1 text-xs text-lobby-tx2">기본 완성까지 {STAGE_TOTAL_COST}E</p>
                     </div>
                   </motion.button>
                 </div>
@@ -820,7 +813,7 @@ export default function StudioPage({ embedded = false }) {
                 {mine.characters.length === 0 && !displayJob && (
                   <div className="mt-4 rounded-2xl bg-white/[0.02] border border-dashed border-white/10 px-6 py-8 text-center">
                     <div className="text-3xl mb-2 opacity-60">🌙</div>
-                    <p className="text-white/40 text-xs leading-relaxed">
+                    <p className="text-lobby-tx2 text-xs leading-relaxed">
                       아직 소환한 캐릭터가 없어요.
                       <br />
                       머릿속에만 있던 그 사람을, 이곳에서 처음으로 만나보세요.
@@ -834,21 +827,21 @@ export default function StudioPage({ embedded = false }) {
                 <div className="flex items-end justify-between mb-4">
                   <div>
                     <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2 tracking-wide">
-                      <Globe size={18} className="text-amber-300" />
+                      <Globe size={18} className="text-lobby-accent" />
                       내 세계관
                     </h2>
-                    <p className="text-xs text-white/40 mt-0.5 tracking-wider">
+                    <p className="text-xs text-lobby-tx2 mt-0.5 tracking-wider">
                       캐릭터들이 살아갈 세계를 직접 빚어보세요
                     </p>
                   </div>
                   {worldsData.worlds.length > 0 && (
-                    <span className="text-[11px] text-white/35 tracking-widest uppercase">
+                    <span className="text-xs text-lobby-tx2 tracking-widest uppercase">
                       {worldsData.worlds.length}개
                     </span>
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {/* 진행 중 월드 잡 카드 */}
                   {worldsData.activeJob && (
                     <motion.button
@@ -859,10 +852,10 @@ export default function StudioPage({ embedded = false }) {
                       animate={{ opacity: 1, y: 0 }}
                       whileHover={{ scale: 1.01 }}
                       whileTap={{ scale: 0.99 }}
-                      className="relative rounded-2xl overflow-hidden border border-amber-400/40 hover:border-amber-300/60 bg-amber-500/[0.06] aspect-video flex flex-col items-center justify-center gap-2.5 text-left transition-colors"
+                      className="relative rounded-2xl overflow-hidden border border-lobby-accent/40 hover:border-lobby-accent/60 bg-lobby-accent/[0.06] aspect-video flex flex-col items-center justify-center gap-2.5 text-left transition-colors"
                     >
                       <motion.div
-                        className="absolute inset-0 pointer-events-none bg-gradient-to-r from-transparent via-amber-400/[0.06] to-transparent"
+                        className="absolute inset-0 pointer-events-none bg-gradient-to-r from-transparent via-lobby-accent/[0.06] to-transparent"
                         animate={{ x: ["-100%", "100%"] }}
                         transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
                       />
@@ -870,10 +863,10 @@ export default function StudioPage({ embedded = false }) {
                         animate={{ rotate: 360 }}
                         transition={{ duration: 6, repeat: Infinity, ease: "linear" }}
                       >
-                        <Globe size={22} className="text-amber-300" />
+                        <Globe size={22} className="text-lobby-accent" />
                       </motion.div>
                       <div className="text-sm font-bold text-white">만들던 세계관 이어가기</div>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-amber-400/15 text-amber-200 border-amber-400/40">
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full border bg-lobby-accent/15 text-lobby-accent border-lobby-accent/40">
                         {WORLD_JOB_STAGE_LABELS[worldsData.activeJob.status] || "진행 중"}
                       </span>
                     </motion.button>
@@ -899,18 +892,18 @@ export default function StudioPage({ embedded = false }) {
                     transition={{ delay: 0.1 + worldsData.worlds.length * 0.05 }}
                     whileHover={{ scale: 1.02, y: -3 }}
                     whileTap={{ scale: 0.98 }}
-                    className="group relative rounded-2xl border border-dashed border-white/20 hover:border-amber-400/50 bg-white/[0.02] hover:bg-amber-500/[0.04] transition-colors aspect-video flex flex-col items-center justify-center gap-2.5 hover:shadow-[0_0_40px_rgba(251,191,36,0.12)]"
+                    className="group relative rounded-2xl border border-dashed border-white/20 hover:border-lobby-accent/50 bg-lobby-accent/[0.035] hover:bg-lobby-accent/[0.07] transition-colors aspect-video flex flex-col items-center justify-center gap-2.5 hover:shadow-[0_8px_30px_rgba(210,195,250,0.08)]"
                   >
-                    <div className="w-10 h-10 rounded-full bg-white/5 group-hover:bg-amber-500/15 border border-white/10 group-hover:border-amber-400/40 flex items-center justify-center transition-colors">
-                      <Plus size={18} className="text-white/40 group-hover:text-amber-200 transition-colors" />
+                    <div className="w-10 h-10 rounded-full bg-white/5 group-hover:bg-lobby-accent/15 border border-white/10 group-hover:border-lobby-accent/40 flex items-center justify-center transition-colors">
+                      <Plus size={18} className="text-lobby-tx2 group-hover:text-lobby-accent transition-colors" />
                     </div>
                     <div className="text-center px-3">
-                      <div className="text-sm font-bold text-white/70 group-hover:text-amber-100 transition-colors">
+                      <div className="text-sm font-bold text-white/70 group-hover:text-lobby-accent transition-colors">
                         새 세계관 만들기
                       </div>
-                      <div className="flex items-center justify-center gap-1 mt-1 text-amber-300/70">
+                      <div className="flex items-center justify-center gap-1 mt-1 text-lobby-accent">
                         <Zap size={10} />
-                        <span className="text-[10px] font-semibold">에너지 10</span>
+                        <span className="text-xs font-semibold">에너지 10</span>
                       </div>
                     </div>
                   </motion.button>
@@ -922,17 +915,17 @@ export default function StudioPage({ embedded = false }) {
                 <div className="flex items-end justify-between mb-4">
                   <div>
                     <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2 tracking-wide">
-                      <Compass size={18} className="text-orange-300" />
+                      <Compass size={18} className="text-lobby-teal" />
                       탐색
                     </h2>
-                    <p className="text-xs text-white/40 mt-0.5 tracking-wider">
+                    <p className="text-xs text-lobby-tx2 mt-0.5 tracking-wider">
                       다른 창작자들이 소환한 캐릭터를 만나보세요
                     </p>
                   </div>
                 </div>
 
                 {explore.items.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                     {explore.items.map((item, i) => (
                       <ExploreCard
                         key={item.characterId}
@@ -948,7 +941,7 @@ export default function StudioPage({ embedded = false }) {
                 ) : explore.initialized && !exploreLoading ? (
                   <div className="rounded-2xl bg-white/[0.02] border border-dashed border-white/10 px-6 py-10 text-center">
                     <div className="text-3xl mb-2 opacity-60">🔭</div>
-                    <p className="text-white/40 text-xs leading-relaxed">
+                    <p className="text-lobby-tx2 text-xs leading-relaxed">
                       아직 공개된 캐릭터가 없어요.
                       <br />
                       당신의 캐릭터가 이 피드의 첫 주인공이 될 수 있어요.
@@ -961,7 +954,7 @@ export default function StudioPage({ embedded = false }) {
                 {exploreLoading && (
                   <div className="flex items-center justify-center py-8">
                     <motion.div
-                      className="w-7 h-7 border-2 border-amber-400/40 border-t-amber-400 rounded-full"
+                      className="w-7 h-7 border-2 border-lobby-accent/40 border-t-lobby-accent rounded-full"
                       animate={{ rotate: 360 }}
                       transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                     />
@@ -1038,7 +1031,7 @@ export default function StudioPage({ embedded = false }) {
               <MessageCircle size={16} className="text-cyan-300/80" />
               <div>
                 <div className="text-sm font-bold text-white">바로 대화하기</div>
-                <div className="text-[11px] text-white/40 mt-0.5">자유 모드로 대화방을 만들어요</div>
+                <div className="text-xs text-lobby-tx2 mt-0.5">자유 모드로 대화방을 만들어요</div>
               </div>
             </button>
 
@@ -1048,7 +1041,7 @@ export default function StudioPage({ embedded = false }) {
                 <Globe size={16} className="text-teal-300/80" />
                 <div>
                   <div className="text-sm font-bold text-white/70">공개 중</div>
-                  <div className="text-[11px] text-white/40 mt-0.5">탐색 피드에 노출되고 있어요</div>
+                  <div className="text-xs text-lobby-tx2 mt-0.5">탐색 피드에 노출되고 있어요</div>
                 </div>
               </div>
             ) : (
@@ -1063,7 +1056,7 @@ export default function StudioPage({ embedded = false }) {
                   <div className="text-sm font-bold text-white">
                     {menuChar.visibility === "PENDING_PUBLIC" ? "공개 신청 취소" : "공개 신청"}
                   </div>
-                  <div className="text-[11px] text-white/40 mt-0.5">
+                  <div className="text-xs text-lobby-tx2 mt-0.5">
                     {menuChar.visibility === "PENDING_PUBLIC"
                       ? "심사 대기를 취소하고 비공개로 돌려요"
                       : "검토 후 탐색 피드에 공개돼요"}
@@ -1078,7 +1071,7 @@ export default function StudioPage({ embedded = false }) {
                 <Moon size={16} className="text-rose-300/80" />
                 <div>
                   <div className="text-sm font-bold text-white/70">Secret 심사 중</div>
-                  <div className="text-[11px] text-white/40 mt-0.5">심사가 끝나면 알려드릴게요</div>
+                  <div className="text-xs text-lobby-tx2 mt-0.5">심사가 끝나면 알려드릴게요</div>
                 </div>
               </div>
             ) : menuChar.secretReviewStatus === "APPROVED" ? (
@@ -1086,7 +1079,7 @@ export default function StudioPage({ embedded = false }) {
                 <Moon size={16} className="text-rose-300" />
                 <div>
                   <div className="text-sm font-bold text-rose-200">Secret 승인됨</div>
-                  <div className="text-[11px] text-white/40 mt-0.5">Secret 모드를 사용할 수 있어요</div>
+                  <div className="text-xs text-lobby-tx2 mt-0.5">Secret 모드를 사용할 수 있어요</div>
                 </div>
               </div>
             ) : menuChar.secretEligible ? (
@@ -1101,11 +1094,11 @@ export default function StudioPage({ embedded = false }) {
                   <div className="text-sm font-bold text-white">
                     {menuChar.secretReviewStatus === "REJECTED" ? "Secret 다시 신청" : "Secret 신청"}
                   </div>
-                  <div className="text-[11px] text-white/40 mt-0.5">
+                  <div className="text-xs text-lobby-tx2 mt-0.5">
                     성인 인증 유저 전용 · 심사 후 활성화돼요
                   </div>
                   {menuChar.secretReviewStatus === "REJECTED" && menuChar.reviewNote && (
-                    <div className="text-[11px] text-rose-200/70 mt-1">{menuChar.reviewNote}</div>
+                    <div className="text-xs text-rose-200/70 mt-1">{menuChar.reviewNote}</div>
                   )}
                 </div>
               </button>
@@ -1123,12 +1116,12 @@ export default function StudioPage({ embedded = false }) {
               }}
               className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/5 hover:border-white/15 transition-colors text-left disabled:opacity-50"
             >
-              <Globe size={16} className="text-amber-300/80" />
+              <Globe size={16} className="text-lobby-accent/80" />
               <div>
                 <div className="text-sm font-bold text-white">
                   {menuChar.worldName ? "세계관 변경" : "세계관 연결"}
                 </div>
-                <div className="text-[11px] text-white/40 mt-0.5">
+                <div className="text-xs text-lobby-tx2 mt-0.5">
                   {menuChar.worldName ? `현재: ${menuChar.worldName}` : "미연결 — 공식·커스텀 세계관을 연결해요"}
                 </div>
               </div>
@@ -1141,10 +1134,10 @@ export default function StudioPage({ embedded = false }) {
               onClick={() => handleOpenEdit(menuChar)}
               className="w-full flex items-center gap-3 p-3.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/5 hover:border-white/15 transition-colors text-left disabled:opacity-50"
             >
-              <Pencil size={16} className="text-amber-300/80" />
+              <Pencil size={16} className="text-lobby-accent/80" />
               <div>
                 <div className="text-sm font-bold text-white">설정 수정</div>
-                <div className="text-[11px] text-white/40 mt-0.5">이름·태그라인·성격·말투·첫인사</div>
+                <div className="text-xs text-lobby-tx2 mt-0.5">이름·태그라인·성격·말투·첫인사</div>
               </div>
             </button>
           </div>
@@ -1165,20 +1158,20 @@ export default function StudioPage({ embedded = false }) {
               { key: "tagline", label: "태그라인", max: 60 },
             ].map((f) => (
               <div key={f.key}>
-                <label className="text-[11px] text-white/50 mb-1 block">{f.label}</label>
+                <label className="text-xs text-lobby-tx1 mb-1 block">{f.label}</label>
                 <input
                   type="text"
                   value={editForm[f.key]}
                   maxLength={f.max}
                   onChange={(e) => setEditForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                  className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-amber-400/60 outline-none"
+                  className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-lobby-tx2 focus:border-lobby-accent/60 outline-none"
                 />
               </div>
             ))}
             {/* [2026-08-04 난이도] 공략 난이도 — 스탯 상승 배율+성격 지시 이중 게이트
                 [2026-08-05 난이도 배지 승격] 4색 단일 소스(difficultyMeta) 적용 — 선택 상태 = 해당 색 배경 */}
             <div>
-              <label className="text-[11px] text-white/50 mb-1 block">공략 난이도</label>
+              <label className="text-xs text-lobby-tx1 mb-1 block">공략 난이도</label>
               <div className="grid grid-cols-4 gap-1.5">
                 {DIFFICULTY_ORDER.map((value) => {
                   const meta = DIFFICULTY_META[value];
@@ -1187,10 +1180,10 @@ export default function StudioPage({ embedded = false }) {
                       key={value}
                       type="button"
                       onClick={() => setEditForm((p) => ({ ...p, difficulty: value }))}
-                      className={`py-2 rounded-lg text-[11px] font-medium border transition ${
+                      className={`py-2 rounded-lg text-xs font-medium border transition ${
                         editForm.difficulty === value
                           ? meta.selectedCls
-                          : "bg-white/[0.04] border-white/10 text-white/45 hover:bg-white/[0.06]"
+                          : "bg-white/[0.04] border-white/10 text-lobby-tx2 hover:bg-white/[0.06]"
                       }`}
                     >
                       {meta.label} {difficultyFilledStars(value)}
@@ -1208,10 +1201,10 @@ export default function StudioPage({ embedded = false }) {
             ].map((f) => (
               <div key={f.key}>
                 <div className="flex items-baseline justify-between mb-1">
-                  <label className="text-[11px] text-white/50 block">{f.label}</label>
+                  <label className="text-xs text-lobby-tx1 block">{f.label}</label>
                   {f.max && (
-                    <span className={`text-[10px] tabular-nums ${
-                      (editForm[f.key]?.length || 0) >= f.max ? "text-amber-300" : "text-white/30"
+                    <span className={`text-xs tabular-nums ${
+                      (editForm[f.key]?.length || 0) >= f.max ? "text-lobby-accent" : "text-lobby-tx2"
                     }`}>
                       {editForm[f.key]?.length || 0}/{f.max}
                     </span>
@@ -1222,7 +1215,7 @@ export default function StudioPage({ embedded = false }) {
                   rows={f.rows}
                   maxLength={f.max}
                   onChange={(e) => setEditForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                  className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/25 focus:border-amber-400/60 outline-none resize-none"
+                  className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-lobby-tx2 focus:border-lobby-accent/60 outline-none resize-none"
                 />
               </div>
             ))}
@@ -1230,7 +1223,7 @@ export default function StudioPage({ embedded = false }) {
               type="button"
               disabled={busy}
               onClick={handleSaveEdit}
-              className="w-full py-3 rounded-xl text-sm font-bold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/20 transition disabled:opacity-50"
+              className="w-full py-3 rounded-xl text-sm font-bold aurora-secondary-primary transition disabled:opacity-50"
             >
               {busy ? "저장 중…" : "저장"}
             </button>
@@ -1247,13 +1240,13 @@ export default function StudioPage({ embedded = false }) {
       >
         {worldLinkChar && (
           <div className="space-y-2 pb-2">
-            <p className="text-[11px] text-white/45 leading-relaxed mb-1">
+            <p className="text-xs text-lobby-tx2 leading-relaxed mb-1">
               {worldLinkChar.name} ·{" "}
               {worldLinkChar.worldName ? `현재 연결: ${worldLinkChar.worldName}` : "미연결"}
             </p>
 
             {/* 공식 4종 */}
-            <div className="text-[10px] text-white/40 uppercase tracking-widest pt-1">공식 세계관</div>
+            <div className="text-xs text-lobby-tx2 uppercase tracking-widest pt-1">공식 세계관</div>
             {OFFICIAL_WORLDS.map((w) => {
               const active =
                 worldLinkChar.worldType === "OFFICIAL" && worldLinkChar.worldId === w.id;
@@ -1265,16 +1258,16 @@ export default function StudioPage({ embedded = false }) {
                   onClick={() => handleWorldLink({ officialWorldId: w.id }, `${w.name} 세계관을 연결했어요.`)}
                   className={`w-full flex items-center gap-3 p-3.5 rounded-xl border transition-colors text-left disabled:opacity-60 ${
                     active
-                      ? "bg-amber-500/[0.08] border-amber-400/40"
+                      ? "bg-lobby-accent/[0.08] border-lobby-accent/40"
                       : "bg-white/[0.03] hover:bg-white/[0.08] border-white/5 hover:border-white/15"
                   }`}
                 >
-                  <Globe size={16} className={active ? "text-amber-300" : "text-white/40"} />
+                  <Globe size={16} className={active ? "text-lobby-accent" : "text-lobby-tx2"} />
                   <div className="flex-1">
                     <div className="text-sm font-bold text-white">{w.name}</div>
                   </div>
                   {active && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-200 border border-amber-400/40">
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-lobby-accent/15 text-lobby-accent border border-lobby-accent/40">
                       연결 중
                     </span>
                   )}
@@ -1283,7 +1276,7 @@ export default function StudioPage({ embedded = false }) {
             })}
 
             {/* 내 READY 월드 */}
-            <div className="text-[10px] text-white/40 uppercase tracking-widest pt-2">내 세계관</div>
+            <div className="text-xs text-lobby-tx2 uppercase tracking-widest pt-2">내 세계관</div>
             {worldsData.worlds.length > 0 ? (
               worldsData.worlds.map((w) => {
                 const active =
@@ -1296,7 +1289,7 @@ export default function StudioPage({ embedded = false }) {
                     onClick={() => handleWorldLink({ ugcWorldId: w.worldId }, `${w.name} 세계관을 연결했어요.`)}
                     className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors text-left disabled:opacity-60 ${
                       active
-                        ? "bg-amber-500/[0.08] border-amber-400/40"
+                        ? "bg-lobby-accent/[0.08] border-lobby-accent/40"
                         : "bg-white/[0.03] hover:bg-white/[0.08] border-white/5 hover:border-white/15"
                     }`}
                   >
@@ -1311,7 +1304,7 @@ export default function StudioPage({ embedded = false }) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-bold text-white truncate">{w.name}</div>
-                      <div className="text-[11px] text-white/40 truncate mt-0.5">
+                      <div className="text-xs text-lobby-tx2 truncate mt-0.5">
                         {w.reviewStatus === "APPROVED"
                           ? "승인됨 — 공개 캐릭터에도 연결할 수 있어요"
                           : w.reviewStatus === "REJECTED"
@@ -1320,7 +1313,7 @@ export default function StudioPage({ embedded = false }) {
                       </div>
                     </div>
                     {active && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-200 border border-amber-400/40 flex-shrink-0">
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-lobby-accent/15 text-lobby-accent border border-lobby-accent/40 flex-shrink-0">
                         연결 중
                       </span>
                     )}
@@ -1331,7 +1324,7 @@ export default function StudioPage({ embedded = false }) {
               <button
                 type="button"
                 onClick={() => { sfx.click(); setWorldLinkChar(null); navigate("/studio/world"); }}
-                className="w-full py-3.5 rounded-xl border border-dashed border-white/15 hover:border-amber-400/50 bg-white/[0.02] hover:bg-amber-500/[0.04] text-[11px] text-white/45 hover:text-amber-100 transition-colors"
+                className="w-full py-3.5 rounded-xl border border-dashed border-white/15 hover:border-lobby-accent/50 bg-lobby-accent/[0.035] hover:bg-lobby-accent/[0.07] text-xs text-lobby-tx2 hover:text-lobby-accent transition-colors"
               >
                 아직 만든 세계관이 없어요 — 월드 빌더에서 만들기
               </button>
@@ -1353,7 +1346,7 @@ export default function StudioPage({ embedded = false }) {
                 <Link2Off size={16} className="text-rose-300/80" />
                 <div>
                   <div className="text-sm font-bold text-rose-200">연결 해제</div>
-                  <div className="text-[11px] text-white/40 mt-0.5">세계관 없이 자유롭게 두어요</div>
+                  <div className="text-xs text-lobby-tx2 mt-0.5">세계관 없이 자유롭게 두어요</div>
                 </div>
               </button>
             )}
@@ -1375,9 +1368,9 @@ export default function StudioPage({ embedded = false }) {
               onClick={busy ? undefined : () => setChatTarget(null)}
             />
             <motion.div
-              className="relative z-10 w-full max-w-sm rounded-2xl p-6 border border-amber-400/25"
+              className="relative z-10 w-full max-w-sm rounded-2xl p-6 border border-lobby-accent/25"
               style={{
-                background: "linear-gradient(145deg, rgba(28,18,8,0.97), rgba(20,12,6,0.96))",
+                background: "linear-gradient(145deg, rgba(42,50,74,0.98), rgba(28,39,58,0.98))",
                 boxShadow: "0 30px 60px rgba(0,0,0,0.6)",
               }}
               initial={{ scale: 0.92, y: 16 }}
@@ -1386,13 +1379,13 @@ export default function StudioPage({ embedded = false }) {
               transition={{ type: "spring", stiffness: 300, damping: 28 }}
             >
               <h3 className="font-bold text-white mb-1.5">
-                {chatTarget.name}와(과) 대화를 시작할까요?
+                {withWaGwa(chatTarget.name)} 대화를 시작할까요?
               </h3>
               <p className="text-white/55 text-xs leading-relaxed mb-1">
                 자유 모드(SANDBOX) 대화방이 만들어져요.
               </p>
               {chatTarget.creatorNickname && (
-                <p className="text-white/35 text-[11px] mb-4">
+                <p className="text-lobby-tx2 text-xs mb-4">
                   창작자 · {chatTarget.creatorNickname}
                 </p>
               )}
@@ -1401,7 +1394,7 @@ export default function StudioPage({ embedded = false }) {
                   type="button"
                   disabled={busy}
                   onClick={() => { sfx.click(); setChatTarget(null); }}
-                  className="flex-1 py-2.5 rounded-xl bg-white/5 text-white/50 hover:bg-white/10 transition text-sm disabled:opacity-50"
+                  className="flex-1 py-2.5 rounded-xl bg-white/5 text-lobby-tx1 hover:bg-white/10 transition text-sm disabled:opacity-50"
                 >
                   다음에
                 </button>
@@ -1409,7 +1402,7 @@ export default function StudioPage({ embedded = false }) {
                   type="button"
                   disabled={busy}
                   onClick={() => { sfx.click(); startSandboxChat(chatTarget.characterId); }}
-                  className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/20 transition flex items-center justify-center gap-1.5 disabled:opacity-60"
+                  className="flex-1 py-2.5 rounded-xl text-sm font-bold aurora-secondary-primary transition flex items-center justify-center gap-1.5 disabled:opacity-60"
                 >
                   <MessageCircle size={14} />
                   {busy ? "입장 중…" : "대화 시작"}
@@ -1429,7 +1422,7 @@ export default function StudioPage({ embedded = false }) {
                 ? "bg-emerald-900/80 border-emerald-400/30 text-emerald-200 shadow-emerald-500/20"
                 : toast.type === "error"
                   ? "bg-rose-900/80 border-rose-400/30 text-rose-200 shadow-rose-500/20"
-                  : "bg-amber-900/80 border-amber-400/30 text-amber-100 shadow-amber-500/20"
+                  : "bg-amber-900/80 border-lobby-accent/30 text-lobby-accent shadow-lobby-accent/20"
               }`}
             initial={{ x: "-50%", y: 30, opacity: 0, scale: 0.9 }}
             animate={{ x: "-50%", y: 0, opacity: 1, scale: 1 }}

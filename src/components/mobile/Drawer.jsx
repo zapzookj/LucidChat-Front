@@ -1,7 +1,8 @@
-import { useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useRef } from "react";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { X } from "lucide-react";
-import { sfx } from "../../utils/sfx";
+import "../../styles/aurora-chat.css";
+import useOverlayFocus from "./useOverlayFocus";
 
 /**
  * [Phase B · 단계0] Drawer — 측면 슬라이드 패널 프리미티브.
@@ -10,7 +11,7 @@ import { sfx } from "../../utils/sfx";
  *   - `fixed inset-0` + `bg-black/55 backdrop-blur-sm` 백드롭
  *   - 우/좌 슬라이드 `x: "100%"` 스프링(stiffness 280 / damping 30)
  *   - bg-slate-900/95 backdrop-blur-xl 패널, custom-scrollbar 본문
- *   - 열릴 때 sfx.wooshLight(), ESC 닫기, ≥44px 닫기 타깃
+ *   - 무음 전환, ESC 닫기, ≥44px 닫기 타깃
  * 추가: safe-area 상/하 인셋.
  *
  * Props:
@@ -31,16 +32,9 @@ export default function Drawer({
   className = "",
   contentClassName = "",
 }) {
-  useEffect(() => {
-    if (open) sfx.wooshLight();
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const handler = (e) => e.key === "Escape" && onClose?.();
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  const reduceMotion = useReducedMotion();
+  const panelRef = useRef(null);
+  useOverlayFocus(open, panelRef, onClose);
 
   const isRight = side !== "left";
   const offscreen = isRight ? "100%" : "-100%";
@@ -61,35 +55,38 @@ export default function Drawer({
           />
 
           <motion.div
-            className={`relative w-full ${widthClass} h-full bg-slate-900/95 backdrop-blur-xl ${
+            ref={panelRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-label={title || "상세 보기"}
+            className={`aurora-drawer relative w-full ${widthClass} h-full ${
               isRight ? "border-l" : "border-r"
             } border-white/10 overflow-hidden flex flex-col ${className}`}
             style={{
               paddingTop: "env(safe-area-inset-top)",
               paddingBottom: "env(safe-area-inset-bottom)",
             }}
-            initial={{ x: offscreen }}
+            initial={{ x: reduceMotion ? 0 : offscreen }}
             animate={{ x: 0 }}
-            exit={{ x: offscreen }}
-            transition={{ type: "spring", stiffness: 280, damping: 30 }}
+            exit={{ x: reduceMotion ? 0 : offscreen }}
+            transition={reduceMotion ? { duration: .12 } : { type: "spring", stiffness: 280, damping: 30 }}
           >
             {title && (
               <div className="flex-shrink-0 flex items-center justify-between px-5 py-4 border-b border-white/5">
                 <h2 className="text-lg font-bold text-white tracking-wide">{title}</h2>
                 <button
-                  onClick={() => {
-                    sfx.click();
-                    onClose?.();
-                  }}
+                  type="button"
+                  onClick={onClose}
                   aria-label="닫기"
-                  className="-mr-2 w-11 h-11 flex items-center justify-center rounded-full text-white/45 hover:text-white hover:bg-white/10 transition"
+                  className="aurora-icon-close -mr-2 transition"
                 >
                   <X size={18} />
                 </button>
               </div>
             )}
 
-            <div className={`flex-1 overflow-y-auto custom-scrollbar ${contentClassName}`}>
+            <div className={`min-h-0 flex-1 overflow-y-auto overscroll-contain custom-scrollbar ${contentClassName}`}>
               {children}
             </div>
           </motion.div>

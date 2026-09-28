@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Outlet, useNavigate, useLocation } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion as Motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   Zap, X, LogOut, LogIn, Volume2, VolumeX,
   Home, BookOpen, Palette, Archive as ArchiveIcon,
@@ -14,7 +14,8 @@ import GuestLoginGate from "../../components/lobby/GuestLoginGate";
 import { savePendingAction } from "../../utils/postLogin";
 import { assetUrl } from "../../utils/assetUrl";
 import { getPrefGender, hasAnsweredPref, setPrefGender } from "../../utils/preference";
-import { TwinkleStar, ShootingStar } from "./lobbyShared";
+import AuroraBackdrop from "../../components/lobby/AuroraBackdrop";
+import useOverlayFocus from "../../components/mobile/useOverlayFocus";
 
 /**
  * [블록 A R2] 로비 셸 — 재설계 정본(aichat docs/15_assets/lobby_redesign_mockup.html) 구현.
@@ -45,6 +46,10 @@ export default function LobbyShell() {
   const { user, logout, refreshUser } = useAuth();
   const { isMobile } = useDeviceProfile();
   const guest = !user;
+  const reduceMotion = useReducedMotion();
+  const entryTimer = useRef(null);
+  const fadeTimer = useRef(null);
+  useEffect(() => () => { clearTimeout(entryTimer.current); clearInterval(fadeTimer.current); }, []);
   // 탭 배치는 라이브 뷰포트 폭 기준 — useDeviceProfile.width는 프로필 변경 시에만
   // 리렌더되어 1024px 경계 리사이즈를 놓친다(R1 크리틱 확정 결함). 직접 추적.
   const [vw, setVw] = useState(() => window.innerWidth);
@@ -111,12 +116,13 @@ export default function LobbyShell() {
   };
 
   const fadeBgmOut = useCallback(() => {
+    clearInterval(fadeTimer.current);
     if (!bgmRef.current) return;
-    const fade = setInterval(() => {
+    fadeTimer.current = setInterval(() => {
       if (bgmRef.current && bgmRef.current.volume > 0.02) {
         bgmRef.current.volume = Math.max(0, bgmRef.current.volume - 0.03);
       } else {
-        clearInterval(fade);
+        clearInterval(fadeTimer.current);
         bgmRef.current?.pause();
       }
     }, 50);
@@ -124,10 +130,11 @@ export default function LobbyShell() {
 
   // ── 방 진입 연출 (페이드 아웃 → 이동) ──
   const enterRoom = useCallback((path) => {
+    clearTimeout(entryTimer.current);
     fadeBgmOut();
     setEntering(true);
-    setTimeout(() => navigate(path), 700);
-  }, [fadeBgmOut, navigate]);
+    entryTimer.current = setTimeout(() => navigate(path), reduceMotion ? 80 : 260);
+  }, [fadeBgmOut, navigate, reduceMotion]);
 
   // ── 게스트 행동 게이트 ──
   const requireLogin = useCallback((gateSpec) => setGate(gateSpec || { action: null }), []);
@@ -169,8 +176,6 @@ export default function LobbyShell() {
 
   const displayEnergy = userInfo?.energy ?? user?.energy ?? 0;
   const displayNickname = userInfo?.nickname ?? user?.nickname ?? "";
-  const stars = useMemo(() => Array.from({ length: 36 }, () => ({ left: `${Math.random() * 100}%`, top: `${Math.random() * 45}%` })), []);
-  const shootingStars = useMemo(() => [3, 11, 21].map((delay) => ({ delay, startX: Math.random() * 80, startY: Math.random() * 30 })), []);
 
   const outletContext = useMemo(() => ({
     guest, user, userInfo, refreshUserInfo, refreshUser,
@@ -178,36 +183,26 @@ export default function LobbyShell() {
   }), [guest, user, userInfo, refreshUserInfo, refreshUser, requireLogin, openStore, enterRoom, isMobile]);
 
   return (
-    <div className="relative w-full h-full overflow-hidden select-none bg-lobby-bg">
-      {/* ═══ 배경 — 토큰 배경 + 보라 글로우 + 별 (에셋 무의존) ═══ */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div
-          className="absolute inset-0"
-          style={{ background: "radial-gradient(1200px 500px at 50% -8%, rgba(139,110,247,0.14), transparent 60%)" }}
-        />
-        <div className="absolute inset-0 opacity-50">
-          {stars.map((style, i) => <TwinkleStar key={i} style={style} />)}
-          {shootingStars.map((s, i) => <ShootingStar key={i} {...s} />)}
-        </div>
-      </div>
+    <div className="aurora-shell relative w-full h-full overflow-hidden select-none">
+      <AuroraBackdrop />
 
       {/* ═══ 입장 페이드아웃 ═══ */}
       <AnimatePresence>
-        {entering && <motion.div className="fixed inset-0 z-[100] bg-black" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7 }} />}
+        {entering && <Motion.div className="fixed inset-0 z-[100] bg-lobby-bg" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: reduceMotion ? .08 : .26 }} />}
       </AnimatePresence>
 
       {/* ═══ 셸 골격 ═══ */}
       <div className="relative z-10 flex flex-col h-full">
         {/* ── Top Bar — 로고 좌 · 탭 중앙(≥1024) · 클러스터 우 ── */}
-        <header className="flex-shrink-0">
-          <div className="relative max-w-[1200px] mx-auto h-16 px-4 sm:px-8 flex items-center justify-between gap-3">
+        <header className="aurora-header">
+          <div className="aurora-header-inner">
             <button
-              className="flex items-center gap-2 flex-shrink-0"
+              className="aurora-brand"
               onClick={() => navigate("/")}
               aria-label="홈으로"
             >
-              <span className="text-violet-300 text-[15px]">✦</span>
-              <span className="text-base font-extrabold text-white tracking-[0.14em]">LUCID</span>
+              <span className="aurora-brand-mark" aria-hidden="true" />
+              <span className="aurora-brand-name">LUCID CHAT</span>
             </button>
 
             {showTopTabs && (
@@ -223,7 +218,7 @@ export default function LobbyShell() {
                       key={t.key}
                       onClick={() => handleTab(t)}
                       aria-current={on ? "page" : undefined}
-                      className={`relative px-[18px] py-2 rounded-xl text-lb-card font-semibold transition-colors duration-150 ${
+                      className={`relative min-h-11 px-[18px] py-2 rounded-xl text-sm font-medium transition-colors duration-150 ${
                         on ? "text-white" : "text-lobby-tx1 hover:text-white"
                       }`}
                     >
@@ -241,7 +236,7 @@ export default function LobbyShell() {
               {!guest && (
                 <button
                   onClick={() => openStore("energy")}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-white/[0.09] bg-white/[0.035] hover:border-white/[0.16] transition-colors"
+                  className="aurora-button-secondary gap-1.5 px-3.5"
                   aria-label="에너지 충전"
                 >
                   <Zap size={13} className="text-amber-400" />
@@ -252,7 +247,7 @@ export default function LobbyShell() {
               {!guest && (
                 <button
                   onClick={() => setShowSettings(true)}
-                  className="w-[34px] h-[34px] rounded-full border border-white/[0.16] bg-gradient-to-br from-[#7c6bd6] to-[#4a9cc9] flex items-center justify-center text-[13px] font-bold text-white"
+                  className="w-11 h-11 flex-none rounded-full border border-white/25 bg-gradient-to-br from-[#75668c] to-[#4e778c] flex items-center justify-center text-sm font-semibold text-white"
                   aria-label="설정"
                   title={displayNickname}
                 >
@@ -262,15 +257,15 @@ export default function LobbyShell() {
               {guest && (
                 <button
                   onClick={() => setGate({ action: { type: "route", path: location.pathname }, title: "다시 오신 걸 환영해요", message: "로그인하면 나눈 이야기가 이어져요." })}
-                  className="px-4 py-2 rounded-full text-lb-meta font-semibold text-lobby-tx1 border border-white/[0.09] hover:text-white hover:border-white/[0.16] transition-colors"
+                  className="aurora-button-secondary px-4 text-xs sm:text-sm"
                 >
                   로그인
                 </button>
               )}
               {guest && (
                 <button
-                  onClick={() => setGate({ action: { type: "route", path: location.pathname }, title: "3초면 시작할 수 있어요", message: "소셜 계정으로 바로 시작해요." })}
-                  className="px-5 py-2 rounded-full text-lb-meta font-bold text-slate-900 bg-gradient-to-r from-violet-300 to-sky-300 hover:-translate-y-px hover:shadow-[0_4px_20px_rgba(167,139,250,0.35)] transition-all"
+                  onClick={() => setGate({ action: { type: "route", path: location.pathname }, title: "당신의 이야기를 시작해요", message: "소셜 계정으로 간편하게 시작할 수 있어요." })}
+                  className="aurora-button-primary hidden sm:inline-flex"
                 >
                   시작하기
                 </button>
@@ -281,20 +276,20 @@ export default function LobbyShell() {
 
         {/* ── 탭 콘텐츠 — enter-only 페이드(이중 페이드 회귀 방지) ── */}
         <main className={`flex-1 overflow-y-auto custom-scrollbar ${showBottomBar ? "pb-[calc(76px+env(safe-area-inset-bottom))]" : "pb-8"}`}>
-          <motion.div
+          <Motion.div
             key={activeTab}
-            initial={{ opacity: 0, y: 12 }}
+            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25 }}
-            className="h-full"
+            className="min-h-full pb-6"
           >
             <Outlet context={outletContext} />
-          </motion.div>
+          </Motion.div>
         </main>
 
         {/* ── 하단 탭바 (<1024) ── */}
         {showBottomBar && (
-          <nav className="fixed bottom-0 left-0 right-0 z-30 flex items-stretch gap-1 px-3 pt-2 pb-[calc(10px+env(safe-area-inset-bottom))] bg-lobby-bg/90 backdrop-blur-xl border-t border-white/[0.09]" aria-label="주 메뉴">
+          <nav className="fixed bottom-0 left-0 right-0 z-30 flex items-stretch gap-1 px-3 pt-2 pb-[calc(10px+env(safe-area-inset-bottom))] bg-lobby-surface/95 backdrop-blur-xl border-t border-white/[0.12]" aria-label="주 메뉴">
             {TABS.map((t) => {
               const on = activeTab === t.key;
               return (
@@ -308,7 +303,7 @@ export default function LobbyShell() {
                   aria-label={t.label}
                 >
                   <t.Icon size={18} className={on ? "text-violet-300" : "opacity-70"} />
-                  <span className={`text-[10.5px] tracking-wide ${on ? "font-bold" : "font-medium"}`}>{t.label}</span>
+                  <span className={`text-xs ${on ? "font-semibold" : "font-medium"}`}>{t.label}</span>
                 </button>
               );
             })}
@@ -360,6 +355,8 @@ export default function LobbyShell() {
 
 // ── 설정 모달 — BGM 옵트인 + 선호 캐릭터 + 로그아웃/로그인 ──
 function SettingsModal({ guest, onClose, onLogout, onLogin, bgmOn, onToggleBgm }) {
+  const panelRef = useRef(null);
+  useOverlayFocus(true, panelRef, onClose);
   // 선호 캐릭터(개인화 정렬 v1) — 온보딩 1단계와 같은 저장소. "설정에서 바꿀 수 있어요" 카피의 실체.
   const [pref, setPref] = useState(() => (hasAnsweredPref() ? (getPrefGender() ?? "ALL") : null));
   const pickPref = (v) => { setPrefGender(v); setPref(v); };
@@ -371,22 +368,24 @@ function SettingsModal({ guest, onClose, onLogout, onLogin, bgmOn, onToggleBgm }
   ];
 
   return (
-    <motion.div className="fixed inset-0 z-[80] flex items-center justify-center px-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-      <motion.div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <motion.div
-        className="relative z-10 w-full max-w-xs bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-2xl"
+    <Motion.div className="fixed inset-0 z-[80] flex items-center justify-center px-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <button type="button" tabIndex={-1} aria-label="설정 닫기" className="absolute inset-0 bg-[#0c1227]/70 backdrop-blur-sm" onClick={onClose} />
+      <Motion.div
+        ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="lobby-settings-title" tabIndex={-1}
+        className="relative z-10 w-full max-w-sm max-h-[90dvh] overflow-y-auto bg-lobby-surface backdrop-blur-xl border border-white/15 rounded-3xl p-6 shadow-2xl"
         initial={{ scale: 0.92, opacity: 0, y: 12 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.92, opacity: 0, y: 12 }}
         transition={{ type: "spring", stiffness: 300, damping: 28 }}
       >
         <div className="flex items-center justify-between mb-5">
-          <h3 className="text-base font-bold text-white tracking-wide">설정</h3>
-          <button onClick={onClose} className="text-white/40 hover:text-white transition-colors duration-200" aria-label="닫기"><X size={16} /></button>
+          <h3 id="lobby-settings-title" className="text-xl font-semibold text-lobby-tx0">설정</h3>
+          <button onClick={onClose} className="aurora-icon-button" aria-label="닫기"><X size={18} /></button>
         </div>
 
         <button
           onClick={onToggleBgm}
+          role="switch" aria-checked={bgmOn}
           className="w-full flex items-center justify-between p-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.07] border border-white/5 hover:border-white/10 transition-colors duration-200 mb-3"
         >
           <div className="flex items-center gap-3 text-sm text-white/70">
@@ -401,14 +400,15 @@ function SettingsModal({ guest, onClose, onLogout, onLogin, bgmOn, onToggleBgm }
         {!guest && (
           <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 mb-3">
             <p className="text-sm text-white/70">선호 캐릭터</p>
-            <p className="text-[11px] text-white/35 mt-0.5">추천 순서에 반영돼요</p>
+            <p className="text-xs text-lobby-tx1 mt-1">추천 순서에 반영돼요</p>
             <div className="flex gap-1.5 mt-2.5">
               {PREFS.map(({ v, label }) => (
                 <button
                   key={v}
                   onClick={() => pickPref(v)}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                    pref === v ? "bg-violet-400/25 text-violet-100" : "bg-white/[0.04] text-white/45 hover:text-white/70"
+                  aria-pressed={pref === v}
+                  className={`flex-1 min-h-11 py-2 rounded-xl text-sm font-medium transition-colors ${
+                    pref === v ? "bg-lobby-accent/20 text-lobby-accent" : "bg-white/[0.04] text-lobby-tx1 hover:text-white"
                   }`}
                 >
                   {label}
@@ -433,7 +433,7 @@ function SettingsModal({ guest, onClose, onLogout, onLogin, bgmOn, onToggleBgm }
             <LogOut size={16} /><span>로그아웃</span>
           </button>
         )}
-      </motion.div>
-    </motion.div>
+      </Motion.div>
+    </Motion.div>
   );
 }

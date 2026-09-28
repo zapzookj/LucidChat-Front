@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 
 /**
  * [Phase B · 단계0] Collapsible — height 0→auto 접이식 컨테이너.
@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from "framer-motion";
  *   className? : 확장 클래스
  */
 export default function Collapsible({ open, children, duration = 0.2, className = "" }) {
+  const reduceMotion = useReducedMotion();
   return (
     <AnimatePresence initial={false}>
       {open && (
@@ -20,7 +21,7 @@ export default function Collapsible({ open, children, duration = 0.2, className 
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: "auto", opacity: 1 }}
           exit={{ height: 0, opacity: 0 }}
-          transition={{ duration }}
+          transition={{ duration: reduceMotion ? 0 : duration, ease: [0.22, 1, 0.36, 1] }}
           className={`overflow-hidden ${className}`}
         >
           {children}

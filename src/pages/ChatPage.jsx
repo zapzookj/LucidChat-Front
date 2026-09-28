@@ -1,3 +1,6 @@
+import EntryExperience from "../components/experience/EntryExperience";
+import EntryPreparation from "../components/experience/EntryPreparation";
+import { getIntroVideo } from "../utils/introPresentation";
 import { Fragment, useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useAuth } from "../context/AuthContext";
 import api from "../api/axios";
@@ -103,7 +106,22 @@ const ChatPage = () => {
 
   // 인트로 시퀀스 상태 ('none' | 'door' | 'greeting')
   const [introStep, setIntroStep] = useState('none');
-  const [isLoading, setIsLoading] = useState(true); // 깜빡임 방지용
+  const [openingReady, setOpeningReady] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [introError, setIntroError] = useState(null);
+  const [entryLoadError, setEntryLoadError] = useState(null);
+  const introRequestRef = useRef(null);
+  const introMountedRef = useRef(false);
+  const introRoomRef = useRef(roomId);
+  useEffect(() => {
+    introMountedRef.current = true;
+    introRoomRef.current = roomId;
+    return () => {
+      introMountedRef.current = false;
+      introRequestRef.current?.abort();
+      introRequestRef.current = null;
+    };
+  }, [roomId]);
   
   // [UI 상태]
   const [showHistory, setShowHistory] = useState(false);
@@ -920,19 +938,6 @@ const ChatPage = () => {
     }
   }, [introStep]);
 
-  // [리뷰 P2] 인트로 페이드 auto-dismiss는 첫인사(sceneQueue) 준비 후에만 — 고정 타이머로
-  //   먼저 걷으면 init(LLM 첫인사 생성) 지연 동안 빈 DialogueBox가 노출된다(레이턴시 마스크
-  //   무력화). 준비되면 짧은 여유 후 dismiss, 실패/지연 대비 폴백 타임아웃.
-  useEffect(() => {
-    if (introStep !== 'door') return;
-    if (sceneQueue.length > 0) {
-      const t = setTimeout(() => setIntroStep('none'), 600);
-      return () => clearTimeout(t);
-    }
-    const fallback = setTimeout(() => setIntroStep('none'), 12000);
-    return () => clearTimeout(fallback);
-  }, [introStep, sceneQueue.length]);
-
   useEffect(() => {
     localStorage.setItem("bgmVolume", String(bgmVolume));
   }, [bgmVolume]);
@@ -1072,7 +1077,11 @@ const ChatPage = () => {
       if (initCalledRef.current === roomId) return;
       initCalledRef.current = roomId;
 
-      setIsLoading(true); 
+      setIsLoading(true);
+      setEntryLoadError(null);
+      setIntroError(null);
+      setOpeningReady(false);
+      setIntroStep('none');
 
       try {
         // 1. 기본 정보 병렬 로드
@@ -1124,7 +1133,8 @@ const ChatPage = () => {
           setDynamicBackgroundUrl(roomRes.data.currentDynamicBgUrl);
         }
 
-        const logs = logsRes.data?.content || [];
+        if (!Array.isArray(logsRes.data?.content)) throw new Error('INVALID_HISTORY');
+        const logs = logsRes.data.content;
         // [Scene-Polish D] 씬 복원 K-윈도우 판정 입력 — 방 로그 총수(Spring Page.totalElements) 전달
         sceneStage.notifyLogTotal(logsRes.data?.totalElements ?? logs.length);
 
@@ -1163,6 +1173,7 @@ const ChatPage = () => {
         }
       } catch (err) {
         console.error("Init Error", err);
+        setEntryLoadError("연결 상태를 확인하고 다시 불러와 주세요.");
         showToast("초기화 중 오류가 발생했습니다.", "error");
       } finally {
         setIsLoading(false);
@@ -1172,15 +1183,24 @@ const ChatPage = () => {
   }, [roomId]);
 
   const startIntroSequence = async (roomId, roomData) => {
-      setIntroStep('door'); // 1. 영상 재생 시작
+      if (!introMountedRef.current || introRoomRef.current !== roomId || introRequestRef.current) return;
+      const request = new AbortController();
+      introRequestRef.current = request;
+      setCurrentScene(null);
+      setSceneQueue([]);
+      setOpeningReady(false);
+      setIntroError(null);
+      setIntroStep('door'); // Presentation and first-scene preparation run together.
       
       try {
           // 2. 백엔드 init (나레이션 + 첫인사 생성)
-          await api.post(`/chat/rooms/${roomId}/init`);
+          await api.post(`/chat/rooms/${roomId}/init`, {}, { signal: request.signal });
           
           // 3. 생성된 로그 가져오기
-          const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=5`);
-          const newLogs = logsRes.data.content.reverse();
+          const logsRes = await api.get(`/chat/rooms/${roomId}/logs?page=0&size=5`, { signal: request.signal });
+          if (request.signal.aborted) return;
+          if (!Array.isArray(logsRes.data?.content)) throw new Error('INVALID_HISTORY');
+          const newLogs = [...logsRes.data.content].reverse();
           
           setMessages(newLogs);
 
@@ -1189,7 +1209,7 @@ const ChatPage = () => {
           const queue = [];
           
           // (1) 나레이션 씬
-          const narrationLog = newLogs.find(l => l.role === 'SYSTEM');
+          const narrationLog = newLogs.find(l => l.role === 'SYSTEM' && typeof l.cleanContent === 'string' && l.cleanContent.trim());
           if (narrationLog) {
             const parts = splitNarration(narrationLog.cleanContent, 140);
             parts.forEach(part => {
@@ -1208,7 +1228,7 @@ const ChatPage = () => {
           // [Scene-Polish A] 하드코딩 narrationMap 삭제 — 서버가 이미 생성해 로그로 도착한
           //   SYSTEM 인트로 나레이션의 *마지막 문장*을 첫인사 씬 나레이션으로 재사용.
           //   SYSTEM 로그가 없는 레거시 UGC 방만 제네릭 폴백(받침 조사 처리).
-          const greetingLog = newLogs.find(l => l.role === 'ASSISTANT');
+          const greetingLog = newLogs.find(l => l.role === 'ASSISTANT' && typeof l.cleanContent === 'string' && l.cleanContent.trim());
           if (greetingLog) {
               const charName = roomData?.characterName || "캐릭터";
               const introTail = narrationLog ? extractLastSentence(narrationLog.cleanContent) : "";
@@ -1221,15 +1241,22 @@ const ChatPage = () => {
               });
           }
           
-          setSceneQueue(queue); // 큐에 넣고 대기 (영상 끝나면 Scene logic이 돌 것임)
+          if (queue.length === 0) throw new Error('EMPTY_OPENING');
+          setSceneQueue(queue);
+          setOpeningReady(true);
           
       } catch (e) {
+          if (request.signal.aborted) return;
           console.error("Intro Sequence Failed", e);
+          setIntroError("연결 상태를 확인한 뒤 다시 시도해 주세요.");
+      } finally {
+          if (introRequestRef.current === request) introRequestRef.current = null;
       }
   };
 
   const handleIntroVideoEnd = () => {
-      setIntroStep('none'); // 오버레이 제거 -> 이때부터 DialogueBox가 보임
+      if (!openingReady || introError) return;
+      setIntroStep('none'); // Only the ready scene can be revealed.
       // DialogueBox는 sceneQueue에 들어있는 첫 번째(나레이션)를 자동으로 재생 시작
   };
 
@@ -2233,13 +2260,13 @@ const ChatPage = () => {
   // 큐 자동 재생 (초기 진입 시)
   // [리플레이 E2] 리플레이 중엔 라이브 큐 소비를 홀드 — 복귀 시 이 effect가 이어서 재생
   useEffect(() => {
-    if (replay.isReplaying) return;
+    if (replay.isReplaying || introStep !== 'none') return;
     if (!currentScene && sceneQueue.length > 0) {
       const nextScene = sceneQueue[0];
       setCurrentScene(nextScene);
       setSceneQueue(prev => prev.slice(1));
     }
-  }, [sceneQueue, currentScene, replay.isReplaying]);
+  }, [sceneQueue, currentScene, replay.isReplaying, introStep]);
 
   // ━━━ [Phase 5.1] 단건 메시지 삭제 핸들러 ━━━
   // [Bug #1 Fix] 씬 분리된 메시지의 전체 씬을 일괄 삭제 (parentLogId 기반)
@@ -2464,7 +2491,9 @@ const ChatPage = () => {
     }
   }, [roomId, historyPage, hasMoreHistory, historyLoading, expandLogWithScenes]);
 
-  if (isLoading || !roomInfo) return <div className="h-full flex items-center justify-center bg-gray-900 text-white/30 animate-pulse">Loading Lucid Chat...</div>;
+  if (entryLoadError || !roomInfo || (isLoading && introStep !== 'door')) {
+    return <EntryPreparation error={entryLoadError} onRetry={() => window.location.reload()} onLeave={() => navigate('/')} />;
+  }
 
   return (
     <div className="relative w-full h-screen font-sans overflow-hidden bg-gray-900">
@@ -2498,42 +2527,17 @@ const ChatPage = () => {
         characterSlug={roomInfo?.characterSlug}
       />
 
-      {/* ================= Intro — 경량 페이드 (§G-12: '문' 영상 교체) =================
-          영상은 UGC 전부가 동일 폴백(2단 404)이라 플랫폼 스케일과 충돌 — 빛이 스며드는
-          페이드로 교체하되 오프닝 레이턴시 마스킹(introStep 게이트)은 그대로 보존한다. */}
-      <AnimatePresence>
-          {introStep === 'door' && (
-              <motion.div
-                  initial={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 1.2 }}
-                  className="absolute inset-0 z-[999] bg-black flex items-center justify-center cursor-pointer"
-                  onClick={handleIntroVideoEnd}
-              >
-                  <motion.div
-                      className="absolute inset-0"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: [0, 0.55, 0.85] }}
-                      transition={{ duration: 2.0, times: [0, 0.6, 1], ease: "easeInOut" }}
-                      style={{ background: "radial-gradient(58% 42% at 50% 50%, rgba(178,160,255,0.33), rgba(90,80,160,0.12) 55%, transparent 78%)" }}
-                      onAnimationComplete={handleIntroVideoEnd}
-                  />
-                  <motion.div
-                      className="relative text-center pointer-events-none"
-                      initial={{ opacity: 0, scale: 0.96 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 1.1, delay: 0.25 }}
-                  >
-                      <div className="text-white/85 text-xl tracking-[0.4em] font-light">✦</div>
-                      <div className="mt-3 text-white/55 text-[13px] tracking-[0.35em]">꿈으로 건너가는 중</div>
-                  </motion.div>
-                  <div className="absolute bottom-10 w-full text-center animate-pulse">
-                      <span className="text-white/30 text-xs tracking-widest">CLICK TO SKIP</span>
-                  </div>
-              </motion.div>
-          )}
-      </AnimatePresence>
-
+      {introStep === 'door' && <EntryExperience
+        key={roomId}
+        title={roomInfo?.characterName}
+        subtitle="지금, 우리만의 이야기가 시작됩니다"
+        videoSrc={assetUrl(getIntroVideo({ characterSlug: roomInfo?.characterSlug }))}
+        ready={openingReady}
+        error={introError}
+        onComplete={handleIntroVideoEnd}
+        onRetry={() => startIntroSequence(roomId, roomInfo)}
+        onLeave={() => navigate('/')}
+      />}
 
       {/* ═══ 캐릭터 디스플레이 + 속마음 말풍선 ═══ */}
       <div className="absolute inset-0 z-0">
@@ -2664,7 +2668,7 @@ const ChatPage = () => {
       {/* [2026-08-07 디오라마 이식] 리플레이 컨트롤 — 루트 레벨 마운트(딤 z-10 < 대사창 z-20 < 컨트롤 z-30) */}
       <SceneReplayOverlay replay={replay} portrait={isMobile} />
 
-      <DialogueBox
+      {introStep === 'none' && <DialogueBox
         mobile={isMobile}
         characterName={roomInfo?.characterName}
         scene={replayView ? replayView.scene : currentScene}
@@ -2707,7 +2711,7 @@ const ChatPage = () => {
         paidEnergy={paidEnergy}
         onRequestDirector={handleRequestDirector}
         directorLoading={directorLoading}
-      />
+      />}
 
       {/* [Profile v2] 캐릭터 프로필 — STATUS와 같은 맥락의 우측 사이드 패널. CTA는 "대화로 돌아가기"(닫기) */}
       <CharacterProfileView

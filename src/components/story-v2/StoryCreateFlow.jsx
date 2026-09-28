@@ -1,11 +1,15 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ArrowLeft, ArrowRight, Check, Sparkles, Users, User as UserIcon } from "lucide-react";
 import { sfx } from "../../utils/sfx";
+import "../../styles/aurora-secondary.css";
 // [2026-08-05 난이도 배지 승격] 난이도 4색 단일 소스
 import { DIFFICULTY_META, difficultyFilledStars } from "../../utils/difficultyMeta";
 // [블록 B 페르소나] '시작 전 프로필 편집' 오버레이
 import PersonaManager from "../persona/PersonaManager";
+import useOverlayFocus from "../mobile/useOverlayFocus";
+import { getCharacterPresentation } from "../../utils/characterPresentation";
+import { assetUrl } from "../../utils/assetUrl";
 import {
   fetchCreateContext,
   createStoryV2Room,
@@ -50,22 +54,30 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
 
   // 409 conflict 처리
   const [conflictPayload, setConflictPayload] = useState(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const dialogRef = useRef(null);
+  const submittingRef = useRef(false);
+  useOverlayFocus(!loading && Boolean(context) && !profileEditorOpen && !conflictPayload, dialogRef, submitting ? undefined : onCancel);
 
   // 초기 데이터 로드 — 월드 컨텍스트 + 현재 프로필(서버 자동 적용분 미리보기)
   useEffect(() => {
+    let alive = true;
     setLoading(true);
     setError(null);
     Promise.all([fetchCreateContext(worldId), fetchProfile()])
       .then(([ctx, prof]) => {
+        if (!alive) return;
         setContext(ctx);
         setProfile(prof);
       })
       .catch((e) => {
+        if (!alive) return;
         console.error("[V2-CreateFlow] context load failed", e);
         setError("월드 정보를 불러올 수 없습니다.");
       })
-      .finally(() => setLoading(false));
-  }, [worldId]);
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [worldId, loadAttempt]);
 
   // step 진행 조건
   const canProceedStep2 = selectedHeroineIds.length >= 1 && selectedHeroineIds.length <= 3;
@@ -112,6 +124,8 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
 
   // 방 생성 — [블록 B] 페르소나·닉네임은 서버가 현재 프로필을 자동 스냅샷
   const submitCreate = async (overwriteExisting) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setError(null);
     const payload = {
@@ -133,6 +147,7 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
         setError(e.response?.data?.message || "방 생성에 실패했습니다.");
       }
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -149,62 +164,62 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
 
   if (loading) {
     return (
-      <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center">
-        <div className="text-white/70">월드 정보를 불러오는 중...</div>
-      </div>
+      <CreateStatusDialog onClose={onCancel}>
+        <div role="status" className="flex flex-col items-center gap-5 text-lobby-tx1 text-sm"><span className="aurora-secondary-spinner w-8 h-8 rounded-full border-2 border-lobby-accent/20 border-t-lobby-accent" />세계의 이야기를 불러오고 있어요</div>
+      </CreateStatusDialog>
     );
   }
 
   if (error && !context) {
     return (
-      <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center">
-        <div className="bg-stone-900 p-8 rounded-lg max-w-md">
-          <p className="text-red-300 mb-4">{error}</p>
-          <button onClick={onCancel} className="px-4 py-2 bg-stone-700 text-white rounded">
-            로비로 돌아가기
-          </button>
-        </div>
-      </div>
+      <CreateStatusDialog onClose={onCancel}>
+        <p role="alert" className="text-rose-200 mb-5 leading-relaxed">{error}</p>
+        <button onClick={() => setLoadAttempt((n) => n + 1)} className="aurora-secondary-primary min-h-11 w-full px-5 rounded-xl text-sm font-semibold">다시 불러오기</button>
+      </CreateStatusDialog>
     );
   }
 
   return (
     <AnimatePresence>
       <motion.div
-        className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
+        className="fixed inset-0 z-50 bg-[#080d1d]/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
       >
         <motion.div
-          className="bg-stone-900 rounded-xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
+          ref={dialogRef} tabIndex={-1}
+          role="dialog" aria-modal="true" aria-label="이야기 시작 준비"
+          className="aurora-gate border border-white/15 rounded-[28px] max-w-3xl w-full max-h-[calc(100dvh-32px)] overflow-hidden flex flex-col shadow-2xl"
           initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.95, opacity: 0 }}
         >
           {/* 헤더 — Step Indicator */}
-          <div className="px-6 pt-6 pb-4 border-b border-stone-700/50 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <div className="shrink-0 px-5 sm:px-7 pt-5 pb-4 border-b border-white/10 flex items-center justify-between">
+            <div className="flex items-center gap-2 sm:gap-3" aria-label={`3단계 중 ${step}단계`}>
               {[1, 2, 3].map((n) => (
-                <div key={n} className="flex items-center gap-2">
+                <div key={n} className="flex items-center gap-2" aria-current={n === step ? "step" : undefined}>
                   <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
                       n === step
-                        ? "bg-amber-500 text-black"
+                        ? "bg-lobby-accent text-[#25253b]"
                         : n < step
-                        ? "bg-amber-500/30 text-amber-200"
-                        : "bg-stone-700 text-stone-500"
+                        ? "bg-lobby-accent/20 text-lobby-accent"
+                        : "bg-lobby-surface2 text-lobby-tx2"
                     }`}
                   >
                     {n < step ? <Check size={16} /> : n}
                   </div>
-                  {n < 4 && <div className={`w-8 h-px ${n < step ? "bg-amber-500/50" : "bg-stone-700"}`} />}
+                  <span className={`hidden sm:block text-xs ${n === step ? "text-lobby-tx0 font-semibold" : "text-lobby-tx2"}`}>{["세계관", "캐릭터", "내 프로필"][n - 1]}</span>
+                  {n < 3 && <div className={`w-8 h-px ${n < step ? "bg-lobby-accent/40" : "bg-lobby-surface2"}`} />}
                 </div>
               ))}
             </div>
             <button
               onClick={onCancel}
-              className="text-stone-400 hover:text-white transition"
+              disabled={submitting}
+              className="w-11 h-11 rounded-full flex items-center justify-center text-lobby-tx1 hover:bg-white/5 hover:text-white transition"
               aria-label="닫기"
             >
               <X size={22} />
@@ -212,7 +227,7 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
           </div>
 
           {/* 본문 */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-6">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain custom-scrollbar px-5 sm:px-7 py-6">
             <AnimatePresence mode="wait">
               {step === 1 && (
                 <Step1WorldConfirm key="s1" world={context.world} />
@@ -236,16 +251,16 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
           </div>
 
           {/* 푸터 — 네비게이션 */}
-          <div className="px-6 py-4 border-t border-stone-700/50 flex items-center justify-between">
+          <div className="shrink-0 px-5 sm:px-7 py-4 border-t border-white/10 flex flex-wrap gap-3 items-center justify-between">
             <button
               onClick={goPrev}
               disabled={step === 1 || submitting}
-              className="flex items-center gap-2 px-4 py-2 text-stone-300 disabled:opacity-30 hover:bg-stone-800 rounded transition"
+              className="flex items-center gap-2 min-h-11 px-4 py-2 text-sm text-lobby-tx1 disabled:opacity-30 hover:bg-lobby-surface2 rounded transition"
             >
               <ArrowLeft size={18} /> 이전
             </button>
 
-            {error && <div className="text-red-300 text-sm">{error}</div>}
+            {error && <div className="text-rose-200 text-sm order-last w-full leading-relaxed" role="alert">{error}</div>}
 
             <button
               onClick={goNext}
@@ -254,9 +269,9 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
                 (step === 2 && !canProceedStep2) ||
                 (step === 3 && !canProceedStep3)
               }
-              className="flex items-center gap-2 px-6 py-2 bg-amber-500 hover:bg-amber-400 text-black font-medium rounded disabled:opacity-30 transition"
+              className="flex items-center gap-2 min-h-11 px-6 py-2 text-sm aurora-secondary-primary font-semibold rounded-xl disabled:opacity-30 transition"
             >
-              {step === 3 ? (submitting ? "생성 중..." : "시작") : "다음"}
+              {step === 3 ? (submitting ? "이야기 준비 중…" : "이야기 시작하기") : "다음"}
               {step < 3 && <ArrowRight size={18} />}
             </button>
           </div>
@@ -285,7 +300,7 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
 //  Step 1 — World 확인
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function Step1WorldConfirm({ world }) {
+export function Step1WorldConfirm({ world }) {
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -293,24 +308,24 @@ function Step1WorldConfirm({ world }) {
       exit={{ opacity: 0, x: -20 }}
       className="space-y-4"
     >
-      <h2 className="text-2xl font-bold text-amber-200 flex items-center gap-2">
+      <h2 className="text-2xl font-semibold text-lobby-tx0 flex items-start gap-2 break-words">
         <Sparkles size={22} /> {world.displayName}
       </h2>
       {world.heroImageUrl && (
         <img
-          src={world.heroImageUrl}
+          src={assetUrl(world.heroImageUrl)}
           alt={world.displayName}
           className="w-full h-48 object-cover rounded-lg"
         />
       )}
-      {world.tagline && <p className="text-stone-300 italic">{world.tagline}</p>}
+      {world.tagline && <p className="text-lobby-tx1 italic">{world.tagline}</p>}
       {world.description && (
-        <p className="text-stone-400 leading-relaxed whitespace-pre-wrap">{world.description}</p>
+        <p className="text-lobby-tx1 leading-relaxed whitespace-pre-wrap">{world.description}</p>
       )}
       {world.moodKeywords && (
         <div className="flex flex-wrap gap-2 pt-2">
           {world.moodKeywords.split(",").map((k, i) => (
-            <span key={i} className="px-2 py-1 text-xs bg-stone-800 text-stone-400 rounded">
+            <span key={i} className="px-2.5 py-1 text-xs bg-lobby-surface2 text-lobby-tx1 rounded-full">
               {k.trim()}
             </span>
           ))}
@@ -324,51 +339,54 @@ function Step1WorldConfirm({ world }) {
 //  Step 2 — 히로인 선택
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function Step2HeroineSelect({ heroines, selected, onToggle }) {
+export function Step2HeroineSelect({ heroines, selected, onToggle }) {
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
     >
-      <h2 className="text-xl font-bold text-amber-200 mb-1 flex items-center gap-2">
+      <h2 className="text-xl font-bold text-lobby-accent mb-1 flex items-center gap-2">
         <Users size={20} /> 동행할 히로인 선택
       </h2>
-      <p className="text-sm text-stone-400 mb-4">1~3명 선택 (현재 {selected.length}명)</p>
+      <p className="text-sm text-lobby-tx1 mb-4" aria-live="polite">1~3명 선택 (현재 {selected.length}명)</p>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {heroines.map((h) => {
           const isSelected = selected.includes(h.characterId);
+          const presentation = getCharacterPresentation({ ...h, thumbnailUrl: h.profileImageUrl });
           return (
             <button
               key={h.characterId}
+              type="button" aria-pressed={isSelected}
               onClick={() => onToggle(h.characterId)}
-              className={`relative text-left bg-stone-800 rounded-lg overflow-hidden border-2 transition ${
-                isSelected ? "border-amber-400" : "border-transparent hover:border-stone-600"
+              className={`relative text-left bg-lobby-surface2 rounded-2xl overflow-hidden border transition ${
+                isSelected ? "border-lobby-accent" : "border-transparent hover:border-stone-600"
               }`}
             >
-              {h.profileImageUrl && (
-                <img src={h.profileImageUrl} alt={h.name} className="w-full h-32 object-cover" />
-              )}
+              <div className="relative h-40 overflow-hidden bg-lobby-bg/40">
+                {presentation.backgroundUrl && <img src={presentation.backgroundUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-70" onError={(event) => { event.currentTarget.style.display = "none"; }} />}
+                {h.profileImageUrl ? <img src={assetUrl(h.profileImageUrl)} alt="" className="relative w-full h-full object-cover object-top" /> : <div className="flex items-center justify-center h-full text-lobby-accent/40"><UserIcon size={40} /></div>}
+              </div>
               <div className="p-3">
-                <div className="font-medium text-white flex items-center gap-1.5">
-                  {h.name}
+                <div className="font-medium text-white flex items-start flex-wrap gap-1.5">
+                  <span className="min-w-0 break-words">{h.name}</span>
                   {/* [2026-08-04 난이도] 공략 난이도 미니 표기 — NORMAL 숨김 정책 유지
                       [2026-08-05 난이도 배지 승격] 하드코딩 3색 → difficultyMeta 단일 소스 소비 */}
                   {h.difficulty !== "NORMAL" && DIFFICULTY_META[h.difficulty] && (
                     <span
-                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${DIFFICULTY_META[h.difficulty].badgeCls}`}
+                      className={`text-[11px] font-bold px-1.5 py-0.5 rounded-md border ${DIFFICULTY_META[h.difficulty].badgeCls}`}
                     >
                       {difficultyFilledStars(h.difficulty)}
                     </span>
                   )}
                 </div>
-                {h.role && <div className="text-xs text-stone-400 mt-0.5">{h.role}</div>}
+                {h.role && <div className="text-xs text-lobby-tx1 mt-0.5">{h.role}</div>}
                 {h.tagline && (
-                  <div className="text-xs text-stone-500 mt-1 line-clamp-2">{h.tagline}</div>
+                  <div className="text-xs text-lobby-tx2 mt-1 line-clamp-2">{h.tagline}</div>
                 )}
               </div>
               {isSelected && (
-                <div className="absolute top-2 right-2 w-6 h-6 bg-amber-500 text-black rounded-full flex items-center justify-center">
+                <div className="absolute top-2 right-2 w-6 h-6 bg-lobby-accent text-[#25253b] rounded-full flex items-center justify-center">
                   <Check size={14} />
                 </div>
               )}
@@ -384,7 +402,7 @@ function Step2HeroineSelect({ heroines, selected, onToggle }) {
 //  Step 3 — 페르소나
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-function Step3Profile({ profile, onEdit }) {
+export function Step3Profile({ profile, onEdit }) {
   // [블록 B] 피커 제거 — 서버가 현재 프로필을 자동 스냅샷하므로 여기서는 확인+편집 진입점만
   const lensTotal = profile
     ? LENS_FIELDS.reduce((s, [k]) => s + (Number(profile[k]) || 0), 0)
@@ -395,45 +413,45 @@ function Step3Profile({ profile, onEdit }) {
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
     >
-      <h2 className="text-xl font-bold text-amber-200 mb-1 flex items-center gap-2">
+      <h2 className="text-xl font-bold text-lobby-accent mb-1 flex items-center gap-2">
         <UserIcon size={20} /> 내 프로필로 시작
       </h2>
-      <p className="text-sm text-stone-400 mb-4">
+      <p className="text-sm text-lobby-tx1 mb-4">
         이 세계에는 지금의 프로필이 그대로 들어가요 — 시작 후에는 바꿀 수 없어요.
       </p>
 
       {profile ? (
-        <div className="p-4 rounded border-2 border-amber-400/60 bg-stone-800 space-y-2.5">
+        <div className="p-5 rounded-2xl border border-lobby-accent/60 bg-lobby-surface2 space-y-2.5">
           <div className="flex items-baseline gap-2">
             <span className="font-bold text-white">{profile.name}</span>
-            <span className="text-xs text-stone-400">
+            <span className="text-xs text-lobby-tx1">
               {profile.gender === "FEMALE" ? "여성" : "남성"}{profile.age ? ` · ${profile.age}세` : " · 나이 미설정"}
             </span>
           </div>
           {profile.personaText ? (
-            <p className="text-xs text-stone-400 line-clamp-3 whitespace-pre-wrap">{profile.personaText}</p>
+            <p className="text-xs text-lobby-tx1 line-clamp-3 whitespace-pre-wrap">{profile.personaText}</p>
           ) : (
-            <p className="text-xs text-stone-500">소개가 비어 있어요 — 편집에서 채울 수 있어요.</p>
+            <p className="text-xs text-lobby-tx2">소개가 비어 있어요 — 편집에서 채울 수 있어요.</p>
           )}
           <div className="flex flex-wrap gap-1.5 pt-0.5">
             {LENS_FIELDS.map(([key, label]) => (
               <span key={key}
-                className="text-[10px] px-2 py-0.5 rounded-full bg-stone-700/60 text-stone-300">
+                className="text-xs px-2 py-0.5 rounded-full bg-lobby-surface2/60 text-lobby-tx1">
                 {label} {Number(profile[key]) || 0}
               </span>
             ))}
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-lobby-accent/10 text-lobby-accent">
               렌즈 {lensTotal}p
             </span>
           </div>
         </div>
       ) : (
-        <p className="text-xs text-stone-500">프로필을 불러오는 중…</p>
+        <p className="text-xs text-lobby-tx2">프로필을 불러오는 중…</p>
       )}
 
       <button
         onClick={onEdit}
-        className="mt-3 w-full py-2.5 rounded text-xs font-medium bg-stone-800 text-stone-300 hover:bg-stone-700 transition"
+        className="mt-3 w-full min-h-11 py-2.5 rounded-xl text-sm font-medium bg-lobby-surface2 text-lobby-tx1 hover:bg-white/10 transition"
       >
         시작 전 프로필 편집
       </button>
@@ -446,35 +464,50 @@ function Step3Profile({ profile, onEdit }) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 function ConflictModal({ onConfirm, onCancel }) {
+  const dialogRef = useRef(null);
+  useOverlayFocus(true, dialogRef, onCancel);
   return (
     <motion.div
       className="absolute inset-0 z-10 bg-black/70 flex items-center justify-center p-4"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
     >
-      <div className="bg-stone-900 rounded-lg p-6 max-w-md">
-        <h3 className="text-lg font-bold text-amber-200 mb-3">기존 진행 중인 스토리가 있습니다</h3>
-        <p className="text-stone-400 mb-2">
-          이 월드에 이미 진행 중인 스토리가 있습니다. 새로 시작하면 *현재 진행이 모두 사라집니다*.
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="기존 스토리 초기화 확인" tabIndex={-1} className="aurora-gate border border-white/15 rounded-[24px] p-6 max-w-md max-h-[calc(100dvh-32px)] overflow-y-auto">
+        <h3 className="text-lg font-bold text-lobby-accent mb-3">기존 진행 중인 스토리가 있습니다</h3>
+        <p className="text-lobby-tx1 mb-2">
+          이 월드에 이미 진행 중인 스토리가 있습니다. 새로 시작하면 <strong className="font-semibold text-rose-200">현재 진행이 모두 사라집니다.</strong>
         </p>
-        <p className="text-stone-500 text-sm mb-5">
+        <p className="text-lobby-tx2 text-sm mb-5">
           캐릭터 관계, 시간 진행, 호감도, 모든 누적 기억이 초기화됩니다.
         </p>
         <div className="flex gap-2 justify-end">
           <button
             onClick={onCancel}
-            className="px-4 py-2 text-stone-300 hover:bg-stone-800 rounded transition"
+            className="min-h-11 px-4 py-2 text-lobby-tx1 hover:bg-lobby-surface2 rounded-xl transition"
           >
             취소
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2 bg-red-500 hover:bg-red-400 text-white font-medium rounded transition"
+            className="min-h-11 px-4 py-2 bg-rose-700 hover:bg-rose-600 text-white font-medium rounded-xl transition"
           >
             새로 시작
           </button>
         </div>
       </div>
     </motion.div>
+  );
+}
+
+function CreateStatusDialog({ children, onClose }) {
+  const dialogRef = useRef(null);
+  useOverlayFocus(true, dialogRef, onClose);
+  return (
+    <div className="fixed inset-0 z-50 bg-[#080d1d]/80 backdrop-blur-md flex items-center justify-center p-4">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-label="이야기 시작 준비" tabIndex={-1} className="aurora-gate w-full max-w-md border border-white/15 p-8 rounded-[28px] text-center max-h-[calc(100dvh-32px)] overflow-y-auto">
+        {children}
+        <button onClick={onClose} className="min-h-11 mt-5 w-full px-4 py-2 text-sm text-lobby-tx1 hover:bg-white/5 rounded-xl">로비로 돌아가기</button>
+      </section>
+    </div>
   );
 }

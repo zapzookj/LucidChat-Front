@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
+import { ArrowUpRight, BookOpen, Theater, Users, ArrowRight } from "lucide-react";
 import api from "../../api/axios";
 import { fetchWorld as fetchTheaterWorld, fetchWorlds as fetchTheaterWorlds } from "../../api/TheaterLobbyApi";
 import StoryCreateFlow from "../../components/story-v2/StoryCreateFlow";
 import TheaterCreateFlow from "../../components/theater/TheaterCreateFlow";
 import { sfx } from "../../utils/sfx";
+import "../../styles/aurora-secondary.css";
 import {
   LobbyContainer, PageHead, CreditTag, fallbackGrad, SkeletonHero, EmptyState, ErrorState, RATE_LIMIT_MSG,
 } from "./lobbyUi";
@@ -95,16 +97,15 @@ export default function StoryTab() {
         title="스토리"
         desc={(
           <>
-            완성된 세계로 들어가는 긴 호흡의 이야기예요.{" "}
-            <b className="text-lobby-tx0">직접 주인공이 되거나</b>,{" "}
-            <b className="text-lobby-tx0">극장에서 캐릭터들의 이야기를 지켜볼</b> 수 있어요.
+            내가 주인공이 되는 이야기부터, 캐릭터들의 삶을 지켜보는 극장까지.
+            <br className="hidden sm:block" /> 머물고 싶은 세계를 골라 보세요.
           </>
         )}
       />
 
       {/* ── 로딩 — 월드형 스켈레톤 ×4 (정본 매트릭스) ── */}
       {loading && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
           {Array.from({ length: 4 }).map((_, i) => <SkeletonHero key={i} />)}
         </div>
       )}
@@ -126,7 +127,7 @@ export default function StoryTab() {
 
       {/* ── 월드 카드 그리드 — lg 2열 · 미만 1열 ── */}
       {!loading && !worldsError && cards.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
           {cards.map((w) => (
             <WorldCard
               key={w.worldId}
@@ -172,7 +173,7 @@ export default function StoryTab() {
 }
 
 // ── 대형 월드 카드 — 히어로 16:7 + 두 행동 버튼(각 1줄 설명) ──
-function WorldCard({ world: w, guest, theaterAvailable, onStartStory, onContinueStory, onStartTheater }) {
+export function WorldCard({ world: w, guest, theaterAvailable, onStartStory, onContinueStory, onStartTheater }) {
   // 게스트 스코프 응답엔 필드 자체가 없음(false) + 게스트 렌더 금지 이중 가드
   const continueMode = !guest && Boolean(w.hasExistingRoom);
   const heroImage = w.heroImageUrl || w.thumbnailUrl;
@@ -181,31 +182,33 @@ function WorldCard({ world: w, guest, theaterAvailable, onStartStory, onContinue
   const names = Array.isArray(w.heroineNames) && w.heroineNames.length > 0 ? w.heroineNames.join(" · ") : null;
 
   return (
-    <div className="rounded-[20px] overflow-hidden border border-white/[0.09] bg-white/[0.035] hover:border-violet-400/45 transition-colors duration-200 flex flex-col">
+    <article className="aurora-story-card rounded-[26px] overflow-hidden border border-white/[0.12] hover:border-lobby-accent/35 transition-colors duration-200 flex flex-col">
       {/* 히어로 16:7 — 이미지 or 폴백 그라데이션 + 하단 스크림 + 월드명 */}
-      <div className={`relative aspect-[16/7] flex-none overflow-hidden ${fallbackGrad(w.displayName)}`}>
+      <div className={`relative aspect-[16/8] sm:aspect-[16/8.5] flex-none overflow-hidden ${fallbackGrad(w.displayName)}`}>
         {heroImage && (
           <img
-            src={heroImage} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false} loading="lazy"
+            src={heroImage} alt="" className="aurora-story-photo absolute inset-0 w-full h-full object-cover transition-transform duration-700" draggable={false} loading="lazy"
             onError={(e) => { e.currentTarget.style.display = "none"; }}
           />
         )}
-        <div className="absolute inset-x-0 bottom-0 h-[70%] bg-gradient-to-b from-transparent to-black/55" />
-        <div className="absolute inset-x-0 bottom-0 px-3.5 pb-3">
-          <h2 className="text-lb-title text-white truncate">{w.displayName}</h2>
+        <div className="aurora-story-image absolute inset-0" />
+        <span className="absolute top-4 left-5 px-2.5 py-1 rounded-full bg-[#142034]/60 backdrop-blur-sm border border-white/20 text-[10px] tracking-[0.14em] font-semibold text-white/90">{isUgc ? "CREATOR WORLD" : "LUCID ORIGINAL"}</span>
+        <div className="absolute inset-x-0 bottom-0 px-5 sm:px-6 pb-5">
+          <span className="block text-[11px] font-medium text-lobby-teal mb-1.5 tracking-wider">당신이 들어갈 세계</span>
+          <h2 className="text-[26px] sm:text-[30px] leading-tight tracking-tight font-semibold text-white break-words">{w.displayName}</h2>
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col px-4 pt-3.5 pb-4 sm:px-5 sm:pt-[18px] sm:pb-5">
+      <div className="flex-1 flex flex-col px-5 pt-4 pb-5 sm:px-6 sm:pt-5 sm:pb-6">
         {/* 설명 2줄 clamp */}
         {w.description && (
-          <p className="text-lb-meta text-lobby-tx1 line-clamp-2">{w.description}</p>
+          <p className="text-sm leading-[1.8] text-lobby-tx1 line-clamp-3">{w.description}</p>
         )}
 
         {/* 등장 캐릭터 줄 — 카운트 칩 + (있으면) 이름 나열 + UGC 크레딧 */}
-        <div className="flex items-center gap-2 mt-3.5 min-w-0">
-          <span className="flex-none inline-flex items-center text-lb-badge text-lobby-tx2 px-2 py-0.5 rounded-full border border-white/[0.09]">
-            캐릭터 {w.heroineCount}
+        <div className="flex items-center flex-wrap gap-2 mt-4 min-w-0">
+          <span className="flex-none inline-flex items-center gap-1.5 text-xs text-lobby-tx2">
+            <Users size={13} /> 캐릭터 {w.heroineCount ?? 0}명
           </span>
           {names && <span className="text-lb-meta text-lobby-tx2 truncate">{names}</span>}
           {isUgc && w.creatorNickname && <CreditTag nickname={w.creatorNickname} className="ml-auto" />}
@@ -213,39 +216,41 @@ function WorldCard({ world: w, guest, theaterAvailable, onStartStory, onContinue
 
         {/* 진행 줄 — 멤버 & 진행 방 있음일 때만 (게스트 렌더 금지) */}
         {continueMode && (
-          <div className="flex items-center gap-2 mt-3 text-lb-meta text-amber-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-none" />
+          <div className="flex items-center gap-2 mt-4 text-xs text-lobby-teal">
+            <span className="w-1.5 h-1.5 rounded-full bg-lobby-teal flex-none" />
             진행 중 — 지난 장면에서 바로 이어져요
           </div>
         )}
 
         {/* 행동 버튼 행 — 하단 고정(mt-auto), 라벨 + 1줄 설명 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-auto pt-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-auto pt-5">
           <button
             onClick={continueMode ? onContinueStory : onStartStory}
-            className="rounded-xl px-3.5 py-3 text-left bg-gradient-to-r from-violet-300 to-sky-300 hover:-translate-y-px hover:shadow-[0_4px_18px_rgba(167,139,250,0.3)] transition-all duration-150"
+            className="aurora-secondary-primary rounded-2xl px-4 py-3.5 text-left"
           >
-            <span className="block text-lb-card font-bold text-slate-900">
+            <span className="flex items-center gap-2 text-sm font-bold">
+              <BookOpen size={15} className="shrink-0" />
               {continueMode ? "이야기 이어하기" : "이야기 시작하기"}
+              <ArrowUpRight size={15} className="ml-auto shrink-0" />
             </span>
-            <span className="block text-lb-meta text-slate-900/80 mt-0.5">주인공이 되어 직접 겪는 이야기</span>
+            <span className="block text-xs text-[#34364b] mt-1.5">주인공이 되어 직접 겪는 이야기</span>
           </button>
           {theaterAvailable ? (
             <button
               onClick={onStartTheater}
-              className="rounded-xl px-3.5 py-3 text-left border border-white/[0.09] hover:border-white/[0.16] hover:bg-white/[0.06] transition-colors duration-150"
+              className="rounded-2xl px-4 py-3.5 text-left border border-white/[0.12] bg-white/[0.025] hover:border-lobby-accent/30 hover:bg-white/[0.06] transition-colors duration-150"
             >
-              <span className="block text-lb-card font-bold text-white">🎭 극장 관람</span>
-              <span className="block text-lb-meta text-lobby-tx2 mt-0.5">캐릭터들이 살아가는 모습을 지켜봐요</span>
+              <span className="flex items-center gap-2 text-sm font-semibold text-lobby-tx0"><Theater size={15} className="text-lobby-accent" />극장 관람<ArrowRight size={14} className="ml-auto text-lobby-tx2" /></span>
+              <span className="block text-xs text-lobby-tx1 mt-1.5">캐릭터들의 이야기를 지켜봐요</span>
             </button>
           ) : (
-            <button disabled className="rounded-xl px-3.5 py-3 text-left border border-white/[0.09] opacity-40 cursor-default">
-              <span className="block text-lb-card font-bold text-white">🎭 극장 준비 중</span>
-              <span className="block text-lb-meta text-lobby-tx2 mt-0.5">곧 극장에서 만날 수 있어요</span>
-            </button>
+            <div className="rounded-2xl px-4 py-3.5 border border-white/[0.06] bg-white/[0.015]">
+              <span className="flex items-center gap-2 text-sm font-medium text-lobby-tx2"><Theater size={15} />극장 준비 중</span>
+              <span className="block text-xs text-lobby-tx2 mt-1.5">이 세계는 이야기 모드로 만나요</span>
+            </div>
           )}
         </div>
       </div>
-    </div>
+    </article>
   );
 }

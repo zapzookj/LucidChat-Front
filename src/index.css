@@ -1,13 +1,14 @@
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css");
+@import "./styles/aurora-lobby.css";
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 /* [블록 A R2] 전역 포커스 링 — 키보드 내비게이션 (디자인 정본 구현 계약) */
-:is(a, button, [tabindex]):focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.55);
+:is(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid #cbbdfa;
+  outline-offset: 3px;
 }
 
 html, body {
@@ -16,7 +17,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: #0f0f12;
+  background-color: #141827;
   color: white;
 }
 
@@ -25,9 +26,7 @@ html, body {
   height: 100%;
 }
 
-input:focus {
-  outline: none;
-}
+input, textarea, select { color-scheme: dark; }
 
 /* [런칭 폴리싱] 텍스트 드래그(선택) 전역 방지 — 입력 필드만 예외.
  * user-select는 상속되므로 body 한 번 지정으로 전 하위에 전파되고, 아래 예외 규칙이 이를 덮는다.

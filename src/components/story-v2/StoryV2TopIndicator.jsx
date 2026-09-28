@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { MapPin, Sun, Sunset, Moon } from "lucide-react";
 import { dayPartLabel, dayPartAccentClass, dayPartToV1Time } from "../../utils/dayPart";
+import "../../styles/aurora-chat.css";
 
 /**
  * [Story V2] 상단 중앙 인디케이터 — V1 ChatPage의 상단 라인(로비/설정/대화기록 버튼과 같은 위치)에
@@ -31,7 +32,7 @@ export default function StoryV2TopIndicator({ room }) {
       transition={{ duration: 0.4, delay: 0.2 }}
       className="absolute top-6 inset-x-0 z-40 flex justify-center pointer-events-none"
     >
-      <div className="pointer-events-auto px-5 py-2.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 shadow-lg flex items-center gap-2.5 max-w-[80vw]">
+      <div className="aurora-story-indicator pointer-events-auto px-5 py-3 backdrop-blur-md shadow-lg flex items-center gap-2.5 max-w-[80vw]">
         {/* World 이름 */}
         <span className="text-sm font-medium text-white/90 truncate max-w-[200px]">
           {room.worldDisplayName}

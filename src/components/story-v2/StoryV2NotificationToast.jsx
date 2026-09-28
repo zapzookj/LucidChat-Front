@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { Mail } from "lucide-react";
+import "../../styles/aurora-chat.css";
 
 /**
  * [Story V2] 오프스크린 알림 토스트 — 다른 히로인이 보낸 메시지(현재 장소에 없을 때)를
@@ -31,11 +32,11 @@ export default function StoryV2NotificationToast({ notifications, onClick }) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.95 }}
             transition={{ duration: 0.25 }}
-            className="pointer-events-auto group w-full px-4 py-2.5 rounded-xl bg-amber-500/15 backdrop-blur-md border border-amber-400/30 hover:bg-amber-500/25 hover:border-amber-400/50 transition text-left shadow-lg"
+            className="aurora-story-toast pointer-events-auto group w-full px-4 py-3 rounded-2xl backdrop-blur-md transition-colors text-left shadow-lg"
           >
             <div className="flex items-center gap-2 mb-0.5">
               <Mail size={11} className="text-amber-300" />
-              <span className="text-[10px] text-amber-300 font-medium uppercase tracking-wider">
+              <span className="text-xs text-amber-300 font-medium uppercase tracking-wider">
                 {n.fromCharacterName}
               </span>
             </div>

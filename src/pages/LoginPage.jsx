@@ -2,9 +2,8 @@ import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Lock, User, ChevronDown, ChevronUp } from "lucide-react";
-import { assetUrl } from "../utils/assetUrl";
-import { sfx } from "../utils/sfx";
+import { Lock, User, ChevronDown, ChevronUp, ArrowLeft, Sparkles } from "lucide-react";
+import "../styles/aurora-secondary.css";
 import { resolvePostLoginPath } from "../utils/postLogin";
 
 /**
@@ -16,24 +15,6 @@ import { resolvePostLoginPath } from "../utils/postLogin";
  * - 기존 LOCAL 계정 보유자를 위한 "기존 계정 로그인" 접이식 패널 (하위 호환)
  * - baseURL은 환경변수에서 로드
  */
-
-const TwinkleStar = ({ style }) => (
-  <motion.div
-    className="absolute w-[1.5px] h-[1.5px] bg-white rounded-full pointer-events-none"
-    style={style}
-    animate={{ opacity: [0.15, 0.6, 0.15], scale: [0.8, 1.2, 0.8] }}
-    transition={{ duration: Math.random() * 3 + 2, repeat: Infinity, delay: Math.random() * 5 }}
-  />
-);
-
-const isNightTime = () => { const h = new Date().getHours(); return h >= 19 || h < 6; };
-
-const getTimeGradient = () => {
-  const h = new Date().getHours();
-  if (h >= 6 && h < 16) return "from-sky-300 via-blue-400 to-indigo-500";
-  if (h >= 16 && h < 19) return "from-orange-300 via-rose-400 to-purple-600";
-  return "from-slate-900 via-indigo-950 to-slate-950";
-};
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL?.replace("/api/v1", "") || "http://localhost:8080";
 
@@ -72,13 +53,6 @@ const LoginPage = () => {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const stars = useMemo(() =>
-    Array.from({ length: 40 }, () => ({
-      left: `${Math.random() * 100}%`,
-      top: `${Math.random() * 60}%`,
-    })), []
-  );
-
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
   // 기존 LOCAL 계정 로그인 (하위 호환)
@@ -107,42 +81,31 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="relative flex items-center justify-center min-h-screen overflow-hidden select-none">
-      {/* 배경 */}
-      <div className={`absolute inset-0 bg-gradient-to-b ${getTimeGradient()} transition-colors duration-[5000ms]`} />
-      <div className="absolute inset-0 opacity-[0.06] pointer-events-none"
-        style={{
-          backgroundImage: `
-            radial-gradient(ellipse at 20% 50%, rgba(255,255,255,0.4) 0%, transparent 60%),
-            radial-gradient(ellipse at 80% 30%, rgba(255,255,255,0.3) 0%, transparent 55%),
-            radial-gradient(ellipse at 50% 80%, rgba(255,255,255,0.2) 0%, transparent 50%)
-          `,
-        }}
-      />
-      {isNightTime() && stars.map((style, i) => <TwinkleStar key={i} style={style} />)}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent pointer-events-none" />
-      <div className="absolute inset-0 bg-black/30" />
-
+    <div className="relative flex items-center justify-center min-h-dvh overflow-x-hidden py-24 bg-lobby-bg">
+      <div className="aurora-auth-background absolute inset-0 pointer-events-none" />
+      <div className="absolute inset-0 pointer-events-none flex items-end justify-center overflow-hidden" aria-hidden="true">
+        <div className="aurora-auth-arch translate-y-[15%]" />
+      </div>
+      <button type="button" onClick={() => navigate("/")} className="absolute z-20 top-5 left-5 sm:left-8 flex items-center gap-2 min-h-11 text-sm text-lobby-tx1 hover:text-white transition-colors">
+        <ArrowLeft size={17} />로비로 돌아가기
+      </button>
       {/* 메인 카드 */}
       <motion.div
-        className="relative w-full max-w-md p-8 bg-black/40 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl mx-4"
+        className="aurora-gate relative w-full max-w-[440px] px-7 sm:px-10 py-9 sm:py-10 border border-white/15 rounded-[30px] mx-4"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, type: "spring", stiffness: 120, damping: 18 }}
       >
         {/* 로고 */}
         <div className="text-center mb-8">
-          <img
-            src={assetUrl("/logo.png")}
-            alt="Lucid Chat"
-            className="h-12 mx-auto mb-5 drop-shadow-lg object-contain"
-            onError={(e) => { e.target.style.display = "none"; }}
-          />
-          <h2 className="text-2xl font-bold text-white drop-shadow-lg mb-2">
-            Welcome to Lucid Chat
-          </h2>
-          <p className="text-white/40 text-sm">소셜 계정으로 간편하게 시작하세요</p>
-        </div>
+          <div className="flex items-center justify-center gap-2.5 mb-8 text-lobby-accent">
+            <Sparkles size={21} strokeWidth={1.5} />
+            <span className="text-sm font-semibold tracking-[0.2em]">LUCID CHAT</span>
+          </div>
+          <h1 className="text-[28px] font-semibold text-lobby-tx0 tracking-tight mb-3">
+            당신의 이야기가 기다려요
+          </h1>
+          <p className="text-lobby-tx1 text-sm leading-relaxed">소셜 계정으로 로그인하고<br />마음이 닿는 캐릭터를 만나 보세요.</p>        </div>
 
         {/* [aichat E-7.1.a] 소셜 로그인 실패 안내 — 실패 원인이 소셜 로그인이므로 그 버튼 바로 위에 둔다 */}
         {socialError && (
@@ -165,7 +128,7 @@ const LoginPage = () => {
             onClick={() => handleSocialLogin("google")}
             className="w-full bg-white text-gray-800 font-bold py-3.5 rounded-xl transition shadow-lg
               hover:bg-gray-50 flex items-center justify-center gap-3
-              hover:scale-[1.02] active:scale-95"
+              hover:brightness-105 active:brightness-95"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -180,7 +143,7 @@ const LoginPage = () => {
           <button
             onClick={() => handleSocialLogin("kakao")}
             className="w-full font-bold py-3.5 rounded-xl transition shadow-lg flex items-center justify-center gap-3
-              hover:scale-[1.02] active:scale-95"
+              hover:brightness-105 active:brightness-95"
             style={{ backgroundColor: "#FEE500", color: "#191919" }}
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="#191919">
@@ -193,7 +156,7 @@ const LoginPage = () => {
           <button
             onClick={() => handleSocialLogin("naver")}
             className="w-full font-bold py-3.5 rounded-xl transition shadow-lg flex items-center justify-center gap-3
-              hover:scale-[1.02] active:scale-95 text-white"
+              hover:brightness-105 active:brightness-95 text-white"
             style={{ backgroundColor: "#03C75A" }}
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="white">
@@ -206,9 +169,9 @@ const LoginPage = () => {
         {/* ── 기존 계정 로그인 (접이식 — 하위 호환) ── */}
         <div className="mt-6">
           <button
-            onClick={() => setShowLegacy(!showLegacy)}
-            className="w-full flex items-center justify-center gap-2 text-white/30 text-xs
-              hover:text-white/50 transition py-2"
+            aria-expanded={showLegacy} aria-controls="legacy-login-form" onClick={() => setShowLegacy(!showLegacy)}
+            className="w-full flex items-center justify-center gap-2 text-lobby-tx2 text-xs
+              hover:text-lobby-tx1 transition py-2"
           >
             기존 계정으로 로그인
             {showLegacy ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
@@ -223,23 +186,23 @@ const LoginPage = () => {
                 transition={{ duration: 0.3 }}
                 className="overflow-hidden"
               >
-                <form onSubmit={handleLegacyLogin} className="space-y-3 pt-3 border-t border-white/5 mt-3">
-                  <p className="text-white/20 text-[10px] text-center mb-2">
+                <form id="legacy-login-form" onSubmit={handleLegacyLogin} className="space-y-3 pt-3 border-t border-white/5 mt-3">
+                  <p className="text-lobby-tx2 text-xs text-center mb-2">
                     소셜 로그인 도입 이전에 가입한 계정용입니다
                   </p>
                   <div className="relative group">
-                    <User className="absolute left-4 top-3 text-white/30 group-focus-within:text-pink-400 transition" size={18} />
-                    <input name="username" type="text" placeholder="Username" required
+                    <User className="absolute left-4 top-3 text-lobby-tx2 group-focus-within:text-lobby-accent transition" size={18} />
+                    <input name="username" type="text" placeholder="아이디" aria-label="아이디" autoComplete="username" required
                       value={formData.username} onChange={handleChange}
                       className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-11 pr-4
-                        text-white text-sm placeholder-white/20 focus:border-pink-500/50 transition outline-none" />
+                        text-white text-sm placeholder:text-lobby-tx2 focus:border-lobby-accent/50 transition outline-none" />
                   </div>
                   <div className="relative group">
-                    <Lock className="absolute left-4 top-3 text-white/30 group-focus-within:text-pink-400 transition" size={18} />
-                    <input name="password" type="password" placeholder="Password" required
+                    <Lock className="absolute left-4 top-3 text-lobby-tx2 group-focus-within:text-lobby-accent transition" size={18} />
+                    <input name="password" type="password" placeholder="비밀번호" aria-label="비밀번호" autoComplete="current-password" required
                       value={formData.password} onChange={handleChange}
                       className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-11 pr-4
-                        text-white text-sm placeholder-white/20 focus:border-pink-500/50 transition outline-none" />
+                        text-white text-sm placeholder:text-lobby-tx2 focus:border-lobby-accent/50 transition outline-none" />
                   </div>
 
                   {error && (
@@ -260,7 +223,7 @@ const LoginPage = () => {
         </div>
 
         {/* 하단 정보 */}
-        <p className="text-white/15 text-[10px] text-center mt-6 leading-relaxed">
+        <p className="text-lobby-tx2 text-[11px] text-center mt-6 leading-relaxed">
           로그인 시 이용약관 및 개인정보처리방침에 동의하게 됩니다
         </p>
       </motion.div>

@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion, useDragControls } from "framer-motion";
 import { X } from "lucide-react";
-import { sfx } from "../../utils/sfx";
+import "../../styles/aurora-chat.css";
+import useOverlayFocus from "./useOverlayFocus";
 
 /**
  * [Phase B · 단계0] BottomSheet — 모바일 점진적 노출 프리미티브.
@@ -9,7 +10,7 @@ import { sfx } from "../../utils/sfx";
  * 코드베이스 기존 관용구를 그대로 계승:
  *   - 오버레이: `fixed inset-0` + `absolute inset-0 bg-black/50 backdrop-blur-sm` 백드롭
  *   - 모션: y 슬라이드 스프링(싫어요/신고 모달의 items-end 바텀시트 패턴)
- *   - 열릴 때 sfx.wooshLight(), 닫기 sfx.click()
+ *   - 열림/닫힘은 무음으로 유지한다.
  *   - 스크롤 영역 .custom-scrollbar
  * 추가: safe-area-inset-bottom, 드래그-다운 dismiss, ≥44px 닫기 타깃.
  *
@@ -36,12 +37,15 @@ export default function BottomSheet({
   className = "",
   contentClassName = "",
 }) {
+  const reduceMotion = useReducedMotion();
+  const dragControls = useDragControls();
+  const panelRef = useRef(null);
+  useOverlayFocus(open, panelRef, onClose);
   // [폴리싱 #8] 열림 직후 같은 클릭이 백드롭에 떨어져 곧바로 닫히는 사고 방지 — 열림 시각 기록
   const openedAtRef = useRef(0);
   useEffect(() => {
     if (open) {
       openedAtRef.current = Date.now();
-      sfx.wooshLight();
     }
   }, [open]);
 
@@ -49,13 +53,6 @@ export default function BottomSheet({
     if (Date.now() - openedAtRef.current < 250) return; // 열림 후 250ms 이내 클릭 무시
     onClose?.();
   };
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const handler = (e) => e.key === "Escape" && onClose?.();
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
 
   return (
     <AnimatePresence>
@@ -73,19 +70,23 @@ export default function BottomSheet({
           />
 
           <motion.div
-            className={`relative z-10 w-full max-w-lg rounded-t-3xl border border-b-0 border-white/10 flex flex-col ${className}`}
+            ref={panelRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-label={title || "상세 보기"}
+            className={`aurora-sheet relative z-10 w-full max-w-lg border border-b-0 flex flex-col ${className}`}
             style={{
-              background:
-                "linear-gradient(160deg, rgba(15,10,35,0.98) 0%, rgba(30,15,55,0.97) 50%, rgba(20,10,40,0.98) 100%)",
-              boxShadow: "0 -20px 60px rgba(0,0,0,0.55)",
               maxHeight,
               paddingBottom: "env(safe-area-inset-bottom)",
             }}
-            initial={{ y: "100%" }}
+            initial={{ y: reduceMotion ? 0 : "100%" }}
             animate={{ y: 0 }}
-            exit={{ y: "100%" }}
-            transition={{ type: "spring", stiffness: 320, damping: 34 }}
+            exit={{ y: reduceMotion ? 0 : "100%" }}
+            transition={reduceMotion ? { duration: .12 } : { type: "spring", stiffness: 320, damping: 34 }}
             drag="y"
+            dragControls={dragControls}
+            dragListener={false}
             dragConstraints={{ top: 0, bottom: 0 }}
             dragElastic={{ top: 0, bottom: 0.4 }}
             onDragEnd={(_, info) => {
@@ -93,21 +94,23 @@ export default function BottomSheet({
             }}
           >
             {showHandle && (
-              <div className="flex-shrink-0 flex justify-center pt-3 pb-1">
+              <div
+                aria-hidden="true"
+                onPointerDown={(event) => dragControls.start(event)}
+                className="flex-shrink-0 flex justify-center pt-3 pb-3 touch-none cursor-grab active:cursor-grabbing"
+              >
                 <div className="w-10 h-1.5 rounded-full bg-white/20" />
               </div>
             )}
 
             {title && (
-              <div className="flex-shrink-0 flex items-center justify-between px-5 pt-1 pb-3">
+              <div className="aurora-sheet-header flex-shrink-0 flex items-center justify-between px-5 pt-1 pb-3">
                 <h3 className="text-white font-bold text-base tracking-wide">{title}</h3>
                 <button
-                  onClick={() => {
-                    sfx.click();
-                    onClose?.();
-                  }}
+                  type="button"
+                  onClick={onClose}
                   aria-label="닫기"
-                  className="-mr-2 w-11 h-11 flex items-center justify-center rounded-full text-white/40 hover:text-white hover:bg-white/10 transition"
+                  className="aurora-icon-close -mr-2 transition"
                 >
                   <X size={18} />
                 </button>
@@ -115,7 +118,7 @@ export default function BottomSheet({
             )}
 
             <div
-              className={`flex-1 overflow-y-auto custom-scrollbar px-5 ${
+              className={`aurora-sheet-content min-h-0 flex-1 overflow-y-auto custom-scrollbar px-5 ${
                 title ? "pb-5" : "py-5"
               } ${contentClassName}`}
             >

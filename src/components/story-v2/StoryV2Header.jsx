@@ -5,6 +5,7 @@ import {
   Users, Bell, RotateCcw,
 } from "lucide-react";
 import { dayPartLabel, dayPartAccentClass } from "../../utils/dayPart";
+import "../../styles/aurora-chat.css";
 
 /**
  * Story V2 헤더 — V1보다 풍부한 정보 표시 + 4 진입점 (일러스트 / 시크릿 / 오디오 / 패널).
@@ -44,16 +45,16 @@ export default function StoryV2Header({
   const TimeIcon = v1Time === "DAY" ? Sun : v1Time === "SUNSET" ? Sunset : Moon;
 
   return (
-    <header className="fixed top-0 inset-x-0 z-30 px-4 sm:px-6 py-3 bg-gradient-to-b from-black/70 to-transparent backdrop-blur-sm">
+    <header className="aurora-story-header fixed top-0 inset-x-0 z-30 px-4 sm:px-6 py-3 backdrop-blur-sm">
       <div className="flex items-center justify-between max-w-5xl mx-auto">
         {/* ── 좌측: 뒤로 + World/시간/장소 ── */}
         <div className="flex items-center gap-2 min-w-0">
-          <button onClick={onBack} className="p-1.5 hover:bg-white/10 rounded transition flex-shrink-0">
+          <button onClick={onBack} aria-label="로비로 돌아가기" className="p-1.5 hover:bg-white/10 rounded transition flex-shrink-0">
             <ArrowLeft size={20} />
           </button>
           <div className="ml-1 min-w-0">
             <div className="text-sm font-medium truncate">{room.worldDisplayName}</div>
-            <div className="text-xs text-stone-400 flex items-center gap-1.5 truncate">
+            <div className="text-xs text-lobby-tx1 flex items-center gap-1.5 truncate">
               <TimeIcon size={11} className={accentClass} />
               <span className={accentClass}>{room.currentDay}일차 · {dayPartKR}</span>
               <span className="mx-1">·</span>
@@ -110,11 +111,12 @@ export default function StoryV2Header({
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -8, scale: 0.95 }}
                   transition={{ duration: 0.15 }}
-                  className="absolute right-0 top-11 z-50 w-48 bg-stone-900/95 backdrop-blur border border-white/10 rounded-lg shadow-xl p-3"
+                  className="aurora-story-surface absolute right-0 top-12 z-50 w-56 p-4"
                 >
                   <div className="flex items-center gap-2 mb-3">
                     <button
                       onClick={onToggleMute}
+                      aria-label={isMuted ? "음소거 해제" : "음소거"}
                       className="p-1 hover:bg-white/10 rounded"
                     >
                       {isMuted ? <VolumeX size={16} /> : <Volume2 size={16} />}
@@ -131,7 +133,7 @@ export default function StoryV2Header({
                     value={bgmVolume}
                     onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
                     disabled={isMuted}
-                    className="w-full h-1 accent-amber-400 disabled:opacity-30"
+                    className="w-full h-6 accent-lobby-accent disabled:opacity-30"
                     aria-label="볼륨"
                   />
                 </motion.div>
