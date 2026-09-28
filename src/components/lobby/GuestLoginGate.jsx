@@ -1,7 +1,10 @@
+import { useRef } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { X, Sparkles } from "lucide-react";
+import { X, Sparkles, ArrowRight } from "lucide-react";
 import { savePendingAction } from "../../utils/postLogin";
+import useOverlayFocus from "../mobile/useOverlayFocus";
+import "../../styles/aurora-secondary.css";
 
 /**
  * [블록 A R2] 로그인 게이트 모달 — 게스트가 '행동'(대화 시작·스튜디오·보관함 등)을
@@ -15,6 +18,8 @@ import { savePendingAction } from "../../utils/postLogin";
  */
 export default function GuestLoginGate({ gate, onClose }) {
   const navigate = useNavigate();
+  const dialogRef = useRef(null);
+  useOverlayFocus(Boolean(gate), dialogRef, onClose);
   if (!gate) return null;
 
   const title = gate.title || "로그인이 필요해요";
@@ -28,50 +33,52 @@ export default function GuestLoginGate({ gate, onClose }) {
 
   return (
     <motion.div
-      className="fixed inset-0 z-[90] flex items-center justify-center px-6"
+      className="fixed inset-0 z-[120] flex items-center justify-center px-5"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
     >
       <motion.div
-        className="absolute inset-0 bg-black/70 backdrop-blur-md"
+        className="absolute inset-0 bg-[#080d1d]/75 backdrop-blur-md"
         onClick={onClose}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
       />
       <motion.div
-        className="relative z-10 w-full max-w-sm rounded-2xl border border-white/[0.09] bg-[#12121a]/95 backdrop-blur-xl p-7 shadow-[0_0_80px_rgba(167,139,250,0.18)]"
-        initial={{ scale: 0.92, opacity: 0, y: 16 }}
-        animate={{ scale: 1, opacity: 1, y: 0 }}
-        exit={{ scale: 0.92, opacity: 0, y: 16 }}
-        transition={{ type: "spring", stiffness: 300, damping: 28 }}
+        ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="guest-gate-title" aria-describedby="guest-gate-message" tabIndex={-1}
+        className="aurora-gate relative z-10 w-full max-w-[420px] max-h-[calc(100dvh-32px)] overflow-y-auto rounded-[28px] border border-white/15 p-7 sm:p-8 outline-none"
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 10 }}
+        transition={{ duration: 0.22 }}
       >
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-lobby-tx2 hover:text-white transition-colors"
+          className="absolute top-3 right-3 w-11 h-11 rounded-full flex items-center justify-center text-lobby-tx2 hover:bg-white/5 hover:text-white transition-colors"
           aria-label="닫기"
         >
           <X size={16} />
         </button>
 
-        <div className="flex items-center gap-2.5 mb-3">
-          <span className="flex items-center justify-center w-9 h-9 rounded-full border border-violet-400/25 bg-gradient-to-br from-violet-300/15 to-sky-300/10">
-            <Sparkles size={16} className="text-violet-300" />
+        <div className="mb-4 pt-1">
+          <span className="flex items-center justify-center w-14 h-14 mb-6 rounded-[20px] border border-lobby-accent/20 bg-gradient-to-br from-lobby-accent/15 to-lobby-teal/10">
+            <Sparkles size={23} strokeWidth={1.5} className="text-lobby-accent" />
           </span>
-          <h3 className="text-lb-sec text-white tracking-tight">{title}</h3>
+          <h3 id="guest-gate-title" className="break-keep text-[23px] leading-snug font-semibold text-lobby-tx0 tracking-tight">{title}</h3>
         </div>
 
-        <p className="text-lb-meta text-lobby-tx1 leading-relaxed mb-6">{message}</p>
+        <p id="guest-gate-message" className="break-keep text-sm text-lobby-tx1 leading-[1.8] mb-7">{message}</p>
 
         <button
           onClick={handleLogin}
-          className="w-full py-3 rounded-xl text-lb-meta font-bold text-slate-900 bg-gradient-to-r from-violet-300 to-sky-300 hover:-translate-y-px hover:shadow-[0_4px_20px_rgba(167,139,250,0.35)] transition-all"
+          className="aurora-secondary-primary w-full py-3.5 px-5 rounded-2xl text-sm font-bold flex items-center justify-between gap-3"
         >
           로그인하고 계속하기
+          <ArrowRight size={17} />
         </button>
         <button
           onClick={onClose}
-          className="w-full mt-2.5 py-2 text-lb-meta text-lobby-tx2 hover:text-lobby-tx1 underline underline-offset-[3px] transition-colors"
+          className="w-full mt-2.5 min-h-11 text-sm text-lobby-tx1 hover:text-lobby-tx0 transition-colors"
         >
           조금 더 둘러볼게요
         </button>

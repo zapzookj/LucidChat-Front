@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
+import { MotionConfig } from "framer-motion";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { initPortOne } from "./utils/portone";   // [C-2.j] 결제 초기화 단일 지점
 import { AuthProvider, useAuth } from "./context/AuthContext";
@@ -24,6 +25,10 @@ import StoryTab from "./pages/lobby/StoryTab";
 import ArchiveTab from "./pages/lobby/ArchiveTab";
 import FirstMeetPage from "./pages/lobby/FirstMeetPage";
 import { savePendingAction } from "./utils/postLogin";
+
+const DesignReviewPage = import.meta.env.DEV ? lazy(() => import("./dev/DesignReviewPage")) : null;
+const ChatDesignPreview = import.meta.env.DEV ? lazy(() => import("./dev/ChatDesignPreview")) : null;
+const SecondaryDesignPreview = import.meta.env.DEV ? lazy(() => import("./dev/SecondaryDesignPreview")) : null;
 
 /**
  * 보호 라우트 — 비로그인 시 /login으로 보내되, 원래 목적지를 저장해
@@ -58,9 +63,12 @@ function App() {
   useEffect(() => { initPortOne(); }, []);
 
   return (
-    <BrowserRouter>
+    <MotionConfig reducedMotion="user"><BrowserRouter>
       <AuthProvider>
         <Routes>
+          {import.meta.env.DEV && <Route path="/__design" element={<Suspense fallback={null}><DesignReviewPage /></Suspense>} />}
+          {import.meta.env.DEV && <Route path="/__design/chat" element={<Suspense fallback={null}><ChatDesignPreview /></Suspense>} />}
+          {import.meta.env.DEV && <Route path="/__design/secondary" element={<Suspense fallback={null}><SecondaryDesignPreview /></Suspense>} />}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/oauth2/success" element={<OAuthSuccessPage />} />
           {/* [C-1.5 / D-30] 성인인증 팝업 콜백 브리지.
@@ -184,7 +192,7 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>
-    </BrowserRouter>
+    </BrowserRouter></MotionConfig>
   );
 }
 

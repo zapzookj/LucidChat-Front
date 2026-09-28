@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { TONE_MAX } from "../../utils/ugcTextLimits";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import useOverlayFocus from "../mobile/useOverlayFocus";
 import {
   X, Check, Sparkles, Wand2, RefreshCw, Zap, ArrowLeft, Brush, ChevronDown,
   Eye, LayoutGrid, Globe, MessageCircle, Pencil, AlertTriangle, Moon, Feather,
@@ -18,6 +19,7 @@ import { fetchMyUgcWorlds, OFFICIAL_WORLDS } from "../../api/WorldStudioApi";
 import useUgcCreationJob from "../../hooks/useUgcCreationJob";
 import ProfileEditPanel from "./ProfileEditPanel";
 import { sfx } from "../../utils/sfx";
+import "../../styles/aurora-secondary.css";
 // [2026-08-05 난이도] 공략 난이도 라벨·색상 단일 소스 — 프로필/스튜디오 편집 시트와 공유
 import { DIFFICULTY_ORDER, DIFFICULTY_META, difficultyFilledStars } from "../../utils/difficultyMeta";
 
@@ -82,9 +84,10 @@ const CONCEPT_MAX = 1000;
 // [Pay-as-you-go] 단계별 에너지 단가 폴백 — 서버 stageCosts 우선 (rerollCosts 패턴).
 //   start: 소환 시작(컨셉 제출) / standing: 황금샷 선택 시(스탠딩 파생 착수)
 //   emotions: 스탠딩 선택 시(15컷 감정 파생 착수) / finalize: 검수 확정 시(마무리)
-const DEFAULT_STAGE_COSTS = { start: 6, standing: 4, emotions: 8, finalize: 2 };
+export const CHARACTER_START_COST = 6;
+const DEFAULT_STAGE_COSTS = { start: CHARACTER_START_COST, standing: 4, emotions: 8, finalize: 2 };
 // 전 단계 완주 시 총액 (= 20) — 컨셉 스텝의 총액 안내 문구용
-const STAGE_TOTAL_COST =
+export const STAGE_TOTAL_COST =
   DEFAULT_STAGE_COSTS.start + DEFAULT_STAGE_COSTS.standing +
   DEFAULT_STAGE_COSTS.emotions + DEFAULT_STAGE_COSTS.finalize;
 
@@ -147,7 +150,7 @@ function resolveStep(job) {
 
 const SpinnerRing = ({ size = 40, className = "" }) => (
   <motion.div
-    className={`border-2 border-amber-400/30 border-t-amber-400 rounded-full ${className}`}
+    className={`border-2 border-lobby-accent/30 border-t-lobby-accent rounded-full ${className}`}
     style={{ width: size, height: size }}
     animate={{ rotate: 360 }}
     transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
@@ -166,7 +169,7 @@ const CyclingCopy = ({ lines, interval = 3500, className = "" }) => {
       <AnimatePresence mode="wait">
         <motion.p
           key={idx}
-          className="absolute inset-0 text-center text-sm text-amber-100/80"
+          className="absolute inset-0 text-center text-sm text-lobby-accent/80"
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -6 }}
@@ -180,7 +183,10 @@ const CyclingCopy = ({ lines, interval = 3500, className = "" }) => {
 };
 
 /** confirm 모달 — 비용/포기 등 확인 (z-[130], 위저드 위) */
-const ConfirmModal = ({ data, busy, onConfirm, onCancel }) => (
+const ConfirmModal = ({ data, busy, onConfirm, onCancel }) => {
+  const dialogRef = useRef(null);
+  useOverlayFocus(Boolean(data), dialogRef, busy ? undefined : onCancel);
+  return (
   <AnimatePresence>
     {data && (
       <motion.div
@@ -191,11 +197,12 @@ const ConfirmModal = ({ data, busy, onConfirm, onCancel }) => (
       >
         <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={busy ? undefined : onCancel} />
         <motion.div
-          className={`relative z-10 w-full max-w-sm rounded-2xl p-6 border ${
-            data.danger ? "border-rose-400/25" : "border-amber-400/25"
+          ref={dialogRef} role="dialog" aria-modal="true" aria-label={data.title} tabIndex={-1}
+          className={`relative z-10 w-full max-w-sm max-h-[calc(100dvh-32px)] overflow-y-auto rounded-[24px] p-7 border ${
+            data.danger ? "border-rose-400/25" : "border-lobby-accent/25"
           }`}
           style={{
-            background: "linear-gradient(145deg, rgba(28,18,8,0.97), rgba(20,12,6,0.96))",
+            background: "linear-gradient(145deg, rgba(42,50,74,0.98), rgba(28,39,58,0.98))",
             boxShadow: "0 30px 60px rgba(0,0,0,0.6)",
           }}
           initial={{ scale: 0.92, y: 16, opacity: 0 }}
@@ -203,16 +210,16 @@ const ConfirmModal = ({ data, busy, onConfirm, onCancel }) => (
           exit={{ scale: 0.92, y: 16, opacity: 0 }}
           transition={{ type: "spring", stiffness: 300, damping: 28 }}
         >
-          <h3 className={`font-bold mb-2 ${data.danger ? "text-rose-200" : "text-amber-100"}`}>
+          <h3 className={`font-bold mb-2 ${data.danger ? "text-rose-200" : "text-lobby-accent"}`}>
             {data.title}
           </h3>
-          <p className="text-white/60 text-sm leading-relaxed mb-5 whitespace-pre-line">{data.desc}</p>
+          <p className="text-lobby-tx1 text-sm leading-relaxed mb-5 whitespace-pre-line">{data.desc}</p>
           <div className="flex gap-3">
             <button
               type="button"
               disabled={busy}
               onClick={() => { sfx.click(); onCancel(); }}
-              className="flex-1 py-2.5 rounded-xl bg-white/5 text-white/50 hover:bg-white/10 transition text-sm disabled:opacity-50"
+              className="flex-1 py-2.5 rounded-xl bg-white/5 text-lobby-tx1 hover:bg-white/10 transition text-sm disabled:opacity-50"
             >
               취소
             </button>
@@ -223,7 +230,7 @@ const ConfirmModal = ({ data, busy, onConfirm, onCancel }) => (
               className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1.5 disabled:opacity-50 ${
                 data.danger
                   ? "bg-rose-600/80 hover:bg-rose-500/80 text-white"
-                  : "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/20"
+                  : "aurora-secondary-primary"
               }`}
             >
               {busy ? "처리 중…" : data.confirmLabel || "확인"}
@@ -233,7 +240,8 @@ const ConfirmModal = ({ data, busy, onConfirm, onCancel }) => (
       </motion.div>
     )}
   </AnimatePresence>
-);
+  );
+};
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  STEP 1 — 컨셉 입력
@@ -257,7 +265,7 @@ const APPEARANCE_FIELDS = [
 
 const EMPTY_APPEARANCE = APPEARANCE_FIELDS.reduce((acc, f) => ({ ...acc, [f.key]: "" }), {});
 
-const ConceptStep = ({ busy, error, energy, onSubmit }) => {
+export const ConceptStep = ({ busy, error, energy, onSubmit, worldOptions = null }) => {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   // [2026-08-04 남캐] 성별 명시 선택 — 파이프라인 분기(앵커 태그·Male LoRA·연출 가이드)의 단일 기준
@@ -270,7 +278,8 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
   // [World Builder] 세계관 연결 (선택) — {type:"NONE"} | {type:"OFFICIAL",id,name} | {type:"UGC",id,name}
   const [worldOpen, setWorldOpen] = useState(false);
   const [worldSel, setWorldSel] = useState({ type: "NONE" });
-  const [myWorlds, setMyWorlds] = useState(null); // null = 로딩 중
+  const [loadedWorlds, setMyWorlds] = useState(null); // null = 로딩 중
+  const myWorlds = worldOptions ?? loadedWorlds;
   const len = concept.trim().length;
   const valid = len >= CONCEPT_MIN && len <= CONCEPT_MAX;
   // [Pay-as-you-go] 시작 게이트는 시작 단가(6E) 기준 — 이후 단계는 각 선택/확정 시점에 청구
@@ -279,6 +288,7 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
 
   // [World Builder] 내 커스텀 월드(READY) 목록 — 마운트 시 1회
   useEffect(() => {
+    if (worldOptions !== null) return undefined;
     let alive = true;
     (async () => {
       try {
@@ -289,7 +299,7 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
       }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [worldOptions]);
 
   // 값이 있는 필드만 추려 appearance 페이로드 구성 — 전부 비었으면 null
   const buildAppearance = () => {
@@ -302,39 +312,41 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
   return (
     <div className="max-w-xl mx-auto w-full">
       <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-        <Wand2 size={16} className="text-amber-300" />
+        <Wand2 size={16} className="text-lobby-accent" />
         어떤 존재를 소환할까요?
       </h3>
-      <p className="text-xs text-white/50 mb-5">
+      <p className="text-xs text-lobby-tx1 mb-5">
         떠오르는 인물의 이미지를 자유롭게 적어주세요. 나머지는 스튜디오가 빚어냅니다.
       </p>
 
       {/* 이름 (선택) */}
       <div className="mb-5">
-        <label className="text-xs text-white/60 mb-1.5 block">이름 (선택)</label>
+        <label htmlFor="studio-character-name" className="text-xs text-lobby-tx1 mb-1.5 block">이름 (선택)</label>
         <input
+          id="studio-character-name"
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="비우면 AI가 지어줘요"
           maxLength={20}
-          className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/30 focus:border-amber-400/60 outline-none"
+          className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-lobby-tx2 focus:border-lobby-accent/60 outline-none"
         />
       </div>
 
       {/* [2026-08-04 남캐] 성별 — 명시 선택(파이프라인 분기 기준) */}
       <div className="mb-5">
-        <label className="text-xs text-white/60 mb-1.5 block">성별</label>
+        <label className="text-xs text-lobby-tx1 mb-1.5 block">성별</label>
         <div className="grid grid-cols-2 gap-2">
           {[["FEMALE", "여성"], ["MALE", "남성"]].map(([value, label]) => (
             <button
               key={value}
               type="button"
+              aria-pressed={gender === value}
               onClick={() => { sfx.click(0.2); setGender(value); }}
               className={`py-2.5 rounded-xl text-sm font-medium border transition ${
                 gender === value
-                  ? "bg-amber-500/15 border-amber-400/50 text-amber-200"
-                  : "bg-white/[0.04] border-white/10 text-white/50 hover:bg-white/[0.06]"
+                  ? "bg-lobby-accent/15 border-lobby-accent/50 text-lobby-accent"
+                  : "bg-white/[0.04] border-white/10 text-lobby-tx1 hover:bg-white/[0.06]"
               }`}
             >
               {label}
@@ -345,40 +357,42 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
 
       {/* [2026-08-05 난이도] 공략 난이도 — StudioPage 편집 시트와 동일 문구·4단 그리드 */}
       <div className="mb-5">
-        <label className="text-xs text-white/60 mb-1.5 block">공략 난이도</label>
-        <div className="grid grid-cols-4 gap-1.5">
+        <label className="text-xs text-lobby-tx1 mb-1.5 block">공략 난이도</label>
+        <div className="grid grid-cols-2 min-[420px]:grid-cols-4 gap-1.5">
           {DIFFICULTY_ORDER.map((value) => (
             <button
               key={value}
               type="button"
+              aria-pressed={difficulty === value}
               onClick={() => { sfx.click(0.2); setDifficulty(value); }}
-              className={`py-2 rounded-lg text-[11px] font-medium border transition ${
+              className={`min-h-11 py-2 rounded-lg text-xs font-medium border transition ${
                 difficulty === value
                   ? DIFFICULTY_META[value].selectedCls
-                  : "bg-white/[0.04] border-white/10 text-white/45 hover:bg-white/[0.06]"
+                  : "bg-white/[0.04] border-white/10 text-lobby-tx2 hover:bg-white/[0.06]"
               }`}
             >
               {DIFFICULTY_META[value].label} {difficultyFilledStars(value)}
             </button>
           ))}
         </div>
-        <p className="mt-1.5 text-[11px] text-white/35">
+        <p className="mt-1.5 text-xs text-lobby-tx2">
           캐릭터 공략이 얼마나 까다로운지 — 나중에 스튜디오에서 변경 가능
         </p>
       </div>
 
       {/* 컨셉 */}
       <div className="mb-2">
-        <label className="text-xs text-white/60 mb-1.5 block">컨셉 *</label>
+        <label htmlFor="studio-character-concept" className="text-xs text-lobby-tx1 mb-1.5 block">컨셉 *</label>
         <textarea
+          id="studio-character-concept" aria-describedby="studio-character-concept-length"
           value={concept}
           onChange={(e) => setConcept(e.target.value)}
           placeholder={CONCEPT_PLACEHOLDER}
           rows={8}
           maxLength={CONCEPT_MAX}
-          className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white text-sm leading-relaxed placeholder:text-white/25 focus:border-amber-400/60 outline-none resize-none"
+          className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white text-sm leading-relaxed placeholder:text-lobby-tx2 focus:border-lobby-accent/60 outline-none resize-none"
         />
-        <div className={`mt-1 text-right text-[11px] tabular-nums ${valid ? "text-white/40" : "text-amber-300/70"}`}>
+        <div id="studio-character-concept-length" className={`mt-1 text-right text-xs tabular-nums ${valid ? "text-lobby-tx2" : "text-lobby-accent/70"}`}>
           {len} / {CONCEPT_MIN}~{CONCEPT_MAX}자
         </div>
       </div>
@@ -388,19 +402,20 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
         <button
           type="button"
           onClick={() => { sfx.click(0.2); setAppearanceOpen((o) => !o); }}
+          aria-expanded={appearanceOpen}
           className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-white/[0.03] transition-colors"
         >
-          <span className="flex items-center gap-1.5 text-xs text-white/60 font-medium">
-            <Brush size={12} className="text-amber-300/70" />
+          <span className="flex items-center gap-1.5 text-xs text-lobby-tx1 font-medium">
+            <Brush size={12} className="text-lobby-accent/70" />
             외형 디테일 (선택)
             {filledAppearanceCount > 0 && (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-200 border border-amber-400/30">
+              <span className="text-xs font-bold px-1.5 py-0.5 rounded-full bg-lobby-accent/15 text-lobby-accent border border-lobby-accent/30">
                 {filledAppearanceCount}
               </span>
             )}
           </span>
           <motion.span animate={{ rotate: appearanceOpen ? 180 : 0 }} transition={{ duration: 0.25 }}>
-            <ChevronDown size={14} className="text-white/40" />
+            <ChevronDown size={14} className="text-lobby-tx2" />
           </motion.span>
         </button>
         <AnimatePresence initial={false}>
@@ -413,13 +428,13 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
               className="overflow-hidden"
             >
               <div className="px-4 pb-4 pt-1">
-                <p className="text-[11px] text-white/35 mb-3">
+                <p className="text-xs text-lobby-tx2 mb-3">
                   확실히 그리고 싶은 부분만 짧게 적어주세요. 비워둔 항목은 AI가 채웁니다.
                 </p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {APPEARANCE_FIELDS.map((f) => (
                     <div key={f.key}>
-                      <label className="text-[11px] text-white/50 mb-1 block">{f.label}</label>
+                      <label className="text-xs text-lobby-tx1 mb-1 block">{f.label}</label>
                       <input
                         type="text"
                         value={appearance[f.key]}
@@ -428,7 +443,7 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
                         onChange={(e) =>
                           setAppearance((p) => ({ ...p, [f.key]: e.target.value }))
                         }
-                        className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-white text-xs placeholder:text-white/25 focus:border-amber-400/60 outline-none"
+                        className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-white text-xs placeholder:text-lobby-tx2 focus:border-lobby-accent/60 outline-none"
                       />
                     </div>
                   ))}
@@ -446,17 +461,17 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
           onClick={() => { sfx.click(0.2); setWorldOpen((o) => !o); }}
           className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-white/[0.03] transition-colors"
         >
-          <span className="flex items-center gap-1.5 text-xs text-white/60 font-medium">
-            <Globe size={12} className="text-amber-300/70" />
+          <span className="flex items-center gap-1.5 text-xs text-lobby-tx1 font-medium">
+            <Globe size={12} className="text-lobby-accent/70" />
             세계관 연결 (선택)
             {worldSel.type !== "NONE" && (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-200 border border-amber-400/30 max-w-[140px] truncate">
+              <span className="text-xs font-bold px-1.5 py-0.5 rounded-full bg-lobby-accent/15 text-lobby-accent border border-lobby-accent/30 max-w-[140px] truncate">
                 {worldSel.name}
               </span>
             )}
           </span>
           <motion.span animate={{ rotate: worldOpen ? 180 : 0 }} transition={{ duration: 0.25 }}>
-            <ChevronDown size={14} className="text-white/40" />
+            <ChevronDown size={14} className="text-lobby-tx2" />
           </motion.span>
         </button>
         <AnimatePresence initial={false}>
@@ -469,7 +484,7 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
               className="overflow-hidden"
             >
               <div className="px-4 pb-4 pt-1">
-                <p className="text-[11px] text-white/35 mb-3">
+                <p className="text-xs text-lobby-tx2 mb-3">
                   캐릭터가 살아갈 세계를 정해요. 완성 후에도 언제든 바꿀 수 있어요.
                 </p>
 
@@ -477,9 +492,9 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
                 <button
                   type="button"
                   onClick={() => { sfx.click(0.2); setWorldSel({ type: "NONE" }); }}
-                  className={`mb-3 px-3 py-1.5 rounded-full text-[11px] font-medium border transition-colors ${
+                  className={`mb-3 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                     worldSel.type === "NONE"
-                      ? "bg-amber-500/20 border-amber-400/60 text-amber-100"
+                      ? "bg-lobby-accent/20 border-lobby-accent/60 text-lobby-accent"
                       : "bg-white/[0.03] border-white/10 text-white/55 hover:bg-white/[0.08]"
                   }`}
                 >
@@ -487,7 +502,7 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
                 </button>
 
                 {/* ① 공식 세계관 — 가로 스크롤 칩 */}
-                <div className="text-[10px] text-white/40 uppercase tracking-widest mb-1.5">
+                <div className="text-xs text-lobby-tx2 uppercase tracking-widest mb-1.5">
                   공식 세계관
                 </div>
                 <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-1.5 mb-3">
@@ -503,9 +518,9 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
                             selected ? { type: "NONE" } : { type: "OFFICIAL", id: w.id, name: w.name }
                           );
                         }}
-                        className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] font-medium border transition-colors ${
+                        className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                           selected
-                            ? "bg-amber-500/20 border-amber-400/60 text-amber-100"
+                            ? "bg-lobby-accent/20 border-lobby-accent/60 text-lobby-accent"
                             : "bg-white/[0.03] border-white/10 text-white/55 hover:bg-white/[0.08]"
                         }`}
                       >
@@ -516,11 +531,11 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
                 </div>
 
                 {/* ② 내 커스텀 월드 — 썸네일 칩 */}
-                <div className="text-[10px] text-white/40 uppercase tracking-widest mb-1.5">
+                <div className="text-xs text-lobby-tx2 uppercase tracking-widest mb-1.5">
                   내 세계관
                 </div>
                 {myWorlds === null ? (
-                  <div className="py-3 text-[11px] text-white/35">불러오는 중…</div>
+                  <div className="py-3 text-xs text-lobby-tx2">불러오는 중…</div>
                 ) : myWorlds.length > 0 ? (
                   <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1.5">
                     {myWorlds.map((w) => {
@@ -536,7 +551,7 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
                             );
                           }}
                           className={`flex-shrink-0 w-32 rounded-xl overflow-hidden border-2 text-left transition-colors ${
-                            selected ? "border-amber-400" : "border-white/10 hover:border-amber-300/50"
+                            selected ? "border-lobby-accent" : "border-white/10 hover:border-lobby-accent/50"
                           }`}
                         >
                           <div className="aspect-video bg-black/40">
@@ -554,8 +569,8 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
                             )}
                           </div>
                           <div
-                            className={`px-2 py-1.5 text-[10px] font-bold truncate ${
-                              selected ? "bg-amber-500/20 text-amber-100" : "bg-black/30 text-white/60"
+                            className={`px-2 py-1.5 text-xs font-bold truncate ${
+                              selected ? "bg-lobby-accent/20 text-lobby-accent" : "bg-black/30 text-lobby-tx1"
                             }`}
                           >
                             {w.name}
@@ -568,7 +583,7 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
                   <button
                     type="button"
                     onClick={() => { sfx.click(); navigate("/studio/world"); }}
-                    className="w-full py-3 rounded-xl border border-dashed border-white/15 hover:border-amber-400/50 bg-white/[0.02] hover:bg-amber-500/[0.04] text-[11px] text-white/45 hover:text-amber-100 transition-colors"
+                    className="w-full py-3 rounded-xl border border-dashed border-white/15 hover:border-lobby-accent/50 bg-white/[0.02] hover:bg-lobby-accent/[0.04] text-xs text-lobby-tx2 hover:text-lobby-accent transition-colors"
                   >
                     아직 만든 세계관이 없어요 — 월드 빌더에서 만들기
                   </button>
@@ -581,14 +596,14 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
 
       {/* 에너지 고지 — [Pay-as-you-go] 시작 단가 + 이후 단계 단가·총액 병기 */}
       <div className="mb-5">
-        <div className="flex items-center gap-1.5 text-amber-300/85">
+        <div className="flex items-center flex-wrap gap-1.5 text-lobby-accent/85">
           <Zap size={14} />
           <span className="text-xs font-semibold">
             소환 시작 시 에너지 {DEFAULT_STAGE_COSTS.start}E 소모
           </span>
           {lackEnergy && <span className="text-xs text-rose-300/80 ml-1">· 에너지가 부족해요</span>}
         </div>
-        <p className="mt-1 text-[11px] text-white/40 leading-relaxed">
+        <p className="mt-1 text-xs text-lobby-tx2 leading-relaxed">
           이후 단계 진행 시 +{DEFAULT_STAGE_COSTS.standing}/+{DEFAULT_STAGE_COSTS.emotions}/+{DEFAULT_STAGE_COSTS.finalize}E
           — 전 단계 완주 시 총 {STAGE_TOTAL_COST}E예요. 진행하지 않은 단계 비용은 청구되지 않아요.
         </p>
@@ -621,15 +636,15 @@ const ConceptStep = ({ busy, error, energy, onSubmit }) => {
         whileTap={{ scale: valid && !busy ? 0.98 : 1 }}
         className={`w-full py-3.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
           valid && !busy && !lackEnergy
-            ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/25"
-            : "bg-white/5 text-white/25 cursor-not-allowed"
+            ? "aurora-secondary-primary"
+            : "bg-white/5 text-lobby-tx2 cursor-not-allowed"
         }`}
       >
         <Sparkles size={16} />
         {busy ? "소환 준비 중…" : "소환 시작"}
         {/* [Pay-as-you-go] 시작 단가 배지 — 기존 "20E" 대신 시작 단가만 */}
         {!busy && (
-          <span className="inline-flex items-center gap-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full bg-black/25">
+          <span className="inline-flex items-center gap-0.5 text-xs font-bold px-2 py-0.5 rounded-full bg-black/25">
             <Zap size={10} />{DEFAULT_STAGE_COSTS.start}E 시작
           </span>
         )}
@@ -682,25 +697,25 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
             animate={{ scale: [1, 1.08, 1] }}
             transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
           >
-            <Sparkles size={26} className="text-amber-300" />
+            <Sparkles size={26} className="text-lobby-accent" />
           </motion.div>
         </div>
         {/* [폴리싱 #1] 외형 수정 리롤 — 백엔드가 구외형 원화를 의도적으로 비운 상태.
             "원화가 사라졌다" 오해가 없도록 전용 카피로 안내한다. */}
         {appearanceRerollPending ? (
           <>
-            <p className="text-sm text-amber-100/85 font-medium text-center mb-2">
+            <p className="text-sm text-lobby-accent/85 font-medium text-center mb-2">
               외형을 바꿔서 새 원화를 소환하는 중이에요.
             </p>
-            <p className="text-xs text-white/35 text-center leading-relaxed px-6 mb-2">
+            <p className="text-xs text-lobby-tx2 text-center leading-relaxed px-6 mb-2">
               이전 원화는 새 외형과 달라 목록에서 제외했어요.
             </p>
-            <p className="text-xs text-white/35">보통 30~90초 정도 걸려요. 잠시만 기다려 주세요.</p>
+            <p className="text-xs text-lobby-tx2">보통 30~90초 정도 걸려요. 잠시만 기다려 주세요.</p>
           </>
         ) : (
           <>
             <CyclingCopy lines={GACHA_LOADING_COPY} className="w-full mb-2" />
-            <p className="text-xs text-white/35">보통 30~90초 정도 걸려요. 잠시만 기다려 주세요.</p>
+            <p className="text-xs text-lobby-tx2">보통 30~90초 정도 걸려요. 잠시만 기다려 주세요.</p>
           </>
         )}
       </div>
@@ -710,10 +725,10 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
   return (
     <div className="max-w-3xl mx-auto w-full">
       <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-        <Sparkles size={16} className="text-amber-300" />
+        <Sparkles size={16} className="text-lobby-accent" />
         원화 선택
       </h3>
-      <p className="text-xs text-white/50 mb-5">
+      <p className="text-xs text-lobby-tx1 mb-5">
         캐릭터의 대표 일러스트가 돼요. 두 갈래의 가능성 중 하나를 고르세요.
       </p>
 
@@ -736,21 +751,21 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
               <button
                 type="button"
                 onClick={() => { sfx.click(); setPreview(shot); }}
-                className="absolute inset-0 rounded-2xl overflow-hidden border border-amber-400/25 hover:border-amber-300/70 transition-colors group"
+                className="absolute inset-0 rounded-2xl overflow-hidden border border-lobby-accent/25 hover:border-lobby-accent/70 transition-colors group"
                 style={{ backfaceVisibility: "hidden" }}
               >
                 <img src={shot.url} alt={`원화 ${shot.index + 1}`} className="w-full h-full object-cover" draggable={false} />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] text-white/80 opacity-0 group-hover:opacity-100 transition-opacity">
+                <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs text-white/80 opacity-0 group-hover:opacity-100 transition-opacity">
                   탭해서 확대
                 </span>
               </button>
               {/* 뒷면 — 카드 커버 */}
               <div
-                className="absolute inset-0 rounded-2xl border border-amber-400/30 bg-gradient-to-br from-amber-900/60 via-stone-950 to-black flex items-center justify-center"
+                className="absolute inset-0 rounded-2xl border border-lobby-accent/30 bg-gradient-to-br from-lobby-surface2 via-lobby-surface to-lobby-bg flex items-center justify-center"
                 style={{ backfaceVisibility: "hidden", transform: "rotateY(180deg)" }}
               >
-                <Sparkles size={28} className="text-amber-300/50" />
+                <Sparkles size={28} className="text-lobby-accent/80" />
               </div>
             </motion.div>
           </div>
@@ -760,13 +775,13 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
           [0, 1].map((k) => (
             <motion.div
               key={`pending-${k}`}
-              className="relative w-full aspect-[3/4] rounded-2xl border border-amber-400/20 bg-gradient-to-br from-amber-900/40 via-stone-950 to-black flex flex-col items-center justify-center gap-3"
+              className="relative w-full aspect-[3/4] rounded-2xl border border-lobby-accent/20 bg-gradient-to-br from-lobby-surface2 via-lobby-surface to-lobby-bg flex flex-col items-center justify-center gap-3"
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: k * 0.15, duration: 0.4 }}
             >
               <SpinnerRing size={30} />
-              <span className="text-[10px] text-amber-100/50">새 후보 소환 중…</span>
+              <span className="text-xs text-lobby-accent/80">새 후보 소환 중…</span>
             </motion.div>
           ))}
       </div>
@@ -778,19 +793,19 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
       )}
 
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] text-white/35">
+        <p className="text-xs text-lobby-tx2">
           마음에 드는 모습을 탭해서 크게 확인해 보세요.
-          <span className="block text-amber-200/45 mt-0.5">다시 소환해도 기존 후보는 유지돼요.</span>
+          <span className="block text-lobby-accent/80 mt-0.5">다시 소환해도 기존 후보는 유지돼요.</span>
         </p>
         <button
           type="button"
           disabled={busy || isRerolling}
           onClick={() => { sfx.click(); onRerollRequest(); }}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-amber-400/40 text-white/70 hover:text-amber-100 text-xs font-bold transition-colors disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-lobby-accent/40 text-white/70 hover:text-lobby-accent text-xs font-bold transition-colors disabled:opacity-50"
         >
           <RefreshCw size={12} className={isRerolling ? "animate-spin" : ""} />
           {isRerolling ? "소환 중…" : "다시 소환"}
-          <span className="inline-flex items-center gap-0.5 text-amber-300/90">
+          <span className="inline-flex items-center gap-0.5 text-lobby-accent/90">
             <Zap size={10} />{rerollCost}
           </span>
         </button>
@@ -814,7 +829,7 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
               exit={{ scale: 0.92, y: 20 }}
               transition={{ type: "spring", stiffness: 300, damping: 28 }}
             >
-              <div className="rounded-2xl overflow-hidden border border-amber-400/30 shadow-[0_0_60px_rgba(251,191,36,0.15)] mx-auto">
+              <div className="rounded-2xl overflow-hidden border border-lobby-accent/30 shadow-[0_0_60px_rgba(210,195,250,0.15)] mx-auto">
                 <img src={preview.url} alt={`원화 ${preview.index + 1}`} className="max-w-[92vw] max-h-[72vh] w-auto h-auto object-contain bg-black/90" />
               </div>
               <div className="flex gap-3 mt-4">
@@ -822,7 +837,7 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
                   type="button"
                   disabled={busy}
                   onClick={() => { sfx.click(); setPreview(null); }}
-                  className="flex-1 py-3 rounded-xl bg-white/5 text-white/50 hover:bg-white/10 transition text-sm disabled:opacity-50"
+                  className="flex-1 py-3 rounded-xl bg-white/5 text-lobby-tx1 hover:bg-white/10 transition text-sm disabled:opacity-50"
                 >
                   다른 모습 보기
                 </button>
@@ -830,13 +845,13 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
                   type="button"
                   disabled={busy || !canSelect}
                   onClick={() => onSelect(preview.index)}
-                  className="flex-1 py-3 rounded-xl text-sm font-bold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/25 transition flex items-center justify-center gap-1.5 disabled:opacity-60"
+                  className="flex-1 py-3 rounded-xl text-sm font-bold aurora-secondary-primary transition flex items-center justify-center gap-1.5 disabled:opacity-60"
                 >
                   <Check size={15} />
                   {!canSelect ? "새 후보 생성 중…" : busy ? "확정 중…" : "이 모습으로 확정"}
                   {/* [Pay-as-you-go] 스탠딩 파생 착수 단가 — STAGED 잡에서만 노출 */}
                   {selectCost != null && canSelect && !busy && (
-                    <span className="inline-flex items-center gap-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full bg-black/25">
+                    <span className="inline-flex items-center gap-0.5 text-xs font-bold px-2 py-0.5 rounded-full bg-black/25">
                       <Zap size={10} />+{selectCost}E
                     </span>
                   )}
@@ -890,9 +905,9 @@ const GoldenRerollModal = ({ open, busy, rerollCost, onConfirm, onCancel }) => {
         >
           <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={busy ? undefined : onCancel} />
           <motion.div
-            className="relative z-10 w-full max-w-md rounded-2xl p-6 border border-amber-400/25 max-h-[85vh] overflow-y-auto custom-scrollbar"
+            className="relative z-10 w-full max-w-md rounded-2xl p-6 border border-lobby-accent/25 max-h-[85vh] overflow-y-auto custom-scrollbar"
             style={{
-              background: "linear-gradient(145deg, rgba(28,18,8,0.97), rgba(20,12,6,0.96))",
+              background: "linear-gradient(145deg, rgba(42,50,74,0.98), rgba(28,39,58,0.98))",
               boxShadow: "0 30px 60px rgba(0,0,0,0.6)",
             }}
             initial={{ scale: 0.92, y: 16, opacity: 0 }}
@@ -901,8 +916,8 @@ const GoldenRerollModal = ({ open, busy, rerollCost, onConfirm, onCancel }) => {
             transition={{ type: "spring", stiffness: 300, damping: 28 }}
           >
             {/* 비용 고지 — 기존 ConfirmModal 카피 유지 */}
-            <h3 className="font-bold mb-2 text-amber-100">원화 다시 소환</h3>
-            <p className="text-white/60 text-sm leading-relaxed mb-4 whitespace-pre-line">
+            <h3 className="font-bold mb-2 text-lobby-accent">원화 다시 소환</h3>
+            <p className="text-lobby-tx1 text-sm leading-relaxed mb-4 whitespace-pre-line">
               {`에너지 ${rerollCost}을 사용해 원화 2장을 새로 소환합니다.\n기존 후보는 사라지지 않고 그대로 유지돼요.`}
             </p>
 
@@ -913,17 +928,17 @@ const GoldenRerollModal = ({ open, busy, rerollCost, onConfirm, onCancel }) => {
                 onClick={() => { sfx.click(0.2); setAppearanceOpen((o) => !o); }}
                 className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-white/[0.03] transition-colors"
               >
-                <span className="flex items-center gap-1.5 text-xs text-white/60 font-medium">
-                  <Brush size={12} className="text-amber-300/70" />
+                <span className="flex items-center gap-1.5 text-xs text-lobby-tx1 font-medium">
+                  <Brush size={12} className="text-lobby-accent/70" />
                   외형을 바꿔서 다시 뽑기 (선택)
                   {filledCount > 0 && (
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-400/15 text-amber-200 border border-amber-400/30">
+                    <span className="text-xs font-bold px-1.5 py-0.5 rounded-full bg-lobby-accent/15 text-lobby-accent border border-lobby-accent/30">
                       {filledCount}
                     </span>
                   )}
                 </span>
                 <motion.span animate={{ rotate: appearanceOpen ? 180 : 0 }} transition={{ duration: 0.25 }}>
-                  <ChevronDown size={14} className="text-white/40" />
+                  <ChevronDown size={14} className="text-lobby-tx2" />
                 </motion.span>
               </button>
               <AnimatePresence initial={false}>
@@ -936,17 +951,17 @@ const GoldenRerollModal = ({ open, busy, rerollCost, onConfirm, onCancel }) => {
                     className="overflow-hidden"
                   >
                     <div className="px-4 pb-4 pt-1">
-                      <p className="text-[11px] text-white/35 mb-1">
+                      <p className="text-xs text-lobby-tx2 mb-1">
                         바꾸고 싶은 부분만 짧게 적어주세요. 비워둔 항목은 지금 모습 그대로 유지돼요.
                       </p>
                       {/* [폴리싱 #1] 사전 안내 — 외형 수정 시 백엔드가 구외형 원화 후보를 비운다 */}
-                      <p className="text-[11px] text-amber-200/70 mb-3">
+                      <p className="text-xs text-lobby-accent/70 mb-3">
                         외형을 바꾸면 기존 원화 후보는 사라져요.
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {APPEARANCE_FIELDS.map((f) => (
                           <div key={f.key}>
-                            <label className="text-[11px] text-white/50 mb-1 block">{f.label}</label>
+                            <label className="text-xs text-lobby-tx1 mb-1 block">{f.label}</label>
                             <input
                               type="text"
                               value={appearance[f.key]}
@@ -955,7 +970,7 @@ const GoldenRerollModal = ({ open, busy, rerollCost, onConfirm, onCancel }) => {
                               onChange={(e) =>
                                 setAppearance((p) => ({ ...p, [f.key]: e.target.value }))
                               }
-                              className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-white text-xs placeholder:text-white/25 focus:border-amber-400/60 outline-none"
+                              className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-white text-xs placeholder:text-lobby-tx2 focus:border-lobby-accent/60 outline-none"
                             />
                           </div>
                         ))}
@@ -974,7 +989,7 @@ const GoldenRerollModal = ({ open, busy, rerollCost, onConfirm, onCancel }) => {
                   animate={{ height: "auto", opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.2 }}
-                  className="overflow-hidden text-[11px] text-amber-200/70 leading-relaxed mb-4"
+                  className="overflow-hidden text-xs text-lobby-accent/70 leading-relaxed mb-4"
                 >
                   외형이 바뀌면 새 원화부터 적용돼요 — 스탠딩 확정 후에는 바꿀 수 없어요
                 </motion.p>
@@ -987,7 +1002,7 @@ const GoldenRerollModal = ({ open, busy, rerollCost, onConfirm, onCancel }) => {
                 disabled={busy}
                 onClick={() => { sfx.click(); onCancel(); }}
                 onMouseEnter={() => sfx.hover()}
-                className="flex-1 py-2.5 rounded-xl bg-white/5 text-white/50 hover:bg-white/10 transition text-sm disabled:opacity-50"
+                className="flex-1 py-2.5 rounded-xl bg-white/5 text-lobby-tx1 hover:bg-white/10 transition text-sm disabled:opacity-50"
               >
                 취소
               </button>
@@ -996,7 +1011,7 @@ const GoldenRerollModal = ({ open, busy, rerollCost, onConfirm, onCancel }) => {
                 disabled={busy}
                 onClick={() => { sfx.click(); onConfirm(buildAppearance()); }}
                 onMouseEnter={() => sfx.hover()}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1.5 disabled:opacity-50 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/20"
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1.5 disabled:opacity-50 aurora-secondary-primary"
               >
                 {busy ? "처리 중…" : filledCount > 0 ? "외형 바꿔서 소환" : "다시 소환"}
               </button>
@@ -1063,16 +1078,16 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
             animate={{ scale: [1, 1.08, 1] }}
             transition={{ duration: 2.5, repeat: Infinity, ease: "easeInOut" }}
           >
-            <Sparkles size={26} className="text-amber-300" />
+            <Sparkles size={26} className="text-lobby-accent" />
           </motion.div>
         </div>
         <CyclingCopy lines={BASE_LOADING_COPY} className="w-full mb-2" />
-        <p className="text-xs text-white/35 mb-8">확정한 원화에서 전신 스탠딩 후보를 파생하고 있어요.</p>
+        <p className="text-xs text-lobby-tx2 mb-8">확정한 원화에서 전신 스탠딩 후보를 파생하고 있어요.</p>
         {/* 레이턴시 하이딩 CTA — 설정 다듬기 */}
         <button
           type="button"
           onClick={() => { sfx.click(); onOpenProfile(); }}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-amber-500/12 hover:bg-amber-500/22 border border-amber-400/35 hover:border-amber-300/60 text-amber-100 text-xs font-bold transition-colors"
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-lobby-accent/12 hover:bg-lobby-accent/22 border border-lobby-accent/35 hover:border-lobby-accent/60 text-lobby-accent text-xs font-bold transition-colors"
         >
           <Feather size={13} />
           기다리는 동안 설정을 다듬어보세요
@@ -1084,10 +1099,10 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
   return (
     <div className="max-w-3xl mx-auto w-full">
       <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
-        <Sparkles size={16} className="text-amber-300" />
+        <Sparkles size={16} className="text-lobby-accent" />
         스탠딩 선택
       </h3>
-      <p className="text-xs text-white/50 mb-5">
+      <p className="text-xs text-lobby-tx1 mb-5">
         캐릭터의 기본 자세예요. 이 스탠딩에서 15가지 표정이 태어나요.
       </p>
 
@@ -1112,7 +1127,7 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
                   style={{ backfaceVisibility: "hidden" }}
                 >
                   <AlertTriangle size={20} className="text-rose-300/80" />
-                  <span className="text-[11px] text-rose-200/80 leading-relaxed">
+                  <span className="text-xs text-rose-200/80 leading-relaxed">
                     이 후보는 생성에 실패했어요
                   </span>
                 </div>
@@ -1120,12 +1135,12 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
                 <button
                   type="button"
                   onClick={() => { sfx.click(); setPreview(cand); }}
-                  className="absolute inset-0 rounded-2xl overflow-hidden border border-amber-400/25 hover:border-amber-300/70 transition-colors group"
+                  className="absolute inset-0 rounded-2xl overflow-hidden border border-lobby-accent/25 hover:border-lobby-accent/70 transition-colors group"
                   style={{ backfaceVisibility: "hidden" }}
                 >
                   <img src={cand.url} alt={`스탠딩 후보 ${cand.index + 1}`} className="w-full h-full object-cover" draggable={false} />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] text-white/80 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs text-white/80 opacity-0 group-hover:opacity-100 transition-opacity">
                     탭해서 확대
                   </span>
                 </button>
@@ -1136,15 +1151,15 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
                   style={{ backfaceVisibility: "hidden" }}
                 >
                   <SpinnerRing size={28} />
-                  <span className="text-[10px] text-amber-100/50">새 후보 파생 중…</span>
+                  <span className="text-xs text-lobby-accent/80">새 후보 파생 중…</span>
                 </div>
               )}
               {/* 뒷면 — 카드 커버 */}
               <div
-                className="absolute inset-0 rounded-2xl border border-amber-400/30 bg-gradient-to-br from-amber-900/60 via-stone-950 to-black flex items-center justify-center"
+                className="absolute inset-0 rounded-2xl border border-lobby-accent/30 bg-gradient-to-br from-lobby-surface2 via-lobby-surface to-lobby-bg flex items-center justify-center"
                 style={{ backfaceVisibility: "hidden", transform: "rotateY(180deg)" }}
               >
-                <Sparkles size={28} className="text-amber-300/50" />
+                <Sparkles size={28} className="text-lobby-accent/80" />
               </div>
             </motion.div>
           </div>
@@ -1154,13 +1169,13 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
           Array.from({ length: placeholderCount }, (_, k) => (
             <motion.div
               key={`pending-${k}`}
-              className="relative w-full aspect-[3/4] rounded-2xl border border-amber-400/20 bg-gradient-to-br from-amber-900/40 via-stone-950 to-black flex flex-col items-center justify-center gap-3"
+              className="relative w-full aspect-[3/4] rounded-2xl border border-lobby-accent/20 bg-gradient-to-br from-lobby-surface2 via-lobby-surface to-lobby-bg flex flex-col items-center justify-center gap-3"
               initial={{ opacity: 0, scale: 0.96 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: k * 0.15, duration: 0.4 }}
             >
               <SpinnerRing size={30} />
-              <span className="text-[10px] text-amber-100/50">새 후보 파생 중…</span>
+              <span className="text-xs text-lobby-accent/80">새 후보 파생 중…</span>
             </motion.div>
           ))}
       </div>
@@ -1172,19 +1187,19 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
       )}
 
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] text-white/35">
+        <p className="text-xs text-lobby-tx2">
           마음에 드는 자세를 탭해서 크게 확인해 보세요.
-          <span className="block text-amber-200/45 mt-0.5">다시 파생해도 기존 후보는 유지돼요.</span>
+          <span className="block text-lobby-accent/80 mt-0.5">다시 파생해도 기존 후보는 유지돼요.</span>
         </p>
         <button
           type="button"
           disabled={busy || isRerolling}
           onClick={() => { sfx.click(); onRerollRequest(); }}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-amber-400/40 text-white/70 hover:text-amber-100 text-xs font-bold transition-colors disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-lobby-accent/40 text-white/70 hover:text-lobby-accent text-xs font-bold transition-colors disabled:opacity-50"
         >
           <RefreshCw size={12} className={isRerolling ? "animate-spin" : ""} />
           {isRerolling ? "파생 중…" : "다시 파생"}
-          <span className="inline-flex items-center gap-0.5 text-amber-300/90">
+          <span className="inline-flex items-center gap-0.5 text-lobby-accent/90">
             <Zap size={10} />{rerollCost}
           </span>
         </button>
@@ -1208,7 +1223,7 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
               exit={{ scale: 0.92, y: 20 }}
               transition={{ type: "spring", stiffness: 300, damping: 28 }}
             >
-              <div className="rounded-2xl overflow-hidden border border-amber-400/30 shadow-[0_0_60px_rgba(251,191,36,0.15)] mx-auto">
+              <div className="rounded-2xl overflow-hidden border border-lobby-accent/30 shadow-[0_0_60px_rgba(210,195,250,0.15)] mx-auto">
                 <img src={preview.url} alt={`스탠딩 후보 ${preview.index + 1}`} className="max-w-[92vw] max-h-[72vh] w-auto h-auto object-contain bg-black/90" />
               </div>
               <div className="flex gap-3 mt-4">
@@ -1216,7 +1231,7 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
                   type="button"
                   disabled={busy}
                   onClick={() => { sfx.click(); setPreview(null); }}
-                  className="flex-1 py-3 rounded-xl bg-white/5 text-white/50 hover:bg-white/10 transition text-sm disabled:opacity-50"
+                  className="flex-1 py-3 rounded-xl bg-white/5 text-lobby-tx1 hover:bg-white/10 transition text-sm disabled:opacity-50"
                 >
                   다른 자세 보기
                 </button>
@@ -1224,19 +1239,19 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
                   type="button"
                   disabled={busy || !canSelect}
                   onClick={() => onSelect(preview.index)}
-                  className="flex-1 py-3 rounded-xl text-sm font-bold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/25 transition flex items-center justify-center gap-1.5 disabled:opacity-60"
+                  className="flex-1 py-3 rounded-xl text-sm font-bold aurora-secondary-primary transition flex items-center justify-center gap-1.5 disabled:opacity-60"
                 >
                   <Check size={15} />
                   {!canSelect ? "새 후보 생성 중…" : busy ? "확정 중…" : "이 모습으로 확정"}
                   {/* [Pay-as-you-go] 15컷 감정 파생 착수 단가 — STAGED 잡에서만 노출 */}
                   {selectCost != null && canSelect && !busy && (
-                    <span className="inline-flex items-center gap-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full bg-black/25">
+                    <span className="inline-flex items-center gap-0.5 text-xs font-bold px-2 py-0.5 rounded-full bg-black/25">
                       <Zap size={10} />+{selectCost}E
                     </span>
                   )}
                 </button>
               </div>
-              <p className="mt-3 text-center text-[11px] text-amber-100/60">
+              <p className="mt-3 text-center text-xs text-lobby-accent/60">
                 이 스탠딩에서 15가지 표정이 태어나요
               </p>
             </motion.div>
@@ -1265,7 +1280,7 @@ const ForgeProgressStep = ({ job, onOpenWorldBuilder }) => {
           <motion.img
             src={job.baseStandingUrl}
             alt="베이스 스탠딩"
-            className="h-44 object-contain mb-4 drop-shadow-[0_0_30px_rgba(251,191,36,0.2)]"
+            className="h-44 object-contain mb-4 drop-shadow-[0_0_30px_rgba(210,195,250,0.2)]"
             initial={{ opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.7 }}
@@ -1275,7 +1290,7 @@ const ForgeProgressStep = ({ job, onOpenWorldBuilder }) => {
           <div className="mb-4"><SpinnerRing size={56} /></div>
         )}
         <motion.p
-          className="text-sm text-amber-100/85 font-medium"
+          className="text-sm text-lobby-accent/85 font-medium"
           animate={{ opacity: [0.55, 1, 0.55] }}
           transition={{ duration: 2.5, repeat: Infinity }}
         >
@@ -1294,7 +1309,7 @@ const ForgeProgressStep = ({ job, onOpenWorldBuilder }) => {
               key={tag}
               className={`relative aspect-square rounded-xl overflow-hidden border ${
                 done
-                  ? "border-amber-400/30"
+                  ? "border-lobby-accent/30"
                   : failed
                   ? "border-rose-400/40 bg-rose-500/5"
                   : "border-white/10 bg-white/[0.03]"
@@ -1320,11 +1335,11 @@ const ForgeProgressStep = ({ job, onOpenWorldBuilder }) => {
                   {failed ? (
                     <AlertTriangle size={14} className="text-rose-300/70" />
                   ) : (
-                    <Sparkles size={12} className="text-amber-200/30" />
+                    <Sparkles size={12} className="text-lobby-accent/30" />
                   )}
                 </motion.div>
               )}
-              <span className="absolute bottom-0.5 left-0 right-0 text-center text-[9px] text-white/55 drop-shadow">
+              <span className="absolute bottom-0.5 left-0 right-0 text-center text-xs text-white/55 drop-shadow">
                 {EMOTION_LABELS[tag]}
               </span>
             </div>
@@ -1339,7 +1354,7 @@ const ForgeProgressStep = ({ job, onOpenWorldBuilder }) => {
             type="button"
             onClick={() => { sfx.click(); onOpenWorldBuilder(); }}
             onMouseEnter={() => sfx.hover()}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-amber-500/12 hover:bg-amber-500/22 border border-amber-400/35 hover:border-amber-300/60 text-amber-100 text-xs font-bold transition-colors"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-lobby-accent/12 hover:bg-lobby-accent/22 border border-lobby-accent/35 hover:border-lobby-accent/60 text-lobby-accent text-xs font-bold transition-colors"
           >
             <Globe size={13} />
             기다리는 동안 이 캐릭터의 세계관 만들기
@@ -1347,7 +1362,7 @@ const ForgeProgressStep = ({ job, onOpenWorldBuilder }) => {
         </div>
       )}
 
-      <p className="mt-5 text-center text-[11px] text-white/35">
+      <p className="mt-5 text-center text-xs text-lobby-tx2">
         소환은 서버에서 계속 진행돼요. 나가서 기다려도 괜찮아요.
       </p>
     </div>
@@ -1362,13 +1377,13 @@ const PostProcessingView = ({ status }) => (
   <div className="flex flex-col items-center justify-center py-20">
     <SpinnerRing size={64} className="mb-6" />
     <motion.p
-      className="text-sm text-amber-100/85 font-medium mb-2"
+      className="text-sm text-lobby-accent/85 font-medium mb-2"
       animate={{ opacity: [0.55, 1, 0.55] }}
       transition={{ duration: 2, repeat: Infinity }}
     >
       {status === "BINDING" ? "세계와 캐릭터를 잇는 중…" : "누끼를 따는 중…"}
     </motion.p>
-    <p className="text-xs text-white/35">마지막 손질이에요. 곧 완성됩니다.</p>
+    <p className="text-xs text-lobby-tx2">마지막 손질이에요. 곧 완성됩니다.</p>
   </div>
 );
 
@@ -1393,19 +1408,19 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
     <div className="max-w-3xl mx-auto w-full">
       <div className="flex items-start justify-between gap-3 mb-1">
         <h3 className="text-base font-bold text-white flex items-center gap-2">
-          <Eye size={16} className="text-amber-300" />
+          <Eye size={16} className="text-lobby-accent" />
           15가지 표정 검수
         </h3>
         <button
           type="button"
           onClick={() => { sfx.click(); setMode((m) => (m === "grid" ? "preview" : "grid")); }}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 text-[11px] font-bold transition-colors"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 text-xs font-bold transition-colors"
         >
           {mode === "grid" ? <Eye size={11} /> : <LayoutGrid size={11} />}
           {mode === "grid" ? "미리보기 모드" : "그리드 보기"}
         </button>
       </div>
-      <p className="text-xs text-white/50 mb-5">
+      <p className="text-xs text-lobby-tx1 mb-5">
         마음에 들지 않는 컷은 다시 뽑을 수 있어요. 기본 컷은 캐릭터의 기준이라 바꿀 수 없습니다.
       </p>
 
@@ -1429,7 +1444,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
                   isFailed
                     ? "border-rose-400/50"
                     : isNeutral
-                    ? "border-amber-400/40"
+                    ? "border-lobby-accent/40"
                     : "border-white/10"
                 } bg-white/[0.03]`}
               >
@@ -1450,16 +1465,16 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
                   )}
                 </button>
                 {/* 하단 컨트롤 바 */}
-                <div className="flex items-center justify-between px-1.5 py-1 bg-black/40">
-                  <span className="text-[9px] text-white/60">{EMOTION_LABELS[tag]}</span>
+                <div className="flex flex-wrap items-center justify-between gap-1 px-2 py-1.5 bg-lobby-bg/70 min-h-11">
+                  <span className="text-xs text-lobby-tx1">{EMOTION_LABELS[tag]}</span>
                   {isNeutral ? (
-                    <span className="text-[8px] text-amber-300/70 font-bold">기준 컷</span>
+                    <span className="text-xs text-lobby-accent/70 font-bold">기준 컷</span>
                   ) : isFailed ? (
                     <button
                       type="button"
                       disabled={busy}
                       onClick={() => { sfx.click(); onRerollRequest(tag, true); }}
-                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-rose-500/20 border border-rose-400/40 text-rose-200 text-[8px] font-bold disabled:opacity-50"
+                      className="inline-flex items-center justify-center gap-1 min-h-9 px-2 py-1 rounded-lg bg-rose-500/20 border border-rose-400/40 text-rose-200 text-[11px] font-bold disabled:opacity-50"
                     >
                       <RefreshCw size={7} /> 무료 재시도
                     </button>
@@ -1468,7 +1483,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
                       type="button"
                       disabled={busy}
                       onClick={() => { sfx.click(); onRerollRequest(tag, true); }}
-                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[8px] font-bold disabled:opacity-50"
+                      className="inline-flex items-center justify-center gap-1 min-h-9 px-2 py-1 rounded-lg bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-[11px] font-bold disabled:opacity-50"
                       title="직전 다시 뽑기가 실패해 1회 무료예요"
                     >
                       <RefreshCw size={7} /> 무료 1회
@@ -1478,13 +1493,14 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
                       type="button"
                       disabled={busy}
                       onClick={() => { sfx.click(); onRerollRequest(tag, false); }}
-                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-white/5 hover:bg-white/15 border border-white/15 text-white/60 hover:text-amber-100 text-[8px] font-bold transition-colors disabled:opacity-50"
+                      className="inline-flex items-center justify-center gap-1 min-h-9 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/15 text-lobby-tx1 hover:text-lobby-accent text-[11px] font-bold transition-colors disabled:opacity-50"
+                      aria-label={`${EMOTION_LABELS[tag]} 다시 뽑기, 에너지 ${rerollCost}`}
                       title={`에너지 ${rerollCost}로 다시 뽑기`}
                     >
-                      <RefreshCw size={7} /> <Zap size={7} className="text-amber-300" />{rerollCost}
+                      <RefreshCw size={7} /> <Zap size={7} className="text-lobby-accent" />{rerollCost}
                     </button>
                   ) : (
-                    <span className="text-[8px] text-white/35">생성 중</span>
+                    <span className="text-xs text-lobby-tx2">생성 중</span>
                   )}
                 </div>
               </div>
@@ -1494,7 +1510,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
       ) : (
         /* ─── 미리보기 모드: 스탠딩 핫스왑 ─── */
         <div className="mb-5">
-          <div className="relative h-[46vh] min-h-[280px] rounded-2xl border border-white/10 bg-gradient-to-b from-stone-900/40 to-black/60 flex items-end justify-center overflow-hidden mb-3">
+          <div className="relative h-[46vh] min-h-[280px] rounded-2xl border border-white/10 bg-gradient-to-b from-lobby-surface2/60 to-lobby-bg flex items-end justify-center overflow-hidden mb-3">
             <AnimatePresence mode="popLayout">
               {previewUrl ? (
                 <motion.img
@@ -1509,10 +1525,10 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
                   draggable={false}
                 />
               ) : (
-                <div className="h-full flex items-center justify-center text-white/25 text-sm">이미지가 아직 없어요</div>
+                <div className="h-full flex items-center justify-center text-lobby-tx2 text-sm">이미지가 아직 없어요</div>
               )}
             </AnimatePresence>
-            <span className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-black/50 border border-white/10 text-[10px] text-amber-100 font-bold">
+            <span className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-black/50 border border-white/10 text-xs text-lobby-accent font-bold">
               {EMOTION_LABELS[previewTag]}
             </span>
           </div>
@@ -1523,9 +1539,9 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
                 key={tag}
                 type="button"
                 onClick={() => { sfx.click(0.15); setPreviewTag(tag); }}
-                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] font-medium border transition-colors ${
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
                   previewTag === tag
-                    ? "bg-amber-500/20 border-amber-400/60 text-amber-100"
+                    ? "bg-lobby-accent/20 border-lobby-accent/60 text-lobby-accent"
                     : "bg-white/[0.03] border-white/10 text-white/55 hover:bg-white/[0.08]"
                 }`}
               >
@@ -1553,15 +1569,15 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
         whileTap={{ scale: allReady && !busy ? 0.98 : 1 }}
         className={`w-full py-3.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
           allReady && !busy
-            ? "bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/25"
-            : "bg-white/5 text-white/25 cursor-not-allowed"
+            ? "aurora-secondary-primary"
+            : "bg-white/5 text-lobby-tx2 cursor-not-allowed"
         }`}
       >
         <Check size={16} />
         {allReady ? "완성하기" : "모든 컷이 준비되면 완성할 수 있어요"}
         {/* [Pay-as-you-go] 검수 확정 단가 — STAGED 잡에서만 노출 */}
         {finalizeCost != null && allReady && !busy && (
-          <span className="inline-flex items-center gap-0.5 text-[11px] font-bold px-2 py-0.5 rounded-full bg-black/25">
+          <span className="inline-flex items-center gap-0.5 text-xs font-bold px-2 py-0.5 rounded-full bg-black/25">
             <Zap size={10} />+{finalizeCost}E
           </span>
         )}
@@ -1584,7 +1600,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
               animate={{ scale: 1 }}
               exit={{ scale: 0.92 }}
             >
-              <div className="relative rounded-2xl overflow-hidden border border-amber-400/30 mx-auto">
+              <div className="relative rounded-2xl overflow-hidden border border-lobby-accent/30 mx-auto">
                 <img
                   src={assets[zoomTag]?.thumbUrl}
                   alt={EMOTION_LABELS[zoomTag]}
@@ -1594,7 +1610,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
                 {zoomInProgress && (
                   <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center gap-2">
                     <SpinnerRing size={32} />
-                    <span className="text-[11px] text-amber-100/70">다시 생성하는 중…</span>
+                    <span className="text-xs text-lobby-accent/70">다시 생성하는 중…</span>
                   </div>
                 )}
               </div>
@@ -1603,11 +1619,11 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
               {zoomVersions.length > 1 && (
                 <div className="mt-3">
                   <div className="flex items-center gap-1.5 mb-1.5">
-                    <span className="text-[11px] text-white/55 font-bold">버전 선택</span>
-                    <span className="px-1.5 py-0.5 rounded-full bg-teal-500/15 border border-teal-400/30 text-teal-200 text-[9px] font-bold">
+                    <span className="text-xs text-white/55 font-bold">버전 선택</span>
+                    <span className="px-1.5 py-0.5 rounded-full bg-teal-500/15 border border-teal-400/30 text-teal-200 text-xs font-bold">
                       무료
                     </span>
-                    <span className="text-[10px] text-white/35">이전에 뽑은 컷으로 언제든 바꿀 수 있어요</span>
+                    <span className="text-xs text-lobby-tx2">이전에 뽑은 컷으로 언제든 바꿀 수 있어요</span>
                   </div>
                   <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1.5">
                     {zoomVersions.map((url, vi) => {
@@ -1620,13 +1636,13 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
                           onClick={() => { sfx.click(); onVersionSelect(zoomTag, vi); }}
                           className={`relative flex-shrink-0 w-16 aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
                             isSelected
-                              ? "border-amber-400"
-                              : "border-white/10 hover:border-amber-300/60"
+                              ? "border-lobby-accent"
+                              : "border-white/10 hover:border-lobby-accent/60"
                           } disabled:cursor-default ${busy || zoomInProgress ? "opacity-60" : ""}`}
                         >
                           <img src={url} alt={`버전 ${vi + 1}`} className="w-full h-full object-cover" draggable={false} />
                           {isSelected && (
-                            <span className="absolute inset-x-0 bottom-0 bg-amber-500/85 text-[8px] text-white font-bold text-center py-0.5">
+                            <span className="absolute inset-x-0 bottom-0 bg-lobby-accent/95 text-xs text-[#25253b] font-bold text-center py-0.5">
                               사용 중
                             </span>
                           )}
@@ -1638,7 +1654,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
               )}
 
               <div className="flex items-center justify-between mt-3">
-                <span className="text-sm text-amber-100 font-bold">{EMOTION_LABELS[zoomTag]}</span>
+                <span className="text-sm text-lobby-accent font-bold">{EMOTION_LABELS[zoomTag]}</span>
                 <button
                   type="button"
                   onClick={() => { sfx.click(); setZoomTag(null); }}
@@ -1702,10 +1718,10 @@ const CompleteStep = ({
     <div className="max-w-3xl mx-auto w-full">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
         {/* 스탠딩 등장 */}
-        <div className="relative h-[46vh] min-h-[300px] rounded-2xl border border-amber-400/20 bg-gradient-to-b from-amber-950/30 to-black/60 flex items-end justify-center overflow-hidden">
+        <div className="relative h-[46vh] min-h-[300px] rounded-2xl border border-lobby-accent/20 bg-gradient-to-b from-lobby-surface2/60 to-lobby-bg flex items-end justify-center overflow-hidden">
           <motion.div
             className="absolute left-1/2 -translate-x-1/2 bottom-[8%] w-64 h-32 rounded-full pointer-events-none"
-            style={{ filter: "blur(60px)", backgroundColor: "rgba(251,191,36,0.14)" }}
+            style={{ filter: "blur(60px)", backgroundColor: "rgba(210,195,250,0.14)" }}
             animate={{ opacity: [0.4, 0.75, 0.4] }}
             transition={{ duration: 4, repeat: Infinity }}
           />
@@ -1740,21 +1756,21 @@ const CompleteStep = ({
                     type="button"
                     onClick={startEdit}
                     disabled={!character}
-                    className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/15 text-white/50 hover:text-white transition disabled:opacity-40"
+                    className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/15 text-lobby-tx1 hover:text-white transition disabled:opacity-40"
                     aria-label="텍스트 수정"
                   >
                     <Pencil size={13} />
                   </button>
                 </div>
-                <p className="text-sm text-amber-100/75 mb-3">{character?.tagline || ""}</p>
+                <p className="text-sm text-lobby-accent/75 mb-3">{character?.tagline || ""}</p>
                 {character?.personality && (
-                  <p className="text-xs text-white/50 leading-relaxed mb-1.5">
-                    <span className="text-white/35">성격</span> · {character.personality}
+                  <p className="text-xs text-lobby-tx1 leading-relaxed mb-1.5">
+                    <span className="text-lobby-tx2">성격</span> · {character.personality}
                   </p>
                 )}
                 {character?.tone && (
-                  <p className="text-xs text-white/50 leading-relaxed mb-1.5">
-                    <span className="text-white/35">말투</span> · {character.tone}
+                  <p className="text-xs text-lobby-tx1 leading-relaxed mb-1.5">
+                    <span className="text-lobby-tx2">말투</span> · {character.tone}
                   </p>
                 )}
                 {character?.firstGreeting && (
@@ -1770,13 +1786,13 @@ const CompleteStep = ({
                   { key: "tagline", label: "태그라인", max: 60 },
                 ].map((f) => (
                   <div key={f.key}>
-                    <label className="text-[11px] text-white/50 mb-1 block">{f.label}</label>
+                    <label className="text-xs text-lobby-tx1 mb-1 block">{f.label}</label>
                     <input
                       type="text"
                       value={form[f.key]}
                       maxLength={f.max}
                       onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                      className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/25 focus:border-amber-400/60 outline-none"
+                      className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-lobby-tx2 focus:border-lobby-accent/60 outline-none"
                     />
                   </div>
                 ))}
@@ -1791,10 +1807,10 @@ const CompleteStep = ({
                 ].map((f) => (
                   <div key={f.key}>
                     <div className="flex items-baseline justify-between mb-1">
-                      <label className="text-[11px] text-white/50 block">{f.label}</label>
+                      <label className="text-xs text-lobby-tx1 block">{f.label}</label>
                       {f.max && (
-                        <span className={`text-[10px] tabular-nums ${
-                          (form[f.key]?.length || 0) >= f.max ? "text-amber-300" : "text-white/30"
+                        <span className={`text-xs tabular-nums ${
+                          (form[f.key]?.length || 0) >= f.max ? "text-lobby-accent" : "text-lobby-tx2"
                         }`}>
                           {form[f.key]?.length || 0}/{f.max}
                         </span>
@@ -1805,7 +1821,7 @@ const CompleteStep = ({
                       rows={f.rows}
                       maxLength={f.max}
                       onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                      className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-white/25 focus:border-amber-400/60 outline-none resize-none"
+                      className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder:text-lobby-tx2 focus:border-lobby-accent/60 outline-none resize-none"
                     />
                   </div>
                 ))}
@@ -1814,7 +1830,7 @@ const CompleteStep = ({
                     type="button"
                     disabled={busy}
                     onClick={() => { sfx.click(); setEditing(false); }}
-                    className="flex-1 py-2 rounded-xl bg-white/5 text-white/50 hover:bg-white/10 transition text-xs disabled:opacity-50"
+                    className="flex-1 py-2 rounded-xl bg-white/5 text-lobby-tx1 hover:bg-white/10 transition text-xs disabled:opacity-50"
                   >
                     취소
                   </button>
@@ -1826,7 +1842,7 @@ const CompleteStep = ({
                       const ok = await onSaveTexts(form);
                       if (ok) setEditing(false);
                     }}
-                    className="flex-1 py-2 rounded-xl bg-amber-600/80 hover:bg-amber-500/80 text-white text-xs font-bold transition disabled:opacity-50"
+                    className="flex-1 py-2 rounded-xl aurora-secondary-primary text-xs font-bold transition disabled:opacity-50"
                   >
                     {busy ? "저장 중…" : "저장"}
                   </button>
@@ -1844,12 +1860,12 @@ const CompleteStep = ({
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
-                <Globe size={15} className={publishOn ? "text-teal-300" : "text-white/40"} />
+                <Globe size={15} className={publishOn ? "text-teal-300" : "text-lobby-tx2"} />
                 <div>
                   <div className="text-sm font-bold text-white">
                     {visibility === "PUBLIC" ? "공개 중" : "탐색 피드에 공개"}
                   </div>
-                  <div className="text-[11px] text-white/45 mt-0.5">
+                  <div className="text-xs text-lobby-tx2 mt-0.5">
                     {visibility === "PUBLIC"
                       ? "다른 유저가 이 캐릭터와 대화할 수 있어요"
                       : "검토 후 공개돼요. 그동안은 나만 대화할 수 있어요"}
@@ -1886,28 +1902,28 @@ const CompleteStep = ({
                 <Moon size={15} className="text-rose-300/80" />
                 <div>
                   <div className="text-sm font-bold text-white">Secret 모드 신청</div>
-                  <div className="text-[11px] text-white/45 mt-0.5">
+                  <div className="text-xs text-lobby-tx2 mt-0.5">
                     성인 인증 유저 전용 기능이에요. 심사 후 활성화됩니다.
                   </div>
                 </div>
               </div>
               {secretStatus === "PENDING" ? (
-                <span className="text-[11px] font-bold text-amber-300/80 flex-shrink-0">심사 중</span>
+                <span className="text-xs font-bold text-lobby-accent/80 flex-shrink-0">심사 중</span>
               ) : secretStatus === "APPROVED" ? (
-                <span className="text-[11px] font-bold text-rose-300 flex-shrink-0">승인됨</span>
+                <span className="text-xs font-bold text-rose-300 flex-shrink-0">승인됨</span>
               ) : (
                 <button
                   type="button"
                   disabled={busy || !character || !character.secretEligible}
                   onClick={() => { sfx.click(); onRequestSecret(); }}
-                  className="flex-shrink-0 px-3 py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/30 text-rose-200 text-[11px] font-bold transition-colors disabled:opacity-40"
+                  className="flex-shrink-0 px-3 py-1.5 rounded-full bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/30 text-rose-200 text-xs font-bold transition-colors disabled:opacity-40"
                 >
                   {secretStatus === "REJECTED" ? "다시 신청" : "신청하기"}
                 </button>
               )}
             </div>
             {secretStatus === "REJECTED" && character?.reviewNote && (
-              <p className="mt-2 text-[11px] text-rose-200/70">{character.reviewNote}</p>
+              <p className="mt-2 text-xs text-rose-200/70">{character.reviewNote}</p>
             )}
           </motion.div>
 
@@ -1931,7 +1947,7 @@ const CompleteStep = ({
               type="button"
               disabled={busy || !job?.characterId}
               onClick={onChat}
-              className="flex-1 py-3 rounded-xl text-sm font-bold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/25 transition flex items-center justify-center gap-1.5 disabled:opacity-60"
+              className="flex-1 py-3 rounded-xl text-sm font-bold aurora-secondary-primary transition flex items-center justify-center gap-1.5 disabled:opacity-60"
             >
               <MessageCircle size={15} />
               바로 대화하기
@@ -2278,17 +2294,17 @@ export default function StudioCreateFlow({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] flex flex-col bg-gradient-to-br from-amber-950 via-stone-950 to-orange-950"
+      className="fixed inset-0 z-[100] flex flex-col aurora-auth-background"
     >
       {/* ═══ 헤더 ═══ */}
-      <div className="flex-shrink-0 px-5 sm:px-8 pt-4">
+      <div className="flex-shrink-0 px-5 sm:px-8 pt-4 pb-5 border-b border-white/[0.08] bg-lobby-bg/20">
         <div className="flex items-center justify-between mb-4">
           {/* 좌: 이탈 */}
           {!hasJob ? (
             <button
               type="button"
               onClick={handleLeave}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/30 backdrop-blur-md border border-white/10 text-white/60 hover:text-white hover:bg-black/50 transition-colors"
+              className="flex items-center gap-1.5 min-h-11 px-3 py-1.5 rounded-full bg-white/[0.035] backdrop-blur-md border border-white/10 text-lobby-tx1 hover:text-white hover:bg-black/50 transition-colors"
             >
               <X size={14} />
               <span className="text-xs tracking-wide">닫기</span>
@@ -2297,7 +2313,7 @@ export default function StudioCreateFlow({
             <button
               type="button"
               onClick={handleLeave}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/30 backdrop-blur-md border border-white/10 text-white/60 hover:text-white hover:bg-black/50 transition-colors"
+              className="flex items-center gap-1.5 min-h-11 px-3 py-1.5 rounded-full bg-white/[0.035] backdrop-blur-md border border-white/10 text-lobby-tx1 hover:text-white hover:bg-black/50 transition-colors"
             >
               <ArrowLeft size={14} />
               <span className="text-xs tracking-wide">나가서 기다리기</span>
@@ -2306,14 +2322,14 @@ export default function StudioCreateFlow({
             <div className="w-8" />
           )}
 
-          <div className="flex items-center gap-2 text-xs text-white/40 uppercase tracking-[0.3em]">
-            <Wand2 size={12} className="text-amber-300/70" />
+          <div className="flex items-center gap-2 text-[10px] sm:text-xs text-lobby-tx1 uppercase tracking-[0.14em] sm:tracking-[0.2em]">
+            <Wand2 size={12} className="text-lobby-accent/70" />
             Lucid Studio
           </div>
 
           {/* 우: 에너지 */}
           <div className="flex items-center gap-1.5 bg-black/20 backdrop-blur-md rounded-full px-3 py-1.5 border border-white/10">
-            <Zap size={13} className="text-amber-300" />
+            <Zap size={13} className="text-lobby-accent" />
             <span className="text-sm font-semibold text-white tabular-nums">{energy}</span>
           </div>
         </div>
@@ -2329,19 +2345,19 @@ export default function StudioCreateFlow({
                   <div key={n} className="flex items-start gap-1.5 sm:gap-2 flex-1 last:flex-initial">
                     <div className="flex flex-col items-center min-w-0">
                       <motion.div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold border transition-colors ${
+                        className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border transition-colors ${
                           isPast
-                            ? "bg-amber-500 border-amber-300 text-white shadow-md shadow-amber-500/20"
+                            ? "bg-lobby-accent border-lobby-accent text-[#25253b]"
                             : isCurrent
-                            ? "bg-amber-500/22 border-amber-300 text-amber-100"
-                            : "bg-white/[0.04] border-white/15 text-white/45"
+                            ? "bg-lobby-accent/22 border-lobby-accent text-lobby-accent"
+                            : "bg-white/[0.04] border-white/15 text-lobby-tx2"
                         }`}
                       >
                         {isPast ? <Check size={14} /> : n}
                       </motion.div>
                       <span
-                        className={`mt-1.5 text-[9px] sm:text-[10px] tracking-wider font-medium uppercase whitespace-nowrap transition-colors ${
-                          isCurrent ? "text-amber-100" : isPast ? "text-amber-200/70" : "text-white/35"
+                        className={`mt-1.5 text-xs sm:text-xs tracking-wider font-medium uppercase whitespace-nowrap transition-colors ${
+                          isCurrent ? "text-lobby-accent" : isPast ? "text-lobby-accent/70" : "text-lobby-tx2"
                         }`}
                       >
                         {label}
@@ -2349,8 +2365,8 @@ export default function StudioCreateFlow({
                     </div>
                     {n < STEP_LABELS.length && (
                       <div
-                        className={`flex-1 h-[1px] mt-3.5 transition-colors ${
-                          isPast ? "bg-amber-300/60" : "bg-white/10"
+                        className={`flex-1 h-[1px] mt-4 transition-colors ${
+                          isPast ? "bg-lobby-accent/60" : "bg-white/10"
                         }`}
                       />
                     )}
@@ -2371,7 +2387,7 @@ export default function StudioCreateFlow({
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -20 }}
             transition={{ duration: 0.35 }}
-            className="min-h-full flex flex-col justify-center"
+            className="min-h-full flex flex-col justify-center py-3 sm:py-6"
           >
             {/* 잡 초기 로딩 — 로드 실패 시 이탈 경로 제공 */}
             {hasJob && !job && !isFailed && (
@@ -2390,7 +2406,7 @@ export default function StudioCreateFlow({
                 ) : (
                   <>
                     <SpinnerRing size={48} className="mb-4" />
-                    <p className="text-sm text-white/45">소환 상태를 불러오는 중…</p>
+                    <p className="text-sm text-lobby-tx2">소환 상태를 불러오는 중…</p>
                   </>
                 )}
               </div>
@@ -2405,7 +2421,7 @@ export default function StudioCreateFlow({
                 <h3 className="text-lg font-bold text-white mb-2">
                   {status === "EXPIRED" ? "소환 작업이 만료되었어요" : "소환에 실패했어요"}
                 </h3>
-                <p className="text-sm text-white/50 leading-relaxed mb-6 whitespace-pre-line">
+                <p className="text-sm text-lobby-tx1 leading-relaxed mb-6 whitespace-pre-line">
                   {job?.failReason ||
                     (status === "EXPIRED"
                       ? "오랫동안 진행되지 않아 작업이 만료되었습니다."
@@ -2428,7 +2444,7 @@ export default function StudioCreateFlow({
                   <button
                     type="button"
                     onClick={handleLeave}
-                    className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-sm transition-colors"
+                    className="flex-1 py-3 rounded-xl bg-white/5 hover:bg-white/10 text-lobby-tx1 hover:text-white text-sm transition-colors"
                   >
                     스튜디오로 돌아가기
                   </button>
@@ -2449,13 +2465,13 @@ export default function StudioCreateFlow({
               <div className="flex flex-col items-center justify-center py-20">
                 <SpinnerRing size={56} className="mb-6" />
                 <motion.p
-                  className="text-sm text-amber-100/85 font-medium mb-2"
+                  className="text-sm text-lobby-accent/85 font-medium mb-2"
                   animate={{ opacity: [0.55, 1, 0.55] }}
                   transition={{ duration: 2, repeat: Infinity }}
                 >
                   컨셉을 읽어내는 중…
                 </motion.p>
-                <p className="text-xs text-white/35">당신의 문장에서 인물의 윤곽을 찾고 있어요.</p>
+                <p className="text-xs text-lobby-tx2">당신의 문장에서 인물의 윤곽을 찾고 있어요.</p>
               </div>
             )}
 
@@ -2548,7 +2564,7 @@ export default function StudioCreateFlow({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute bottom-5 left-5 sm:bottom-7 sm:left-7 z-[105] px-3 py-1.5 rounded-full text-[11px] text-white/30 hover:text-rose-300 hover:bg-rose-500/10 border border-transparent hover:border-rose-400/25 transition-colors disabled:opacity-40"
+            className="absolute bottom-5 left-5 sm:bottom-7 sm:left-7 z-[105] px-3 py-1.5 rounded-full text-xs text-lobby-tx2 hover:text-rose-300 hover:bg-rose-500/10 border border-transparent hover:border-rose-400/25 transition-colors disabled:opacity-40"
           >
             빌드 취소
           </motion.button>
@@ -2566,7 +2582,7 @@ export default function StudioCreateFlow({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 12 }}
             whileTap={{ scale: 0.96 }}
-            className="absolute bottom-5 right-5 sm:bottom-7 sm:right-7 z-[105] inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/40 hover:border-amber-300/60 text-amber-100 text-xs font-bold backdrop-blur-md shadow-lg shadow-amber-500/10 transition-colors"
+            className="absolute bottom-5 right-5 sm:bottom-7 sm:right-7 z-[105] inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-lobby-accent/15 hover:bg-lobby-accent/25 border border-lobby-accent/40 hover:border-lobby-accent/60 text-lobby-accent text-xs font-bold backdrop-blur-md shadow-lg shadow-lobby-accent/10 transition-colors"
           >
             <motion.span
               className="flex items-center"

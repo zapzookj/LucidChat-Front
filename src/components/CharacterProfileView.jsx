@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronLeft, ChevronDown, MessageCircle, User, X } from "lucide-react";
+import { ChevronLeft, ChevronDown, MessageCircle, User, X, ArrowUpRight, MapPin } from "lucide-react";
 import { fetchCharacterProfile } from "../api/ProfileApi";
 import { sfx } from "../utils/sfx";
 import { DIFFICULTY_META } from "../utils/difficultyMeta";
+import { getCharacterPresentation } from "../utils/characterPresentation";
+import "../styles/aurora-secondary.css";
 
 /**
  * [Profile v1] CharacterProfileView — 캐릭터 프로필 풀스크린 오버레이 (z-[100])
@@ -68,7 +70,7 @@ const RecordValue = ({ value, className = "" }) =>
   value ? (
     <span className={className}>{value}</span>
   ) : (
-    <span className="text-white/25 font-normal">기록 없음</span>
+    <span className="text-lobby-tx2 font-normal">기록 없음</span>
   );
 
 // ── 신상 2×2 그리드 카드 (immersive) ──
@@ -98,8 +100,8 @@ const PanelRow = ({ label, value, last = false }) => (
       last ? "" : "border-b border-white/[0.06]"
     }`}
   >
-    <span className="text-[10px] text-white/35 tracking-wider flex-shrink-0 pt-0.5">{label}</span>
-    <span className="text-xs text-white font-medium text-right leading-snug">
+    <span className="w-[74px] text-xs text-lobby-tx2 flex-shrink-0 pt-0.5">{label}</span>
+    <span className="flex-1 text-sm text-lobby-tx0 font-medium text-left leading-relaxed break-words min-w-0">
       <RecordValue value={value} />
     </span>
   </div>
@@ -125,6 +127,36 @@ export default function CharacterProfileView({
   // CTA 재진입 락 — state 기반 busy는 리렌더 전 2번째 클릭이 통과한다
   const busyRef = useRef(false);
   const errorCloseTimerRef = useRef(null);
+  const cardDialogRef = useRef(null);
+
+  // Keep the discovery modal reachable with a keyboard, including while content loads.
+  useEffect(() => {
+    if (!open || variant !== "card") return undefined;
+    const previous = document.activeElement;
+    const frame = requestAnimationFrame(() => cardDialogRef.current?.focus());
+    const trapFocus = (event) => {
+      if (event.key !== "Tab") return;
+      const dialog = cardDialogRef.current;
+      if (!dialog) return;
+      const activeDialog = document.activeElement?.closest?.('[aria-modal="true"]');
+      if (activeDialog && activeDialog !== dialog) return;
+      const targets = [...dialog.querySelectorAll('button:not([disabled]), a[href], [tabindex="0"]')];
+      if (!targets.length) { event.preventDefault(); dialog.focus(); return; }
+      const first = targets[0];
+      const last = targets[targets.length - 1];
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
+        event.preventDefault(); last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+        event.preventDefault(); first.focus();
+      }
+    };
+    document.addEventListener("keydown", trapFocus);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", trapFocus);
+      if (previous?.isConnected) previous.focus?.();
+    };
+  }, [open, variant]);
 
   // ── open 시 fetch / close 시 리셋 ──
   useEffect(() => {
@@ -177,10 +209,15 @@ export default function CharacterProfileView({
   // ── ESC 닫기 ──
   useEffect(() => {
     if (!open) return undefined;
-    const handler = (e) => e.key === "Escape" && onClose?.();
+    const handler = (e) => {
+      if (e.key !== "Escape") return;
+      const activeDialog = document.activeElement?.closest?.('[aria-modal="true"]');
+      if (variant === "card" && activeDialog && activeDialog !== cardDialogRef.current) return;
+      onClose?.();
+    };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  }, [open, onClose, variant]);
 
   // ── panel 전용: 바깥 mousedown 닫힘 (BiometricStatusPanel과 동일 맥락) ──
   const panelRef = useRef(null);
@@ -474,248 +511,133 @@ export default function CharacterProfileView({
     );
   }
 
-  // ═══ "card" — 화면 중앙 글래스 모달 카드 (로비 선택 플로우) ═══
+  // Discovery profile: place + portrait share one composed frame across desktop and mobile.
   if (variant === "card") {
+    const presentation = getCharacterPresentation(profile || {});
+    const portrait = profile?.defaultImageUrl || profile?.thumbnailUrl;
+    const quote = profile?.profileQuote || profile?.introTeaser;
     return (
       <AnimatePresence>
         {open && (
           <motion.div
             key="profile-card-overlay"
-            className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
-            {/* 딤 백드롭 */}
-            <div
-              className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-              onClick={handleBackdropClick}
-            />
-
-            {loading && (
-              <motion.div
-                className="relative w-9 h-9 border-2 border-amber-400/40 border-t-amber-400 rounded-full"
-                animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-              />
-            )}
-
-            {!loading && profile && (
-              <motion.div
-                key="profile-card"
-                className="relative w-[min(92vw,680px)] max-h-[min(88vh,660px)] rounded-2xl border border-white/[0.08] overflow-hidden flex flex-col sm:flex-row"
-                initial={{ opacity: 0, y: 24, scale: 0.96 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ type: "spring", stiffness: 280, damping: 26 }}
-                style={{
-                  background: "linear-gradient(160deg, rgba(8,4,20,0.92), rgba(15,8,30,0.95))",
-                  backdropFilter: "blur(28px) saturate(1.3)",
-                  boxShadow:
-                    "0 12px 60px rgba(0,0,0,0.55), 0 0 80px rgba(251,191,36,0.10), inset 0 1px 0 rgba(255,255,255,0.04)",
-                }}
-              >
-                {/* 일러스트 패널 — 모바일: 컴팩트 배너 / 데스크톱: 좌측 세로 패널 */}
-                <div className="relative h-44 sm:h-auto sm:w-[248px] flex-shrink-0 bg-gradient-to-b from-indigo-950/70 via-[#0d0a1e] to-[#0b1026]">
-                  {profile.defaultImageUrl || profile.thumbnailUrl ? (
-                    <img
-                      src={profile.defaultImageUrl || profile.thumbnailUrl}
-                      alt={profile.name}
-                      className="w-full h-full object-cover object-top"
-                      draggable={false}
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-white/10">
-                      <User size={44} />
-                    </div>
-                  )}
-                  {/* 크롭 경계 완화 스크림 — 모바일 하단 / 데스크톱 우측 */}
-                  <div
-                    className="absolute inset-0 sm:hidden"
-                    style={{
-                      background:
-                        "linear-gradient(to bottom, rgba(8,4,20,0.15) 0%, rgba(8,4,20,0) 40%, rgba(10,5,22,0.85) 100%)",
-                    }}
-                  />
-                  <div
-                    className="absolute inset-0 hidden sm:block"
-                    style={{
-                      background:
-                        "linear-gradient(to right, rgba(8,4,20,0) 65%, rgba(10,5,22,0.55) 100%)",
-                    }}
-                  />
+            <div className="absolute inset-0 bg-[#080d1d]/80 backdrop-blur-md" onClick={handleBackdropClick} aria-hidden="true" />
+            <motion.section
+              ref={cardDialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-label={profile ? `${profile.name} 프로필` : "캐릭터 프로필"}
+              tabIndex={-1}
+              className="aurora-profile relative w-full max-w-[920px] overflow-hidden rounded-[28px] border border-white/15 flex flex-col sm:flex-row outline-none shadow-2xl"
+              initial={{ y: 18, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <button
+                type="button" onClick={handleClose} aria-label="프로필 닫기"
+                className="absolute z-20 top-4 right-4 w-11 h-11 flex items-center justify-center rounded-full border border-white/15 bg-[#172037]/80 backdrop-blur-md text-lobby-tx1 hover:bg-lobby-surface2 hover:text-white transition-colors"
+              ><X size={18} /></button>
+              {loading && (
+                <div role="status" className="w-full min-h-[360px] flex flex-col items-center justify-center gap-5 text-lobby-tx1">
+                  <span className="aurora-secondary-spinner w-9 h-9 rounded-full border-2 border-lobby-accent/20 border-t-lobby-accent" />
+                  <p className="text-sm">캐릭터의 이야기를 불러오고 있어요</p>
                 </div>
-
-                {/* 정보 칼럼 */}
-                <div className="flex-1 min-w-0 flex flex-col">
-                  {/* 헤더 — eyebrow + 이름 + 닫기 */}
-                  <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-1 flex-shrink-0">
-                    <div className="min-w-0">
-                      <div
-                        className="text-[9px] text-white/35 mb-1"
-                        style={{ fontFamily: MONO_STACK, letterSpacing: "0.28em" }}
-                      >
-                        PROFILE
+              )}
+              {!loading && errorToast && (
+                <div role="alert" className="w-full min-h-[280px] flex items-center justify-center p-10 text-center text-rose-200">{errorToast}</div>
+              )}
+              {!loading && profile && (
+                <>
+                  <div className="aurora-profile-art relative shrink-0 overflow-hidden sm:w-[40%]">
+                    {presentation.backgroundUrl && (
+                      <img src={presentation.backgroundUrl} alt="" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                    )}
+                    <div className="aurora-profile-art-light absolute inset-0" />
+                    {portrait ? (
+                      <img
+                        src={portrait} alt={profile.name} draggable={false}
+                        className="absolute inset-0 w-full h-full object-cover"
+                        style={{ objectPosition: presentation.objectPosition || "center top" }}
+                        onError={(e) => { e.currentTarget.style.display = "none"; }}
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center text-lobby-accent/30"><User size={80} strokeWidth={1} /></div>
+                    )}
+                    <div className="aurora-profile-art-scrim absolute inset-0" />
+                    <div className="absolute top-5 left-5 px-3 py-1.5 rounded-full text-[11px] font-semibold tracking-[0.1em] text-white/85 border border-white/20 bg-[#172037]/55 backdrop-blur-md">
+                      {profile.ugc ? "CREATOR CHARACTER" : "LUCID ORIGINAL"}
+                    </div>
+                    {profile.worldName && (
+                      <div className="absolute bottom-5 left-6 right-6 hidden sm:flex items-center gap-2 text-sm text-white/85">
+                        <MapPin size={14} className="shrink-0 text-lobby-teal" /><span className="truncate">{profile.worldName}</span>
                       </div>
-                      <h2
-                        className="text-2xl text-white tracking-wide truncate"
-                        style={{ fontWeight: 800 }}
-                      >
-                        {profile.name}
-                      </h2>
-                      {ageRole && <p className="text-xs text-white/50 mt-0.5">{ageRole}</p>}
-                      {/* [2026-08-05 난이도 배지 승격] 이름 라인 하단 독립 슬롯 */}
+                    )}
+                  </div>
+                  <div className="aurora-profile-detail relative min-w-0 flex-1 flex flex-col">
+                    <div className="aurora-profile-scroll min-h-0 flex-1 overflow-y-auto custom-scrollbar px-6 pt-6 pb-5 sm:px-8 sm:pt-10">
+                      <div className="text-[11px] font-semibold text-lobby-teal tracking-[0.2em] mb-3">첫 인사를 나누기 전에</div>
+                      <h2 className="text-[30px] sm:text-[36px] font-semibold leading-tight tracking-[-0.04em] text-lobby-tx0 break-words pr-4 sm:pr-6">{profile.name}</h2>
+                      {ageRole && <p className="text-sm text-lobby-tx1 leading-relaxed mt-2">{ageRole}</p>}
                       {DIFFICULTY_META[profile.difficulty] && (
-                        <div className="mt-1.5">
-                          <DifficultyBadge difficulty={profile.difficulty} />
+                        <div className="mt-3"><DifficultyBadge difficulty={profile.difficulty} size="lg" /></div>
+                      )}
+                      {((profile.moodTags || []).length > 0 || profile.worldName) && (
+                        <div className="flex flex-wrap gap-1.5 mt-5">
+                          {(profile.moodTags || []).map((tag) => (
+                            <span key={tag} className="text-xs font-medium px-2.5 py-1 rounded-full bg-lobby-accent/[0.08] text-lobby-accent border border-lobby-accent/15">{tag}</span>
+                          ))}
+                          {profile.worldName && <span className="sm:hidden text-xs px-2.5 py-1 rounded-full bg-lobby-teal/10 text-lobby-teal border border-lobby-teal/15">{profile.worldName}</span>}
                         </div>
                       )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleClose}
-                      onMouseEnter={() => sfx.hover()}
-                      aria-label="닫기"
-                      className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/15 text-white/50 hover:text-white transition-colors"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-
-                  {/* 본문 스크롤 */}
-                  <div className="flex-1 overflow-y-auto custom-scrollbar px-5 pt-2 pb-3">
-                    {/* 무드 칩 + 세계관 배지 */}
-                    {((profile.moodTags || []).length > 0 || profile.worldName) && (
-                      <div className="flex flex-wrap items-center gap-1 mb-3">
-                        {(profile.moodTags || []).map((tag) => (
-                          <span
-                            key={tag}
-                            className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-200 border border-amber-400/25"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                        {profile.worldName && (
-                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-violet-400/15 text-violet-200 border border-violet-400/25">
-                            🌙 {profile.worldName}
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    {/* 신상 레코드 — 밀도형 행 */}
-                    <div className="rounded-xl bg-white/[0.03] border border-white/[0.07] px-3.5 py-1">
-                      <PanelRow label="키" value={profile.height} />
-                      <PanelRow label="좋아하는 것" value={profile.likes} />
-                      <PanelRow label="싫어하는 것" value={profile.dislikes} />
-                      <PanelRow label="취미" value={profile.hobby} last />
-                    </div>
-
-                    {/* introTeaser — 세리프 이탤릭 인용 */}
-                    <blockquote
-                      className="mt-3.5 pl-3 border-l-2 border-amber-400/60 italic leading-relaxed"
-                      style={{ fontFamily: SERIF_STACK }}
-                    >
-                      {(profile.profileQuote || profile.introTeaser) ? (
-                        <span className="text-[13px] text-white/80">{(profile.profileQuote || profile.introTeaser)}</span>
-                      ) : (
-                        <span className="text-xs text-white/25">기록 없음</span>
+                      {quote && (
+                        <blockquote className="aurora-profile-quote mt-6 rounded-2xl px-5 py-4 text-[15px] leading-[1.85] text-lobby-tx0 whitespace-pre-line">
+                          <span className="block text-lobby-accent text-[25px] h-5 leading-none" aria-hidden="true">“</span>
+                          {quote}
+                        </blockquote>
                       )}
-                    </blockquote>
-
-                    {profile.ugc && profile.creatorNickname && (
-                      <p className="text-[10px] text-white/30 mt-3">
-                        창작자 · {profile.creatorNickname}
-                      </p>
-                    )}
-
-                    {/* 외형·복장 서술 — 고스트 링크 접이식 */}
-                    {(profile.appearance || profile.clothing) && (
-                      <div className="mt-3.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            sfx.click();
-                            setShowLooks((v) => !v);
-                          }}
-                          className="flex items-center gap-1 text-[10px] text-white/35 hover:text-white/60 transition-colors"
-                        >
-                          {showLooks ? "외형 서술 접기" : "외형·복장 자세히 보기"}
-                          <ChevronDown
-                            size={11}
-                            className={`transition-transform ${showLooks ? "rotate-180" : ""}`}
-                          />
-                        </button>
-                        <AnimatePresence>
-                          {showLooks && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: "auto", opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.25 }}
-                              className="overflow-hidden"
-                            >
-                              <div className="pt-2.5 space-y-2.5">
-                                {profile.appearance && (
-                                  <div>
-                                    <div className="text-[9px] tracking-[0.18em] uppercase text-white/35 mb-1">
-                                      외형
-                                    </div>
-                                    <p className="text-[11px] text-white/60 leading-relaxed whitespace-pre-line">
-                                      {profile.appearance}
-                                    </p>
-                                  </div>
-                                )}
-                                {profile.clothing && (
-                                  <div>
-                                    <div className="text-[9px] tracking-[0.18em] uppercase text-white/35 mb-1">
-                                      복장
-                                    </div>
-                                    <p className="text-[11px] text-white/60 leading-relaxed whitespace-pre-line">
-                                      {profile.clothing}
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
+                      <div className="mt-6">
+                        <h3 className="text-xs font-semibold text-lobby-tx2 mb-2">조금 더 알아보기</h3>
+                        <div className="border-y border-white/[0.08] py-1">
+                          <PanelRow label="키" value={profile.height} />
+                          <PanelRow label="좋아하는 것" value={profile.likes} />
+                          <PanelRow label="싫어하는 것" value={profile.dislikes} />
+                          <PanelRow label="취미" value={profile.hobby} last />
+                        </div>
                       </div>
-                    )}
+                      {(profile.appearance || profile.clothing) && (
+                        <div className="mt-3">
+                          <button type="button" aria-expanded={showLooks} aria-controls="profile-appearance" onClick={() => setShowLooks((v) => !v)}
+                            className="flex items-center justify-between gap-2 py-3 w-full text-xs text-lobby-tx1 hover:text-lobby-accent transition-colors">
+                            {showLooks ? "외형·복장 접기" : "외형·복장 자세히 보기"}
+                            <ChevronDown size={14} className={`transition-transform ${showLooks ? "rotate-180" : ""}`} />
+                          </button>
+                          {showLooks && (
+                            <div id="profile-appearance" className="space-y-3 pb-2 text-sm text-lobby-tx1 leading-relaxed whitespace-pre-line">
+                              {profile.appearance && <p><span className="block text-xs text-lobby-tx2 mb-1">외형</span>{profile.appearance}</p>}
+                              {profile.clothing && <p><span className="block text-xs text-lobby-tx2 mb-1">복장</span>{profile.clothing}</p>}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {profile.ugc && profile.creatorNickname && <p className="text-xs text-lobby-tx2 mt-4">창작자 · {profile.creatorNickname}</p>}
+                    </div>
+                    <div className="shrink-0 px-6 sm:px-8 py-4 sm:py-5 border-t border-white/10 bg-lobby-surface/80">
+                      <button type="button" disabled={ctaBusy} onClick={handleCta}
+                        className="aurora-secondary-primary w-full min-h-[50px] rounded-2xl px-5 text-sm font-bold flex items-center justify-between gap-3 disabled:opacity-60">
+                        <span className="flex items-center gap-2.5"><MessageCircle size={17} />{ctaBusy ? "입장 중…" : ctaLabel}</span>
+                        <ArrowUpRight size={18} />
+                      </button>
+                    </div>
                   </div>
-
-                  {/* CTA 푸터 */}
-                  <div className="flex-shrink-0 px-5 py-3.5 border-t border-white/[0.08]">
-                    <button
-                      type="button"
-                      disabled={ctaBusy}
-                      onClick={handleCta}
-                      onMouseEnter={() => sfx.hover()}
-                      className="w-full py-2.5 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white shadow-lg shadow-amber-500/25 transition flex items-center justify-center gap-2 disabled:opacity-60"
-                    >
-                      <MessageCircle size={13} />
-                      {ctaBusy ? "입장 중…" : ctaLabel}
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {/* 에러 토스트 */}
-            <AnimatePresence>
-              {errorToast && (
-                <motion.div
-                  key="profile-card-toast"
-                  className="fixed bottom-8 left-1/2 z-[9999] px-6 py-3.5 rounded-2xl backdrop-blur-xl border shadow-2xl text-sm font-medium bg-rose-900/80 border-rose-400/30 text-rose-200 shadow-rose-500/20"
-                  initial={{ x: "-50%", y: 30, opacity: 0, scale: 0.9 }}
-                  animate={{ x: "-50%", y: 0, opacity: 1, scale: 1 }}
-                  exit={{ x: "-50%", y: 30, opacity: 0, scale: 0.9 }}
-                  transition={{ type: "spring", damping: 25, stiffness: 300 }}
-                >
-                  {errorToast}
-                </motion.div>
+                </>
               )}
-            </AnimatePresence>
+            </motion.section>
           </motion.div>
         )}
       </AnimatePresence>

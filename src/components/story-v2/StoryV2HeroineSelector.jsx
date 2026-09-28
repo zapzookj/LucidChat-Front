@@ -1,7 +1,10 @@
 import { motion, AnimatePresence } from "framer-motion";
+import { useRef } from "react";
 import { X, Heart, ChevronRight } from "lucide-react";
-import { sfx } from "../../utils/sfx";
 import { getHeroinePaletteByCharacterId } from "../../utils/characterColor";
+import useOverlayFocus from "../mobile/useOverlayFocus";
+import useDeviceProfile from "../../hooks/useDeviceProfile";
+import "../../styles/aurora-chat.css";
 
 /**
  * [Story V2] 히로인 셀렉터 — BiometricStatusPanel을 띄우기 *전* 단계.
@@ -29,38 +32,42 @@ import { getHeroinePaletteByCharacterId } from "../../utils/characterColor";
 export default function StoryV2HeroineSelector({
   isOpen, onClose, heroines, currentSpeakerCharacterId, onSelect,
 }) {
-  if (!isOpen) return null;
+  const panelRef = useRef(null);
+  const { isMobile } = useDeviceProfile();
+  useOverlayFocus(isOpen, panelRef, onClose, { trapFocus: isMobile });
 
   return (
     <AnimatePresence>
       {isOpen && (
         <motion.div
+          ref={panelRef}
+          tabIndex={-1}
           initial={{ x: "-100%" }}
           animate={{ x: 0 }}
           exit={{ x: "-100%" }}
           transition={{ type: "tween", duration: 0.3, ease: "easeOut" }}
-          className="fixed inset-y-0 left-0 w-full md:w-[420px] z-[60] shadow-2xl border-r border-white/10 flex flex-col"
-          style={{
-            background: "linear-gradient(135deg, rgba(15,10,30,0.97), rgba(28,15,45,0.95))",
-            backdropFilter: "blur(24px)",
-          }}
+          role="dialog"
+          aria-modal={isMobile || undefined}
+          aria-label="캐릭터 관계 선택"
+          className="aurora-drawer fixed inset-y-0 left-0 w-full md:w-[400px] z-[60] border-r flex flex-col"
         >
           {/* Header */}
           <div className="flex justify-between items-center p-6 border-b border-white/10 bg-white/5">
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              <Heart size={20} className="text-rose-400" />
-              누구의 상태를 볼까요?
+            <h2 className="text-lg font-semibold text-lobby-tx0 flex items-center gap-2">
+              <Heart size={20} className="text-lobby-accent" />
+              누구의 마음이 궁금한가요?
             </h2>
             <button
-              onClick={() => { sfx.click(); onClose(); }}
-              className="p-2 rounded-full hover:bg-white/10 transition"
+              onClick={onClose}
+              aria-label="캐릭터 관계 닫기"
+              className="aurora-icon-close -mr-2 transition"
             >
               <X size={22} className="text-white/70" />
             </button>
           </div>
 
           {/* 히로인 카드 리스트 */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-3 custom-scrollbar">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5 space-y-3 custom-scrollbar">
             {(heroines || []).map((h, i) => {
               // [UX2] 화자 강조 제거 + 시네마틱 카드 — 캐릭터 컬러 악센트 / 풀하이트 초상 / 호감 게이지
               const palette = getHeroinePaletteByCharacterId(h.characterId, heroines);
@@ -68,7 +75,7 @@ export default function StoryV2HeroineSelector({
               return (
                 <motion.button
                   key={h.characterId}
-                  onClick={() => { sfx.click(); onSelect(h); }}
+                  onClick={() => onSelect(h)}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.05 }}
@@ -78,7 +85,7 @@ export default function StoryV2HeroineSelector({
                 >
                   <div className="flex items-stretch">
                     {/* 풀하이트 초상 — 우측으로 페이드되며 텍스트 영역과 융합 */}
-                    <div className="relative w-24 self-stretch flex-shrink-0 overflow-hidden bg-black/30">
+                    <div className="relative w-24 self-stretch flex-shrink-0 overflow-hidden bg-gradient-to-br from-lobby-accent/25 to-lobby-teal/10">
                       {h.profileImageUrl ? (
                         <img
                           src={h.profileImageUrl}
@@ -98,14 +105,14 @@ export default function StoryV2HeroineSelector({
                       </div>
 
                       {h.dynamicRelationTag && (
-                        <span className={`self-start px-2 py-0.5 rounded-full border border-white/15 bg-black/25 text-[10px] italic ${palette.accent} truncate max-w-full`}>
+                        <span className={`self-start px-2 py-0.5 rounded-full border border-white/15 bg-black/25 text-xs italic ${palette.accent} truncate max-w-full`}>
                           {h.dynamicRelationTag}
                         </span>
                       )}
 
                       {/* 호감 게이지 */}
                       <div className="mt-0.5">
-                        <div className="flex justify-between text-[10px] text-white/40 mb-1">
+                        <div className="flex justify-between text-xs text-white/40 mb-1">
                           <span>호감 {affection}</span>
                           <span>친밀 {h.statIntimacy}</span>
                         </div>
@@ -130,8 +137,8 @@ export default function StoryV2HeroineSelector({
             })}
 
             {(!heroines || heroines.length === 0) && (
-              <p className="text-center text-white/30 text-sm py-10">
-                히로인 정보가 없습니다.
+              <p className="text-center text-lobby-tx1 text-sm leading-relaxed py-10">
+                아직 만난 캐릭터가 없어요.<br />이야기가 시작되면 이곳에서 마음을 살펴보세요.
               </p>
             )}
           </div>

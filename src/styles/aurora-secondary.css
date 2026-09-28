@@ -1,0 +1,78 @@
+/* Aurora's secondary surfaces. Layout and type remain in Tailwind; these classes
+   describe composed light, image treatment, and the few responsive viewport rules. */
+.aurora-profile {
+  background: linear-gradient(138deg, #293048 0%, #20263b 60%, #1d2d3c 100%);
+  box-shadow: 0 28px 100px #080d1d80, 0 1px 0 #ffffff10 inset;
+  max-height: min(820px, calc(100dvh - 48px));
+  height: min(740px, calc(100dvh - 48px));
+}
+.aurora-profile-art {
+  background: radial-gradient(ellipse at 70% 20%, #6c658e 0%, #32405b 46%, #1e3342 100%);
+}
+.aurora-profile-art-light {
+  background: radial-gradient(ellipse at 65% 10%, #d2c3fa35, transparent 60%), linear-gradient(180deg, #1b263b00, #12253850);
+}
+.aurora-profile-art-scrim {
+  background: linear-gradient(180deg, #0f17222e, transparent 28%, #17233410 58%, #131d30c9 100%);
+  box-shadow: -1px 0 0 #ffffff0a inset;
+}
+.aurora-profile-quote {
+  background: linear-gradient(135deg, #d2c3fa0d, #9cced406);
+  border: 1px solid #d2c3fa14;
+}
+.aurora-secondary-primary {
+  color: #25253b;
+  background: linear-gradient(112deg, #ded2ff 0%, #c8c5ec 48%, #aedcdb 100%);
+  box-shadow: 0 4px 18px #bba8e51a, 0 1px 0 #ffffff50 inset;
+  transition: box-shadow 180ms ease, filter 180ms ease, transform 180ms ease;
+}
+.aurora-secondary-primary:hover:not(:disabled) {
+  filter: brightness(1.055);
+  box-shadow: 0 7px 24px #bba8e52e, 0 1px 0 #ffffff50 inset;
+  transform: translateY(-1px);
+}
+.aurora-secondary-primary:active:not(:disabled) { transform: translateY(0); }
+.aurora-secondary-spinner { animation: aurora-secondary-spin 1.2s linear infinite; }
+.aurora-story-card {
+  background: linear-gradient(145deg, #2c334b94, #20283cb3);
+  box-shadow: 0 12px 30px #080d1d18, 0 1px 0 #ffffff05 inset;
+}
+.aurora-story-image {
+  background: linear-gradient(0deg, #182235fa, #18223508 80%);
+}
+.aurora-story-card:hover .aurora-story-photo { transform: scale(1.025); }
+.aurora-archive-row {
+  background: linear-gradient(105deg, #2b334b85, #21293b85);
+  box-shadow: 0 1px 0 #ffffff04 inset;
+}
+.aurora-studio-invite {
+  background: radial-gradient(ellipse at 94% 30%, #9cced41c, transparent 46%), linear-gradient(120deg, #bba8e51c, #282f441a);
+  border: 1px solid #d2c3fa20;
+}
+.aurora-auth-background {
+  background: radial-gradient(ellipse at 10% 16%, #71619870, transparent 53%), radial-gradient(ellipse at 87% 82%, #3a758877, transparent 58%), linear-gradient(150deg, #242d47, #151e33 62%, #1c2b3c);
+}
+.aurora-auth-arch {
+  width: min(76vw, 670px);
+  height: min(105vh, 910px);
+  border-radius: 50% 50% 0 0;
+  border: 1px solid #d2c3fa22;
+  box-shadow: 0 0 100px #d2c3fa08, 0 0 70px #d2c3fa08 inset;
+}
+.aurora-gate {
+  background: radial-gradient(ellipse at 0 0, #82709f22, transparent 75%), linear-gradient(145deg, #2d354e, #202c40);
+  box-shadow: 0 28px 100px #080d1d80, 0 1px 0 #ffffff0d inset;
+}
+@keyframes aurora-secondary-spin { to { transform: rotate(360deg); } }
+@media (max-width: 639px) {
+  .aurora-profile { max-height: calc(100dvh - 24px); height: min(850px, calc(100dvh - 24px)); }
+  .aurora-profile-art { height: clamp(170px, 26dvh, 245px); }
+  .aurora-profile-art-scrim { background: linear-gradient(180deg, #17233410 45%, #252d4400 60%, #252d44e6); }
+  .aurora-profile-detail { min-height: 0; }
+  .aurora-auth-arch { width: 92vw; height: 92vh; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aurora-secondary-primary, .aurora-story-photo { transition: none; }
+  .aurora-secondary-primary:hover:not(:disabled), .aurora-story-card:hover .aurora-story-photo { transform: none; }
+  .aurora-secondary-spinner { animation-duration: 2.8s; }
+}

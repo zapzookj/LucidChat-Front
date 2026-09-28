@@ -1,9 +1,10 @@
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Send, Zap, ChevronRight, Dices, Sparkles, Rocket, ShoppingBag, Activity, MessageSquare, Eye, Clock, EyeIcon, Gem, MessageCircle, ChevronUp, FastForward, MapPin, User } from "lucide-react";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { sanitizeScene } from "../utils/dialogueSanitizer";
 import { sfx } from "../utils/sfx";
 import { derivePulse, deltaSumOfChanges } from "../utils/relationNarrative";
+import "../styles/aurora-chat.css";
 
 /**
  * [Phase 5.5-Fix] DialogueBox
@@ -13,7 +14,7 @@ import { derivePulse, deltaSumOfChanges } from "../utils/relationNarrative";
  * 2. [Fix #5] 이벤트 진행 중 뱃지 + 속마음 토글 → 네임 플레이트 옆으로 이동 (에너지 UI와 겹침 해소)
  * 3. [블록 D · §G-8] 심박 숫자 폐지 → emotion 파생 박동 인디케이터
  *
- * ⚠️ 대사 출력 로직(타이핑/씬 전환)은 원본과 100% 동일 — 수정 없음
+ * 대사 재생·씬 큐 계약을 유지하며 빠른 읽기와 키보드 탐색을 지원한다.
  */
 
 
@@ -78,7 +79,7 @@ const StatChangeToasts = ({ changes }) => {
               style={{ background: `${meta.color}18`, border: `1px solid ${meta.color}30` }}
             >
               <span className="text-xs">{meta.icon}</span>
-              <span className="text-[11px] text-white/50 font-medium">{meta.label}</span>
+              <span className="text-xs text-white/50 font-medium">{meta.label}</span>
               <span className={`text-sm font-black drop-shadow-lg ${change.value > 0 ? "text-emerald-400" : "text-rose-400"}`}>
                 {change.value > 0 ? `+${change.value}` : change.value}
               </span>
@@ -127,7 +128,7 @@ const InnerThoughtView = ({ text, characterName }) => {
     >
       <div className="flex items-center gap-2 mb-2 opacity-50">
         <span className="text-xs">💭</span>
-        <span className="text-[10px] text-purple-300 uppercase tracking-widest font-bold">
+        <span className="text-xs text-purple-300 uppercase tracking-widest font-bold">
           {characterName}의 속마음
         </span>
       </div>
@@ -161,27 +162,31 @@ const InnerThoughtView = ({ text, characterName }) => {
 // ═══════════════════════════════════════════════════════════════
 
 const ThoughtToggleTabs = ({ activeTab, onTabChange }) => (
-  <div className="flex gap-1">
+  <div className="aurora-dialogue-tabs" role="group" aria-label="대화 보기">
     <button
+      type="button"
+      aria-pressed={activeTab === "dialogue"}
       onClick={(e) => { e.stopPropagation(); onTabChange("dialogue"); }}
-      className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all ${
+      className={`aurora-dialogue-tab ${
         activeTab === "dialogue"
-          ? "bg-white/10 text-white/80 border border-white/15 shadow-sm"
-          : "text-white/25 hover:text-white/40 hover:bg-white/[0.03]"
+          ? "aurora-dialogue-tab--active"
+          : ""
       }`}
     >
-      <MessageSquare size={10} />
+      <MessageSquare size={14} />
       <span>대사</span>
     </button>
     <button
+      type="button"
+      aria-pressed={activeTab === "thought"}
       onClick={(e) => { e.stopPropagation(); onTabChange("thought"); }}
-      className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all ${
+      className={`aurora-dialogue-tab ${
         activeTab === "thought"
-          ? "bg-purple-500/15 text-purple-300 border border-purple-500/25 shadow-[0_0_8px_rgba(168,85,247,0.15)]"
-          : "text-purple-400/30 hover:text-purple-400/50 hover:bg-purple-500/[0.05]"
+          ? "aurora-dialogue-tab--active"
+          : ""
       }`}
     >
-      <Eye size={10} />
+      <Eye size={14} />
       <span>속마음</span>
     </button>
   </div>
@@ -209,7 +214,7 @@ function SystemTurnCue() {
       className="mb-3 flex items-center gap-3 select-none"
     >
       <span className="h-px flex-1 bg-gradient-to-r from-transparent to-indigo-300/30" />
-      <span className="flex items-center gap-1.5 text-[11px] font-medium tracking-wide text-indigo-200/80 whitespace-nowrap">
+      <span className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-indigo-200/80 whitespace-nowrap">
         <motion.span
           className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-300"
           animate={{ scale: [1, 1.5, 1], opacity: [0.5, 1, 0.5] }}
@@ -230,11 +235,12 @@ function SystemTurnCue() {
 // ═══════════════════════════════════════════════════════════════
 const MobileInfoBar = ({
   pulse, energy, hasPaidEnergy, displayPaidEnergy, boostMode, onOpenStatusPanel, statChanges, toggleRef,
+  onOpenStore,
   onOpenProfile = null, // [Profile v1] 프로필 진입점 (미전달 시 비노출 — V2 등 기존 호출 byte-identical)
   profileToggleRef = null, // [Profile v2] 프로필 패널 excludeRef — 바깥 mousedown 깜빡임 방지
 }) => (
   /* [폴리싱 #8] toggleRef — 배지 3종 모두 상태창 토글이므로 행 전체를 바깥 클릭 판정에서 제외 */
-  <div ref={toggleRef} className="relative flex justify-end items-center gap-1.5 px-1">
+  <div ref={toggleRef} className="aurora-chat-hud aurora-chat-hud--mobile relative flex justify-end items-center gap-1.5 px-1">
     <StatChangeToasts changes={statChanges} />
     {/* [Profile v1] 프로필 버튼 — 상태창 배지와 같은 폼팩터 */}
     {onOpenProfile && (
@@ -250,7 +256,7 @@ const MobileInfoBar = ({
     {boostMode && (
       <span className="flex items-center gap-1 h-10 px-2.5 rounded-full bg-black/60 backdrop-blur-md border border-cyan-500/40 text-cyan-300">
         <Rocket size={13} />
-        <span className="text-[10px] font-bold uppercase">Boost</span>
+        <span className="text-xs font-bold uppercase">Boost</span>
       </span>
     )}
     <button
@@ -263,14 +269,14 @@ const MobileInfoBar = ({
       <span className="text-xs font-extrabold">{pulse.label}</span>
     </button>
     <button
-      onClick={onOpenStatusPanel}
-      aria-label="에너지 상세"
+      onClick={() => onOpenStore?.("energy")}
+      aria-label={`에너지 ${energy} · 충전하기`}
       className="flex items-center gap-1.5 h-10 px-3 rounded-full bg-black/60 backdrop-blur-md border border-yellow-500/40 text-white active:scale-95 transition"
     >
       <Zap size={14} className="text-yellow-400" fill={energy > 0 ? "currentColor" : "none"} />
       <span className="text-sm font-bold tabular-nums">
         {energy}
-        {hasPaidEnergy && <span className="text-[10px] text-emerald-400/80 ml-0.5">+{displayPaidEnergy}</span>}
+        {hasPaidEnergy && <span className="text-xs text-emerald-400/80 ml-0.5">+{displayPaidEnergy}</span>}
       </span>
     </button>
     <button
@@ -341,6 +347,8 @@ const DialogueBox = ({
   // ── [Phase B · 단계2] M1 모바일 세로 계약 (additive — 미전달 시 V1·V2 데스크톱 byte-identical) ──
   mobile = false,
 }) => {
+  const reduceMotion = useReducedMotion();
+  const typingTimerRef = useRef(null);
   const [input, setInput] = useState("");
   const [displayedText, setDisplayedText] = useState("");
   const [isTextFullyDisplayed, setIsTextFullyDisplayed] = useState(false);
@@ -411,12 +419,12 @@ const DialogueBox = ({
   };
   const energyCost = getEnergyCost();
 
-  // ━━━ 타이핑 효과 (원본 100% 동일) ━━━
+  // 빠른 읽기 시 타이머까지 정지해 다음 tick에서 대사가 다시 줄어들지 않도록 한다.
   useEffect(() => {
     const fullText = isEventScene ? (scene?.narration || "") : (scene?.dialogue || "");
 
-    if (!fullText && !scene?.narration && !isEventScene) {
-      setDisplayedText("");
+    if (reduceMotion || (!fullText && !scene?.narration && !isEventScene)) {
+      setDisplayedText(fullText);
       setIsTextFullyDisplayed(true);
       return;
     }
@@ -427,22 +435,21 @@ const DialogueBox = ({
     let charIndex = 0;
     const speed = isEventScene ? 50 : 30;
 
-    const typingInterval = setInterval(() => {
+    typingTimerRef.current = setInterval(() => {
       charIndex++;
       setDisplayedText(fullText.slice(0, charIndex));
       if (charIndex >= fullText.length) {
-        clearInterval(typingInterval);
+        clearInterval(typingTimerRef.current);
         setIsTextFullyDisplayed(true);
       }
     }, speed);
 
-    return () => clearInterval(typingInterval);
-  }, [scene, isEventScene]);
+    return () => clearInterval(typingTimerRef.current);
+  }, [scene, isEventScene, reduceMotion]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!input.trim() || isTyping || hasNextScene) return;
-    sfx.click();
     onSend(input);
     setInput("");
   };
@@ -460,16 +467,17 @@ const DialogueBox = ({
     prevAffectionRef.current = affection;
   }, [affection]);
 
-  // ━━━ 클릭 핸들러 (원본 100% 동일) ━━━
-  const handleBoxClick = () => {
-    if (activeTab === "thought") return;
+  const handleBoxClick = (event) => {
+    if (activeTab === "thought" || isTyping) return;
+    if (event?.target?.closest("button, input, select, textarea, a")) return;
 
-    if (scene?.dialogue && !isTextFullyDisplayed) {
-      setDisplayedText(scene.dialogue);
+    if (!isTextFullyDisplayed) {
+      clearInterval(typingTimerRef.current);
+      setDisplayedText(isEventScene ? (scene?.narration || "") : (scene?.dialogue || ""));
       setIsTextFullyDisplayed(true);
     } else if (hasNextScene || isEventScene) {
       sfx.pageTurn();
-      onNextScene();
+      onNextScene?.();
     }
   };
 
@@ -508,8 +516,8 @@ const DialogueBox = ({
 
 
   return (
-    <div className={`absolute bottom-0 w-full z-20 flex justify-center select-none ${mobile ? "p-3 pb-safe-4" : "p-4 pb-8"}`}>
-      <div className="w-full max-w-4xl flex flex-col gap-3">
+    <div className={`aurora-dialogue absolute bottom-0 w-full z-20 flex justify-center select-none ${mobile ? "aurora-dialogue--mobile p-3 pb-safe-4" : "p-4 pb-8"}`}>
+      <div className="aurora-dialogue-stack w-full max-w-4xl flex flex-col gap-3">
 
         {/* ═══ 상단 정보바 ═══ */}
         {mobile ? (
@@ -524,9 +532,10 @@ const DialogueBox = ({
             toggleRef={statusToggleRef}
             onOpenProfile={onOpenProfile}
             profileToggleRef={profileToggleRef}
+            onOpenStore={onOpenStore}
           />
         ) : (
-        <div className="flex justify-end items-center px-2 gap-3 relative">
+        <div className="aurora-chat-hud flex justify-end items-center px-2 gap-2 relative">
 
           {/* 부스트 모드 뱃지 */}
           <AnimatePresence>
@@ -535,16 +544,16 @@ const DialogueBox = ({
                 initial={{ opacity: 0, scale: 0.8, x: 10 }}
                 animate={{ opacity: 1, scale: 1, x: 0 }}
                 exit={{ opacity: 0, scale: 0.8, x: 10 }}
-                className="flex items-center gap-2 bg-black/60 backdrop-blur-md px-3.5 py-2 rounded-full border border-cyan-500/40 shadow-[0_0_15px_rgba(34,211,238,0.25)]"
+                className="aurora-chat-boost flex items-center gap-2 bg-black/60 backdrop-blur-md px-3.5 py-2 rounded-full border border-cyan-500/40 shadow-[0_0_15px_rgba(34,211,238,0.25)]"
               >
                 <motion.div animate={{ rotate: [0, 15, -15, 0] }} transition={{ duration: 2, repeat: Infinity }}>
                   <Rocket size={16} className="text-cyan-400" />
                 </motion.div>
                 <div className="flex flex-col">
-                  <span className="text-[9px] text-cyan-400 font-bold uppercase leading-none">Boost</span>
-                  <span className="text-[10px] text-cyan-200 font-bold leading-none">Pro Model</span>
+                  <span className="text-xs text-cyan-400 font-bold uppercase leading-none">Boost</span>
+                  <span className="text-xs text-cyan-200 font-bold leading-none">Pro Model</span>
                 </div>
-                {!isSubscriber && <span className="text-[9px] text-cyan-400/60 ml-0.5">x5</span>}
+                {!isSubscriber && <span className="text-xs text-cyan-400/60 ml-0.5">x5</span>}
               </motion.div>
             )}
           </AnimatePresence>
@@ -559,7 +568,7 @@ const DialogueBox = ({
               title="캐릭터 프로필"
             >
               <User size={18} className="text-amber-400/80 group-hover:text-amber-300 transition" />
-              <span className="text-[10px] text-amber-300/70 font-bold uppercase leading-none hidden sm:block">Profile</span>
+              <span className="text-xs text-lobby-tx1 font-medium leading-none hidden sm:block">프로필</span>
             </button>
           )}
 
@@ -574,7 +583,7 @@ const DialogueBox = ({
               title="캐릭터 상태창"
             >
               <Activity size={18} className="text-purple-400/80 group-hover:text-purple-300 transition" />
-              <span className="text-[10px] text-purple-300/70 font-bold uppercase leading-none hidden sm:block">Status</span>
+              <span className="text-xs text-lobby-tx1 font-medium leading-none hidden sm:block">관계</span>
             </button>
           </div>
 
@@ -589,15 +598,15 @@ const DialogueBox = ({
               className="lucid-pulse-dot w-2.5 h-2.5 rounded-full"
               style={{ background: pulse.color, boxShadow: `0 0 10px ${pulse.color}`, animationDuration: `${pulse.beatSec}s` }}
             />
-            <span className="text-[11px] font-extrabold tracking-[0.05em] text-white/80">심박 · {pulse.label}</span>
+            <span className="text-xs font-extrabold tracking-[0.05em] text-white/80">심박 · {pulse.label}</span>
           </button>
 
           {/* ━━━ [Fix #1] 에너지 표시 — freeEnergy/paidEnergy 분리 ━━━ */}
-          <div className="relative group cursor-help">
+          <div className="aurora-energy relative group cursor-help" tabIndex={0} aria-label={`에너지 ${energy}, 자연 에너지 ${displayFreeEnergy}, 충전 에너지 ${displayPaidEnergy}`}>
             <div className="flex items-center gap-3 bg-black/60 backdrop-blur-md px-4 py-2 rounded-full border border-yellow-500/40 shadow-[0_0_15px_rgba(234,179,8,0.3)] hover:bg-black/80 transition-colors">
               <Zap size={20} className={`text-yellow-400 ${energy < 20 ? 'animate-pulse' : ''}`} fill={energy > 0 ? "currentColor" : "none"} />
               <div className="flex flex-col w-12">
-                <span className="text-[10px] text-yellow-400 font-bold uppercase leading-none mb-0.5">에너지</span>
+                <span className="text-xs text-yellow-400 font-bold uppercase leading-none mb-0.5">에너지</span>
                 <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden flex">
                   {/* Free 에너지 바 */}
                   <div
@@ -617,7 +626,7 @@ const DialogueBox = ({
               <div className="flex items-center gap-1 ml-1">
                 <span className="text-sm font-bold text-white tabular-nums">{energy}</span>
                 {hasPaidEnergy && (
-                  <span className="text-[9px] text-emerald-400/70 font-bold tabular-nums">
+                  <span className="text-xs text-emerald-400/70 font-bold tabular-nums">
                     +{displayPaidEnergy}
                   </span>
                 )}
@@ -635,26 +644,26 @@ const DialogueBox = ({
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-1.5">
                       <div className="w-2.5 h-2.5 rounded-full bg-yellow-400" />
-                      <span className="text-[11px] text-gray-400">자연 에너지</span>
+                      <span className="text-xs text-gray-400">자연 에너지</span>
                     </div>
-                    <span className="text-[11px] text-yellow-300 font-bold tabular-nums">{displayFreeEnergy} / {freeEnergyMax}</span>
+                    <span className="text-xs text-yellow-300 font-bold tabular-nums">{displayFreeEnergy} / {freeEnergyMax}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-1.5">
                       <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400" />
-                      <span className="text-[11px] text-gray-400">충전 에너지</span>
+                      <span className="text-xs text-gray-400">충전 에너지</span>
                     </div>
-                    <span className="text-[11px] text-emerald-300 font-bold tabular-nums">{displayPaidEnergy}</span>
+                    <span className="text-xs text-emerald-300 font-bold tabular-nums">{displayPaidEnergy}</span>
                   </div>
                   <div className="h-px bg-white/5 my-1" />
                   <div className="flex justify-between items-center">
-                    <span className="text-[11px] text-gray-500">소모 우선순위</span>
-                    <span className="text-[10px] text-white/40">자연 → 충전</span>
+                    <span className="text-xs text-gray-500">소모 우선순위</span>
+                    <span className="text-xs text-white/40">자연 → 충전</span>
                   </div>
                 </div>
               )}
 
-              <div className="space-y-1.5 text-[11px]">
+              <div className="space-y-1.5 text-xs">
                 <div className="flex justify-between">
                   <span className="text-gray-500">자유 모드</span>
                   <span className="text-yellow-300 font-bold">{boostMode && !isSubscriber ? "5" : "1"} 에너지</span>
@@ -680,7 +689,7 @@ const DialogueBox = ({
                 </div>
               </div>
               {isSubscriber && (
-                <div className="mt-2 px-2 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-[10px]">
+                <div className="mt-2 px-2 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs">
                   ✨ 루시드 패스: 회복 2배 + 최대 보유량 증가
                 </div>
               )}
@@ -694,21 +703,21 @@ const DialogueBox = ({
           onClick={handleBoxClick}
           initial={{ y: 50, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
-          className={`relative border rounded-[2rem] p-6 pt-10 shadow-2xl transition-all ${
+          className={`aurora-dialogue-panel relative ${
             activeTab === "dialogue" && (hasNextScene || (!isTextFullyDisplayed && (scene?.dialogue || isEventScene))) ? 'cursor-pointer' : ''
           } ${
             isEventScene
-              ? 'bg-gradient-to-br from-indigo-900/90 to-purple-900/90 border-indigo-400/50 backdrop-blur-xl ring-1 ring-purple-500/30'
+              ? 'aurora-dialogue-panel--event'
               : isDirectorOngoing
-                ? 'bg-gradient-to-br from-amber-950/60 to-orange-950/60 border-amber-500/30 backdrop-blur-xl ring-1 ring-amber-500/20'
+                ? 'aurora-dialogue-panel--director'
               : activeTab === "thought"
-                ? 'bg-gradient-to-br from-purple-950/70 to-indigo-950/70 border-purple-500/20 backdrop-blur-xl'
-                : 'bg-black/50 border-white/10 backdrop-blur-xl hover:bg-black/60'
+                ? 'aurora-dialogue-panel--thought'
+                : ''
           }`}
         >
           {/* ═══ [Fix #5] 네임 플레이트 + 뱃지 영역 — 한 줄로 통합 ═══ */}
           {!isEventScene && (
-            <div className="absolute -top-5 left-8 right-8 flex items-center gap-2 z-20">
+            <div className="aurora-dialogue-header">
               {/* 화자 이름표 */}
               <AnimatePresence mode="wait">
                 <motion.div
@@ -717,10 +726,10 @@ const DialogueBox = ({
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 4, scale: 0.95 }}
                   transition={{ duration: 0.3 }}
-                  className={`font-bold px-8 py-2 rounded-2xl shadow-lg border transform -rotate-1 shrink-0 ${
+                  className={`aurora-dialogue-speaker ${
                     isNpcSpeaking
-                      ? 'bg-gradient-to-r from-red-800 to-rose-900 text-red-200 border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.2)]'
-                      : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white border-white/20'
+                      ? 'aurora-dialogue-speaker--guest'
+                      : ''
                   }`}
                 >
                   {isNpcSpeaking && <span className="mr-1.5 text-sm">👤</span>}
@@ -745,7 +754,7 @@ const DialogueBox = ({
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className="mb-3 text-sm text-pink-200/90 font-medium italic flex items-center gap-2"
+                className="aurora-dialogue-narration mb-3 flex items-center gap-2"
               >
                 <span>* {scene.narration}</span>
               </motion.div>
@@ -758,8 +767,8 @@ const DialogueBox = ({
               <motion.div
                 key="dialogue-view"
                 initial={false}
-                className={`min-h-[3.5rem] leading-relaxed font-medium drop-shadow-md tracking-wide flex flex-col justify-center ${
-                  isEventScene ? 'items-center text-center py-4' : `text-white/95 ${mobile ? 'text-xl' : 'text-lg'}`
+                className={`aurora-dialogue-copy min-h-[3.5rem] flex flex-col justify-center ${
+                  isEventScene ? 'items-center text-center py-4' : 'text-lobby-tx0'
                 }`}
               >
                 {isEventScene && (
@@ -771,7 +780,7 @@ const DialogueBox = ({
                 {isTyping ? (
                   storyV2Mode && !isEventScene && !isDirectorOngoing ? (
                     /* [UX] V2 디렉터 시점 — 캐릭터 비종속 시네마틱 로더 (장면을 그리는 중) */
-                    <div className="flex flex-col gap-2.5 items-center justify-center h-full mt-2">
+                    <div role="status" className="flex flex-col gap-2.5 items-center justify-center h-full mt-2">
                       <div className="relative w-40 h-[3px] rounded-full overflow-hidden bg-white/10">
                         <motion.div
                           className="absolute inset-y-0 w-1/3 rounded-full bg-gradient-to-r from-transparent via-indigo-300/80 to-transparent"
@@ -779,16 +788,16 @@ const DialogueBox = ({
                           transition={{ duration: 1.4, ease: "easeInOut", repeat: Infinity }}
                         />
                       </div>
-                      <span className="text-sm text-indigo-200/60 font-serif italic tracking-wide">
+                      <span className="text-sm text-lobby-tx1 font-serif italic tracking-wide">
                         장면을 그리는 중…
                       </span>
                     </div>
                   ) : (
-                    <div className="flex gap-1.5 items-center justify-center h-full opacity-70 mt-2">
+                    <div role="status" className="flex gap-1.5 items-center justify-center h-full opacity-70 mt-2">
                       <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce [animation-delay:-0.3s]" />
                       <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce [animation-delay:-0.15s]" />
                       <div className="w-1.5 h-1.5 bg-indigo-300 rounded-full animate-bounce" />
-                      <span className="ml-2 text-sm text-indigo-200/50 font-light">
+                      <span className="ml-2 text-sm text-lobby-tx1 font-light">
                         {isDirectorOngoing ? "상황이 전개되고 있습니다..." : isEventScene ? "운명의 주사위를 굴리는 중..." : "생각 중..."}
                       </span>
                     </div>
@@ -799,7 +808,7 @@ const DialogueBox = ({
                       {displayedText}
                     </span>
                     {!scene?.dialogue && !scene?.narration && !isTyping && (
-                      <span className="text-white/30 text-sm">　대화를 시작해보세요...</span>
+                      <span className="text-lobby-tx1 text-sm">첫마디를 건네 보세요.</span>
                     )}
                   </>
                 )}
@@ -813,15 +822,15 @@ const DialogueBox = ({
             )}
           </AnimatePresence>
 
-          {/* 다음 씬 아이콘 */}
-          {activeTab === "dialogue" && hasNextScene && isTextFullyDisplayed && (
-            <motion.div
-              animate={{ x: [0, 5, 0] }}
-              transition={{ repeat: Infinity, duration: 1 }}
-              className="absolute bottom-6 right-6 text-white/50"
+          {/* 빠른 읽기와 다음 대사를 키보드로도 조작할 수 있는 명시적 버튼. */}
+          {activeTab === "dialogue" && !isTyping && (!isTextFullyDisplayed || hasNextScene) && (
+            <motion.button
+              type="button"
+              onClick={(event) => { event.stopPropagation(); handleBoxClick(); }}
+              className="aurora-dialogue-next"
             >
-              <ChevronRight size={24} />
-            </motion.div>
+              {isTextFullyDisplayed ? "다음 대사" : "한 번에 읽기"} <ChevronRight size={17} />
+            </motion.button>
           )}
 
           {/* [Phase 5.5-Fix] final_result 대기 중 인디케이터 */}
@@ -853,7 +862,7 @@ const DialogueBox = ({
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={onGenerateIllustration}
-                className="w-full py-3 px-4 rounded-xl text-sm font-medium
+                className="aurora-chat-illustration w-full py-3 px-4 rounded-xl text-sm font-medium
                   bg-gradient-to-r from-purple-600/20 to-pink-600/20
                   border border-purple-500/30 text-purple-200
                   hover:from-purple-600/30 hover:to-pink-600/30
@@ -897,13 +906,12 @@ const DialogueBox = ({
                               animate={{ opacity: 1, x: 0 }}
                               transition={{ delay: i * 0.05 }}
                               onClick={() => {
-                                sfx.click();
                                 setShowOptionsPanel(false);
                                 onSelectDialogueOption?.(opt);
                               }}
-                              className="group relative w-full text-left pl-8 pr-9 py-2.5 bg-gradient-to-r from-amber-500/12 to-amber-500/5 hover:from-amber-500/22 hover:to-amber-500/10 border border-amber-400/30 hover:border-amber-400/55 rounded-lg transition-all duration-200"
+                              className="aurora-story-choice group relative w-full text-left pl-10 pr-9 py-3 rounded-xl transition-colors duration-200"
                             >
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[11px] text-amber-300/45 font-mono">{i + 1}</span>
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-amber-300/45 font-mono">{i + 1}</span>
                               <span className="text-sm text-amber-100 leading-snug">{opt}</span>
                               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-300/55 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200">→</span>
                             </motion.button>
@@ -915,12 +923,13 @@ const DialogueBox = ({
 
                   {/* 버튼 행: [디렉터의 제안 토글] + [다음 씬 / 시간 진전 / 장소 이동] */}
                   {(dialogueOptions.length > 0 || showStoryActions) && (
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="aurora-chat-actions flex flex-wrap items-center gap-2">
                       {/* 디렉터 제안 토글 — dialogueOptions 있을 때만 */}
                       {dialogueOptions.length > 0 && (
                         <button
                           type="button"
-                          onClick={() => { sfx.click(); setShowOptionsPanel((v) => !v); }}
+                          aria-expanded={showOptionsPanel}
+                          onClick={() => setShowOptionsPanel((v) => !v)}
                           className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition
                             ${showOptionsPanel
                               ? 'bg-amber-500/25 border-amber-400/55 text-amber-100'
@@ -936,15 +945,15 @@ const DialogueBox = ({
                       {/* 액션 바 — topicConcluded(showStoryActions) 시 */}
                       {showStoryActions && (
                         <>
-                          <button type="button" onClick={() => { sfx.click(); onStoryAction?.("NEXT_SCENE"); }}
+                          <button type="button" disabled={isTyping} onClick={() => onStoryAction?.("NEXT_SCENE")}
                             className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-white/80 hover:bg-white/10 hover:border-white/20 text-xs font-medium transition">
                             <FastForward size={13} /> 다음 씬
                           </button>
-                          <button type="button" onClick={() => { sfx.click(); onStoryAction?.("TIME_ADVANCE"); }}
+                          <button type="button" disabled={isTyping} onClick={() => onStoryAction?.("TIME_ADVANCE")}
                             className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-white/80 hover:bg-white/10 hover:border-white/20 text-xs font-medium transition">
                             <Clock size={13} /> 시간 진전
                           </button>
-                          <button type="button" onClick={() => { sfx.click(); onStoryAction?.("MOVE"); }}
+                          <button type="button" disabled={isTyping} onClick={() => onStoryAction?.("MOVE")}
                             className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 bg-white/5 text-white/80 hover:bg-white/10 hover:border-white/20 text-xs font-medium transition">
                             <MapPin size={13} /> 장소 이동
                           </button>
@@ -957,7 +966,7 @@ const DialogueBox = ({
 
               {/* [v3] 투명 디렉터: 이벤트 중에도 일반 입력 폼만 표시 */}
               {/* AWAY 이벤트: 유저가 채팅을 입력하면 자연스럽게 개입 */}
-                <form onSubmit={handleSubmit} className="flex gap-3">
+                <form onSubmit={handleSubmit} className="aurora-chat-composer flex gap-2.5">
                   {/* ── "다음 씬" 디렉터 호출 버튼 ── */}
 
                   <AnimatePresence>
@@ -971,6 +980,7 @@ const DialogueBox = ({
                       >
                         <button
                           type="button"
+                          aria-label={directorLoading ? "다음 씬 준비 중" : "다음 씬 요청"}
                           onClick={onRequestDirector}
                           disabled={directorLoading}
                           className={`h-full px-4 rounded-xl border transition flex items-center justify-center
@@ -1005,18 +1015,19 @@ const DialogueBox = ({
                     )}
                   </AnimatePresence>
  
-                  <div className="flex-1 relative">
+                  <div className="aurora-chat-input-wrap flex-1 min-w-0 relative">
                     {/* [Feature #1] 유저 디렉터 모드 — *로 시작하면 상황 설명 입력 모드 */}
                     <input type="text" value={input} onChange={handleInputChange}
+                      aria-label="대화 입력"
                       maxLength={MAX_MESSAGE_LENGTH}
-                      placeholder={noEnergy ? "에너지가 부족합니다" : lowEnergy ? `에너지가 부족합니다 (필요: ${energyCost})` : "대화를 입력하세요... ( * 로 상황 설명 )"}
+                      placeholder={noEnergy ? "에너지가 부족합니다" : lowEnergy ? `에너지가 부족합니다 (필요: ${energyCost})` : "어떤 이야기를 나눌까요?"}
                       disabled={isTyping || noEnergy || lowEnergy}
                       style={isActionMode ? {
                         fontStyle: 'italic',
                         color: 'rgba(196, 181, 253, 0.85)',
                         letterSpacing: '0.02em',
                       } : undefined}
-                      className={`w-full bg-white/5 border rounded-xl px-5 py-3.5 pr-10 text-white placeholder-white/40 focus:bg-white/10 transition duration-300 shadow-inner
+                      className={`aurora-chat-input w-full border rounded-xl px-4 py-3.5 pr-12 text-lobby-tx0 transition-colors duration-200
                         ${isActionMode ? 'border-indigo-400/40 focus:border-indigo-400/70 bg-indigo-950/10' : ''}
                         ${hasActionText && !isActionMode ? 'border-indigo-400/20 focus:border-indigo-400/40' : ''}
                         ${input.length >= MAX_MESSAGE_LENGTH ? 'border-rose-500/60 focus:border-rose-500/80' : !isActionMode && !hasActionText ? 'border-white/10 focus:border-pink-500/50' : ''}`}
@@ -1024,39 +1035,41 @@ const DialogueBox = ({
 
                     {/* [Feature #1] 상황 설명 도움말 툴팁 */}
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 group/help">
-                      <div className="w-5 h-5 rounded-full bg-white/10 border border-white/20 flex items-center justify-center cursor-help hover:bg-indigo-500/30 hover:border-indigo-400/50 transition">
-                        <span className="text-[11px] text-white/60 group-hover/help:text-white font-bold">?</span>
-                      </div>
-                      <div className="absolute right-0 bottom-full mb-2 w-64 bg-black/95 border border-indigo-500/30 p-3 rounded-xl text-[11px] text-gray-300 opacity-0 group-hover/help:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
+                      <button type="button" aria-label="상황 설명 입력 도움말" className="aurora-chat-help flex items-center justify-center cursor-help transition">
+                        <span className="text-xs text-white/60 group-hover/help:text-white font-bold">?</span>
+                      </button>
+                      <div className="absolute right-0 bottom-full mb-2 w-64 bg-black/95 border border-indigo-500/30 p-3 rounded-xl text-xs text-gray-300 opacity-0 group-hover/help:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
                         <p className="font-bold text-indigo-300 mb-1.5 flex items-center gap-1.5">
                           <span>✨</span> 상황 설명 입력
                         </p>
                         <p className="leading-relaxed text-gray-400 mb-1.5">
                           메시지 앞에 <span className="text-indigo-300 font-mono">*</span>를 붙이면 상황 설명이 됩니다.
                         </p>
-                        <p className="text-gray-500 italic text-[10px]">
+                        <p className="text-gray-500 italic text-xs">
                           예: <span className="text-indigo-300">*</span>창밖을 바라보며<span className="text-indigo-300">*</span> 오늘 날씨 좋네요
                         </p>
                       </div>
                     </div>
 
                     {input.length > 0 && (
-                      <span className={`absolute right-10 bottom-1 text-[10px] font-medium transition-colors
-                        ${input.length >= MAX_MESSAGE_LENGTH ? 'text-rose-400' : input.length >= MAX_MESSAGE_LENGTH * 0.8 ? 'text-amber-400/60' : 'text-white/20'}`}>
+                      <span className={`absolute right-10 bottom-1 text-xs font-medium transition-colors
+                        ${input.length >= MAX_MESSAGE_LENGTH ? 'text-rose-400' : input.length >= MAX_MESSAGE_LENGTH * 0.8 ? 'text-amber-400/60' : 'text-lobby-tx2'}`}>
                         {input.length}/{MAX_MESSAGE_LENGTH}
                       </span>
                     )}
                   </div>
  
                   {noEnergy || lowEnergy ? (
-                    <motion.button type="button" onClick={() => { sfx.click(); onOpenStore?.("energy"); }}
-                      className="bg-gradient-to-br from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white px-4 py-3.5 rounded-xl transition shadow-lg flex items-center gap-2 font-medium text-sm whitespace-nowrap"
+                    <motion.button type="button" onClick={() => onOpenStore?.("energy")}
+                      aria-label="에너지 충전하기"
+                      className="aurora-chat-charge px-4 py-3.5 rounded-xl transition flex items-center gap-2 font-medium text-sm whitespace-nowrap"
                       whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
                       <ShoppingBag size={18} /><span className="hidden sm:inline">충전하기</span>
                     </motion.button>
                   ) : (
                     <button type="submit" disabled={isTyping || !input.trim()}
-                      className="bg-gradient-to-br from-pink-500 to-rose-600 hover:from-pink-400 hover:to-rose-500 text-white p-3.5 rounded-xl transition shadow-lg disabled:opacity-50 disabled:grayscale transform active:scale-95">
+                      aria-label="대화 보내기"
+                      className="aurora-chat-send p-3.5 rounded-xl transition transform active:scale-95">
                       <Send size={22} />
                     </button>
                   )}

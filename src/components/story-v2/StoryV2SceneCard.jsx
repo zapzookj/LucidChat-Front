@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
+import "../../styles/aurora-chat.css";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Chunk C-1] V2 씬 카드 — V1 DialogueBox typewriter 패턴 이식
@@ -131,7 +132,7 @@ export default function StoryV2SceneCard({ scene, faded = false }) {
       animate={{ opacity: faded ? 0.4 : 1, y: 0 }}
       transition={{ duration: 0.4 }}
       onClick={handleSkipTyping}
-      className={`mb-5 ${faded ? "" : "scale-100"} ${
+      className={`aurora-story-scene mb-5 ${faded ? "" : "scale-100"} ${
         !faded && isTyping ? "cursor-pointer" : ""
       }`}
     >

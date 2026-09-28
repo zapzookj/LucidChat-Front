@@ -1,5 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, MapPin, Clock, Forward, MessageCircle } from "lucide-react";
+import "../../styles/aurora-chat.css";
 
 /**
  * Story V2 하단 영역 — 입력 + 3개 액션 버튼 + LLM 자율 dialogue_options.
@@ -27,7 +28,7 @@ export default function StoryV2BottomBar({
   dialogueOptions, onOptionClick,
 }) {
   return (
-    <div className="fixed bottom-0 inset-x-0 z-30 px-4 sm:px-6 pb-4 pt-3 bg-gradient-to-t from-black via-black/90 to-transparent">
+    <div className="fixed bottom-0 inset-x-0 z-30 px-4 sm:px-6 pb-safe-4 pt-3 bg-gradient-to-t from-lobby-bg via-lobby-bg/90 to-transparent">
       <div className="max-w-4xl mx-auto space-y-2.5">
         {/* ═══ dialogue_options (LLM 자율 — 노출 시) ═══ */}
         <AnimatePresence>
@@ -41,7 +42,7 @@ export default function StoryV2BottomBar({
             >
               <div className="flex items-center gap-2 mb-2 ml-1">
                 <MessageCircle size={11} className="text-amber-300" />
-                <span className="text-[10px] uppercase tracking-wider text-amber-300/70 font-medium">
+                <span className="text-xs uppercase tracking-wider text-lobby-accent font-medium">
                   감독의 선택지
                 </span>
               </div>
@@ -54,16 +55,16 @@ export default function StoryV2BottomBar({
                     transition={{ delay: i * 0.08, duration: 0.3 }}
                     onClick={() => onOptionClick(opt)}
                     disabled={isStreaming}
-                    className="group relative w-full text-left px-4 py-2.5 bg-gradient-to-r from-amber-500/10 to-amber-500/5 hover:from-amber-500/20 hover:to-amber-500/10 border border-amber-400/30 hover:border-amber-400/60 rounded-lg disabled:opacity-40 transition-all duration-200"
+                    className="aurora-story-choice group relative w-full text-left px-4 py-3 rounded-xl disabled:opacity-40 transition-colors duration-200"
                   >
                     {/* 인덱스 번호 — 키보드 단축 힌트 (향후 1~9 키바인딩 가능) */}
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-amber-300/40 font-mono opacity-0 group-hover:opacity-100 transition">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-lobby-tx2 font-mono opacity-0 group-hover:opacity-100 transition">
                       {i + 1}
                     </span>
                     {/* 옵션 텍스트 */}
                     <span className="ml-3 text-sm text-amber-100 leading-snug">{opt}</span>
                     {/* 호버 시 우측 화살표 — 슬라이드 인 */}
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-amber-300/60 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200">
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-lobby-accent opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-200">
                       →
                     </span>
                   </motion.button>
@@ -90,6 +91,7 @@ export default function StoryV2BottomBar({
         <div className="flex gap-2">
           <input
             type="text"
+            aria-label="행동 또는 대사 입력"
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             onKeyDown={(e) => {
@@ -100,12 +102,12 @@ export default function StoryV2BottomBar({
             }}
             disabled={isStreaming}
             placeholder={isStreaming ? "응답 중..." : "행동/대사 입력..."}
-            className="flex-1 bg-stone-900/80 backdrop-blur border border-stone-700 rounded-full px-4 py-2.5 text-white placeholder:text-stone-500 focus:outline-none focus:border-amber-400 disabled:opacity-50"
+            className="flex-1 min-w-0 min-h-[52px] bg-lobby-surface/95 backdrop-blur border border-lobby-accent/25 rounded-xl px-4 py-3 text-lobby-tx0 placeholder:text-lobby-tx2 focus:outline-none focus:border-lobby-accent disabled:opacity-50"
           />
           <button
             onClick={onSendMessage}
             disabled={isStreaming || !inputMessage.trim()}
-            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-medium rounded-full disabled:opacity-30 transition flex items-center"
+            className="aurora-chat-send px-4 py-3 rounded-xl transition flex items-center"
             aria-label="전송"
           >
             <Send size={16} />
@@ -121,7 +123,7 @@ function ActionButton({ children, onClick, disabled }) {
     <button
       onClick={onClick}
       disabled={disabled}
-      className="flex-1 px-3 py-2 bg-stone-800/80 hover:bg-stone-700 border border-stone-600 rounded transition disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
+      className="aurora-chat-action flex-1 px-3 py-2 transition disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
     >
       {children}
     </button>

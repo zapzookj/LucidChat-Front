@@ -1,0 +1,161 @@
+/* AURORA PAVILION — dialogue is the reading surface; controls stay in the margin.
+   Scoped to these components so world art and character palette remain independent. */
+.aurora-dialogue {
+  color: #f5f3fc;
+  isolation: isolate;
+}
+.aurora-dialogue::before {
+  content: "";
+  position: absolute;
+  inset: -5rem 0 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(0deg, rgb(14 18 31 / 48%), transparent 95%);
+}
+.aurora-dialogue .aurora-dialogue-stack { gap: 12px; }
+.aurora-dialogue-panel {
+  padding: 24px 28px;
+  border: 1px solid rgb(210 195 250 / 24%);
+  border-radius: 26px;
+  background: linear-gradient(125deg, rgb(34 40 60 / 94%), rgb(23 29 46 / 94%));
+  box-shadow: 0 22px 68px rgb(6 10 22 / 32%), inset 0 1px rgb(255 255 255 / 7%);
+  backdrop-filter: blur(22px) saturate(1.1);
+  max-height: min(68dvh, 640px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(210 195 250 / 24%) transparent;
+  overscroll-behavior: contain;
+}
+.aurora-dialogue-panel--event {
+  background: linear-gradient(125deg, rgb(43 42 68 / 96%), rgb(27 43 55 / 96%));
+  border-color: rgb(210 195 250 / 38%);
+}
+.aurora-dialogue-panel--director { border-color: rgb(219 190 144 / 32%); }
+.aurora-dialogue-panel--thought { background: linear-gradient(125deg, rgb(44 39 64 / 95%), rgb(30 34 56 / 95%)); }
+.aurora-dialogue-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 17px; }
+.aurora-dialogue-speaker { display: flex; align-items: center; gap: 10px; min-width: 0; color: #f5f3fc; font-size: 16px; font-weight: 650; line-height: 1.5; overflow-wrap: anywhere; }
+.aurora-dialogue-speaker::before { content: ""; flex-shrink: 0; width: 4px; height: 18px; border-radius: 4px; background: linear-gradient(#d2c3fa, #9cced4); }
+.aurora-dialogue-speaker--guest::before { background: #e0b6c4; }
+.aurora-dialogue-tabs { display: inline-flex; align-items: center; flex-shrink: 0; padding: 3px; border: 1px solid rgb(210 195 250 / 12%); border-radius: 14px; background: rgb(14 18 31 / 34%); }
+.aurora-dialogue-tab { min-height: 38px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border-radius: 10px; font-size: 12px; font-weight: 550; color: #b9bdd0; transition: color 180ms, background 180ms; }
+.aurora-dialogue-tab:hover { color: #f5f3fc; background: rgb(210 195 250 / 7%); }
+.aurora-dialogue-tab--active { background: rgb(210 195 250 / 15%); color: #e1d8fb; box-shadow: inset 0 1px rgb(255 255 255 / 7%); }
+.aurora-dialogue-narration { color: #b9bdd0; font-size: 14px; font-style: italic; line-height: 1.8; overflow-wrap: anywhere; }
+.aurora-dialogue-copy { font-size: 18px; font-weight: 450; line-height: 1.85; letter-spacing: -.015em; overflow-wrap: anywhere; }
+.aurora-dialogue-next { min-height: 44px; margin: 12px 0 -8px auto; display: flex; align-items: center; gap: 6px; padding: 0 4px 0 12px; color: #d2c3fa; font-size: 12px; font-weight: 550; transition: color 180ms; }
+.aurora-dialogue-next:hover { color: #fff; }
+.aurora-chat-hud { flex-wrap: wrap; }
+.aurora-dialogue .aurora-chat-hud > button,
+.aurora-dialogue .aurora-chat-hud > div > button,
+.aurora-dialogue .aurora-chat-hud > .aurora-chat-boost,
+.aurora-dialogue .aurora-energy > div:first-child,
+.aurora-dialogue .aurora-chat-hud > span {
+  min-height: 44px;
+  border: 1px solid rgb(210 195 250 / 20%);
+  background: rgb(25 32 50 / 89%);
+  color: #d2c3fa;
+  box-shadow: inset 0 1px rgb(255 255 255 / 5%);
+  backdrop-filter: blur(12px);
+}
+.aurora-dialogue .aurora-chat-hud > button:hover,
+.aurora-dialogue .aurora-chat-hud > div > button:hover { background: rgb(42 49 73 / 96%); border-color: rgb(210 195 250 / 42%); }
+.aurora-dialogue .aurora-chat-hud--mobile > button { min-width: 44px; }
+.aurora-dialogue .aurora-chat-hud span[class*="text-[9px]"],
+.aurora-dialogue .aurora-chat-hud span[class*="text-[10px]"],
+.aurora-dialogue .aurora-chat-hud span[class*="text-[11px]"] { font-size: 12px; line-height: 1.2; }
+.aurora-energy:focus > div:last-child,
+.aurora-chat-input-wrap:focus-within .group\/help:focus-within > div:last-child { opacity: 1; }
+.aurora-dialogue .aurora-chat-composer { border-top: 1px solid rgb(210 195 250 / 12%); padding-top: 17px; }
+.aurora-dialogue .aurora-chat-input { min-height: 54px; font-size: 15px; line-height: 24px; background: rgb(12 18 33 / 43%); border-color: rgb(210 195 250 / 20%); box-shadow: inset 0 1px 4px rgb(6 10 22 / 8%); }
+.aurora-chat-input::placeholder { color: #a1a9c1; }
+.aurora-dialogue .aurora-chat-input:focus { outline: 0; border-color: #c7b5ef; background: rgb(28 34 54 / 90%); box-shadow: 0 0 0 3px rgb(210 195 250 / 10%); }
+.aurora-dialogue .aurora-chat-input:disabled { color: #b9bdd0; opacity: .75; cursor: not-allowed; }
+.aurora-chat-help { width: 34px; height: 44px; color: #b9bdd0; border-radius: 9px; }
+.aurora-chat-help:hover { background: rgb(210 195 250 / 8%); }
+.aurora-chat-send { min-width: 54px; min-height: 54px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(130deg, #ddd0fb, #bba7e9); color: #27223b; box-shadow: 0 5px 20px rgb(163 140 212 / 16%), inset 0 1px rgb(255 255 255 / 35%); }
+.aurora-chat-send:hover:not(:disabled) { filter: brightness(1.08); }
+.aurora-chat-send:disabled { background: #353d56; color: #a1a9c1; box-shadow: none; cursor: not-allowed; }
+.aurora-chat-charge { min-width: 54px; min-height: 54px; flex-shrink: 0; color: #272337; background: #ddc598; }
+.aurora-dialogue .aurora-chat-actions > button { min-height: 44px; border-radius: 12px; color: #ded8ed; background: rgb(210 195 250 / 6%); border-color: rgb(210 195 250 / 19%); }
+.aurora-dialogue .aurora-chat-actions > button[aria-expanded="true"] { color: #e7dffd; background: rgb(210 195 250 / 15%); border-color: rgb(210 195 250 / 35%); }
+.aurora-dialogue .aurora-chat-illustration { margin-top: 16px; color: #d8d9ef; border-color: rgb(156 206 212 / 25%); background: linear-gradient(110deg, rgb(156 206 212 / 9%), rgb(210 195 250 / 9%)); box-shadow: none; }
+.aurora-story-choice { min-height: 46px; color: #e2dbee; background: rgb(210 195 250 / 8%); border: 1px solid rgb(210 195 250 / 22%); }
+.aurora-story-choice:hover:not(:disabled) { background: rgb(210 195 250 / 15%); border-color: rgb(210 195 250 / 42%); }
+.aurora-story-choice > span { color: inherit; }
+.aurora-story-choice > span:first-child { color: #bcb2d5; }
+.aurora-story-choice > span:last-child { color: #d2c3fa; }
+
+/* Auxiliary surfaces share the same light source as the conversation. */
+.aurora-sheet, .aurora-drawer, .aurora-status-surface, .aurora-story-surface {
+  color: #f5f3fc;
+  border-color: rgb(210 195 250 / 22%);
+  background: linear-gradient(145deg, rgb(38 45 66 / 98%), rgb(23 30 47 / 98%));
+  box-shadow: 0 18px 72px rgb(4 8 21 / 38%), inset 0 1px rgb(255 255 255 / 6%);
+  backdrop-filter: blur(20px);
+}
+.aurora-sheet { border-radius: 28px 28px 0 0; }
+.aurora-sheet-header { min-height: 64px; border-bottom: 1px solid rgb(210 195 250 / 12%); margin-bottom: 16px; }
+.aurora-sheet-content { overscroll-behavior: contain; }
+.aurora-status-surface { border-radius: 24px; }
+.aurora-status-body > div { padding: 20px; border-color: rgb(210 195 250 / 11%); }
+.aurora-status-body > div:first-child { padding-right: 64px; min-height: 74px; display: flex; align-items: center; }
+.aurora-status-body > div:first-child > div { flex-wrap: wrap; }
+.aurora-status-body > div:first-child > div > span:first-child { font-size: 16px; }
+.aurora-status-body > div:first-child > div > span:last-child { margin-left: 0; }
+.aurora-status-body summary { min-height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border: 1px solid rgb(210 195 250 / 14%); border-radius: 12px; background: rgb(210 195 250 / 5%); }
+.aurora-status-body summary::after { content: "+"; color: #d2c3fa; font-size: 18px; }
+.aurora-status-body details[open] summary::after { content: "−"; }
+.aurora-status-body .aurora-status-axis { padding: 15px 0; }
+.aurora-status-body .aurora-status-axis p { color: #d4d6e4; font-size: 14px; }
+.aurora-status-title { color: #b9bdd0; font-size: 12px; font-weight: 600; letter-spacing: .08em; }
+.aurora-story-surface { border: 1px solid rgb(210 195 250 / 22%); border-radius: 24px; }
+.aurora-story-surface h3 { color: #e2d6fc; }
+.aurora-story-surface > div:first-child { border-color: rgb(210 195 250 / 12%); }
+.aurora-story-option { min-height: 52px; padding: 16px; border: 1px solid rgb(210 195 250 / 13%); border-radius: 14px; background: rgb(210 195 250 / 5%); transition: background 180ms, border-color 180ms; }
+.aurora-story-option:hover:not(:disabled) { background: rgb(210 195 250 / 12%); border-color: rgb(210 195 250 / 30%); }
+.aurora-story-option:disabled { opacity: 1; border-color: rgb(156 206 212 / 32%); background: rgb(156 206 212 / 9%); }
+.aurora-story-option p, .aurora-story-option div:last-child { line-height: 1.65; }
+.aurora-story-toast { background: linear-gradient(115deg, rgb(46 45 67 / 97%), rgb(30 46 59 / 97%)); border: 1px solid rgb(210 195 250 / 32%); }
+.aurora-story-toast:hover { background: #343a53; }
+.aurora-story-indicator { background: rgb(26 33 51 / 88%); border: 1px solid rgb(210 195 250 / 23%); border-radius: 18px; }
+.aurora-story-room { width: 100%; text-align: left; color: #f5f3fc; border: 1px solid rgb(210 195 250 / 18%); background: linear-gradient(115deg, rgb(42 49 73 / 76%), rgb(32 42 58 / 70%)); }
+.aurora-story-room:hover { border-color: rgb(210 195 250 / 38%); background: #2a3149; }
+.aurora-story-header { background: linear-gradient(180deg, rgb(20 26 43 / 92%), rgb(20 26 43 / 42%), transparent); padding-bottom: 25px; }
+.aurora-story-header button { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; }
+.aurora-story-header button:hover { background: rgb(210 195 250 / 12%); }
+.aurora-story-scene { border-left: 2px solid rgb(210 195 250 / 30%); padding: 6px 0 6px 20px; }
+.aurora-story-scene > div { color: #d2c3fa; font-weight: 600; margin-bottom: 10px; }
+.aurora-story-scene p { line-height: 1.9; }
+.aurora-chat-action { min-height: 44px; border-radius: 12px; color: #ded8ed; background: rgb(36 44 63 / 93%); border: 1px solid rgb(210 195 250 / 22%); }
+.aurora-chat-action:hover:not(:disabled) { background: #333c56; border-color: rgb(210 195 250 / 38%); }
+.aurora-chat-action:disabled { opacity: .45; }
+.aurora-icon-close { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; color: #b9bdd0; }
+.aurora-icon-close:hover { background: rgb(210 195 250 / 10%); color: #f5f3fc; }
+:is(.aurora-dialogue, .aurora-sheet, .aurora-drawer, .aurora-status-surface, .aurora-story-surface, .aurora-story-header) :is(button, input, summary, [tabindex]):focus-visible,
+:is(.aurora-story-choice, .aurora-story-room, .aurora-story-toast, .aurora-chat-action):focus-visible { outline: 2px solid #d2c3fa; outline-offset: 3px; }
+@media (max-width: 767px) {
+  .aurora-dialogue-panel { padding: 18px; border-radius: 22px; max-height: 64dvh; }
+  .aurora-dialogue-copy { font-size: 16px; line-height: 1.8; }
+  .aurora-dialogue-header { margin-bottom: 12px; gap: 8px; }
+  .aurora-dialogue-speaker { font-size: 15px; }
+  .aurora-dialogue-narration { font-size: 13px; line-height: 1.75; }
+  .aurora-dialogue-tab { min-height: 44px; padding-inline: 9px; }
+  .aurora-dialogue .aurora-chat-input { min-height: 52px; font-size: 16px; padding-left: 12px; }
+  .aurora-chat-send, .aurora-chat-charge { min-width: 52px; min-height: 52px; }
+  .aurora-dialogue .aurora-chat-actions { gap: 6px; }
+  .aurora-dialogue .aurora-chat-actions > button { padding-inline: 10px; }
+  .aurora-status-body > div { padding: 18px 0; }
+  .aurora-status-body > div:first-child { padding-right: 0; min-height: 60px; }
+  .aurora-status-body > div:first-child > div > span:last-child { margin-left: auto; }
+}
+@media (max-width: 380px) {
+  .aurora-dialogue-panel { padding: 15px; }
+  .aurora-dialogue-tabs { gap: 0; }
+  .aurora-dialogue-tab { padding-inline: 7px; }
+  .aurora-dialogue-tab svg { display: none; }
+  .aurora-dialogue .aurora-chat-hud--mobile { gap: 5px; padding-inline: 0; }
+  .aurora-dialogue .aurora-chat-hud--mobile > button { padding-inline: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aurora-dialogue *, .aurora-story-surface *, .aurora-sheet *, .aurora-drawer * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

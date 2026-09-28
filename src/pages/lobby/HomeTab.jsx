@@ -3,6 +3,9 @@ import { useNavigate, useOutletContext } from "react-router-dom";
 import api from "../../api/axios";
 import { fetchMyTheaterSessions, fetchWorlds as fetchTheaterWorlds } from "../../api/TheaterLobbyApi";
 import CharacterProfileView from "../../components/CharacterProfileView";
+import LobbyFeature from "../../components/lobby/LobbyFeature";
+import { ArrowUpRight, Sparkles } from "lucide-react";
+import { useReducedMotion } from "framer-motion";
 import { sfx } from "../../utils/sfx";
 import { josaWaGwa } from "../../utils/josa";
 import { getPrefGender, hasAnsweredPref, sortByPreference } from "../../utils/preference";
@@ -30,18 +33,15 @@ import {
  * chime 1회만(호버/클릭 SFX 금지).
  */
 
-// grad-soft — 토큰화 불가 그라데이션(정본 --grad-soft)만 인라인 허용
-const GRAD_SOFT = "linear-gradient(135deg,rgba(196,181,253,0.14),rgba(125,211,252,0.10))";
-
 const BTN_GRAD =
-  "flex-none px-5 py-2 rounded-full text-lb-meta font-bold text-slate-900 bg-gradient-to-r from-violet-300 to-sky-300 hover:-translate-y-px hover:shadow-[0_4px_20px_rgba(167,139,250,0.35)] transition-all";
+  "aurora-button-primary flex-none";
 
 const RAIL_BTN =
-  "w-7 h-7 rounded-full border border-white/[0.09] text-lobby-tx1 text-[13px] flex items-center justify-center transition-colors hover:enabled:border-white/[0.16] hover:enabled:text-white disabled:opacity-35 disabled:cursor-default";
+  "aurora-icon-button disabled:opacity-35 disabled:cursor-default";
 
 // 피드 그리드 — 데스크톱 auto-fill 190px(1200에서 5열), <768은 2열 계약(설계 문서 §3)
 const FEED_GRID =
-  "grid grid-cols-2 gap-3 md:gap-4 md:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]";
+  "grid grid-cols-2 gap-x-3 gap-y-5 md:gap-5 md:grid-cols-[repeat(auto-fill,minmax(195px,1fr))]";
 const WORLD_GRID = "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4";
 
 /** moodKeywords 첫 1개 — 배열/콤마 문자열 양쪽 방어 */
@@ -56,6 +56,7 @@ export default function HomeTab() {
   const navigate = useNavigate();
   const { guest, user, userInfo, requireLogin, enterRoom } = useOutletContext();
   const nickname = userInfo?.nickname ?? user?.nickname ?? "";
+  const reduceMotion = useReducedMotion();
 
   // ── 데이터: 피드(추천+신작 레일 공용) / 월드 프리뷰 / 히어로(멤버 전용) ──
   const [feed, setFeed] = useState(null);           // null=로딩(오류 미발생 시), []=빈
@@ -126,12 +127,13 @@ export default function HomeTab() {
     return guest ? feed : sortByPreference(feed, getPrefGender());
   }, [feed, guest]);
   const ugcItems = useMemo(() => (feed || []).filter((i) => i.ugc), [feed]);
+  const featuredItems = useMemo(() => recommended.slice(0, 4), [recommended]);
 
   const answered = !guest && hasAnsweredPref();
   const recTitle = guest ? "지금 만나볼 수 있는 캐릭터" : "추천 캐릭터";
   const recSub = guest
     ? "처음이라면 여기서 시작해 보세요"
-    : answered ? "취향에 맞춰 순서를 정했어요" : "지금 사랑받는 캐릭터예요";
+    : answered ? "취향에 맞춰 순서를 정했어요" : "마음이 가는 캐릭터를 만나보세요";
 
   // ── 신작 레일: 스크롤 위치 연동 페이드 + 화살표(끝단 비활성, 오버플로 없으면 숨김) ──
   const railRef = useRef(null);
@@ -153,7 +155,7 @@ export default function HomeTab() {
   }, [syncRail, ugcItems.length]);
   const scrollRail = (dir) => {
     const el = railRef.current;
-    if (el) el.scrollBy({ left: dir * el.clientWidth * 0.7, behavior: "smooth" });
+    if (el) el.scrollBy({ left: dir * el.clientWidth * 0.7, behavior: reduceMotion ? "auto" : "smooth" });
   };
 
   // ── 이어하기: THEATER → /theater, STORY → /v2/chat, 그 외 → /chat ──
@@ -193,71 +195,22 @@ export default function HomeTab() {
 
   return (
     <LobbyContainer>
-      {/* ═══ 인사말 ═══ */}
-      {guest ? (
-        <>
-          <h1 className="mt-8 text-lb-page text-white tracking-tight">오늘 밤, 누구와 이야기해 볼까요</h1>
-          <p className="text-lb-meta text-lobby-tx2 mt-1">가입 없이 자유롭게 둘러볼 수 있어요</p>
-        </>
-      ) : (
-        <>
-          <h1 className="mt-8 text-lb-page text-white tracking-tight">
-            다시 만나서 반가워요
-            {nickname && (
-              <>
-                , <span className="bg-gradient-to-r from-violet-300 to-sky-300 bg-clip-text text-transparent">{nickname}</span>님
-              </>
-            )}
-          </h1>
-          <p className="text-lb-meta text-lobby-tx2 mt-1">어젯밤 꿈의 다음 페이지가 준비되어 있어요</p>
-        </>
-      )}
-
-      {/* ═══ 히어로 ═══ */}
-      {guest && (
-        <div className="mt-8 flex items-center gap-3 px-5 sm:px-6 py-4 rounded-[20px] bg-white/[0.035] border border-white/[0.09]">
-          <span className="text-base opacity-80 flex-none" aria-hidden>🌙</span>
-          <p className="text-lb-meta text-lobby-tx1">
-            <b className="font-bold text-white">로그인은 대화를 시작할 때만 필요해요.</b>{" "}
-            그 전까진 캐릭터 프로필까지 자유롭게 볼 수 있어요.
-          </p>
-        </div>
-      )}
-
+      {!guest && <div className="flex items-center justify-between gap-3 pt-7">
+        <p className="min-w-0 truncate text-sm text-lobby-tx1">다시 만나서 반가워요{nickname && <>, <span className="text-lobby-accent">{nickname}</span>님</>}</p>
+        <span className="hidden text-[10px] tracking-[.18em] text-lobby-tx2 sm:block">YOUR NEXT CHAPTER</span>
+      </div>}
       {!guest && hero.status === "loading" && <SkeletonBanner />}
-
-      {!guest && hero.status === "ready" && hero.room && (
-        <ContinueBanner room={hero.room} onContinue={handleContinue} />
-      )}
-
-      {!guest && hero.status === "ready" && !hero.room && (
-        <div
-          className="mt-8 flex items-center gap-4 sm:gap-5 px-4 sm:px-6 py-3.5 sm:py-5 rounded-[20px] border border-violet-400/[0.22] hover:border-violet-400/45 transition-colors"
-          style={{ background: GRAD_SOFT }}
-        >
-          <span
-            className="w-11 h-11 sm:w-14 sm:h-14 rounded-full flex-none flex items-center justify-center text-lg sm:text-xl text-violet-200 border border-violet-400/30"
-            style={{ background: GRAD_SOFT }}
-            aria-hidden
-          >
-            ✦
-          </span>
-          <span className="block flex-1 min-w-0">
-            <span className="block text-lb-meta text-lobby-tx1 mb-0.5">첫 만남</span>
-            <span className="block text-lb-sec text-white truncate">아직 나눈 이야기가 없어요</span>
-            <span className="block text-lb-meta text-lobby-tx1 truncate mt-0.5">
-              취향에 맞는 세 명을 추천해 드릴게요 — 3분이면 첫 대화가 시작돼요
-            </span>
-          </span>
-          <button onClick={() => navigate("/first-meet", { state: { intent: true } })} className={BTN_GRAD}>
-            첫 만남 시작하기
-          </button>
-        </div>
-      )}
+      {!guest && hero.status === "ready" && hero.room && <ContinueBanner room={hero.room} onContinue={handleContinue} />}
+      <LobbyFeature items={featuredItems} onSelect={setProfileCharId} guest={guest} />
+      {!guest && hero.status === "ready" && !hero.room && <div className="aurora-continue">
+        <Sparkles size={24} className="flex-none text-lobby-accent" aria-hidden="true" />
+        <div className="min-w-0 flex-1"><p className="text-base font-medium text-lobby-tx0">첫 대화, 누구와 시작할까요?</p><p className="mt-1 text-lb-meta text-lobby-tx1">취향을 고르면 어울리는 캐릭터를 추천해 드려요.</p></div>
+        <button onClick={() => navigate("/first-meet", { state: { intent: true } })} className={BTN_GRAD}>첫 만남 시작하기<ArrowUpRight size={16} /></button>
+      </div>}
 
       {/* ═══ 추천 — 빈 피드(방어)면 섹션 숨김 ═══ */}
       {!(feed !== null && feed.length === 0) && (
-        <section className="mt-12">
+        <section className="mt-10 sm:mt-12" aria-busy={feedLoading}>
           <SectionHead title={recTitle} sub={recSub} />
           {feedLoading && (
             <div className={FEED_GRID}>
@@ -307,7 +260,7 @@ export default function HomeTab() {
                 className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               >
                 {ugcItems.map((c) => (
-                  <div key={c.characterId} className="w-[164px] flex-none snap-start">
+                  <div key={c.characterId} className="w-[184px] sm:w-[208px] flex-none snap-start">
                     <CharacterCard item={c} onClick={() => setProfileCharId(c.characterId)} />
                   </div>
                 ))}
@@ -332,13 +285,13 @@ export default function HomeTab() {
         <section className="mt-12">
           <SectionHead
             title="스토리 세계관"
-            sub="잘 짜인 세계에서 긴 호흡의 이야기를 — 직접 겪거나, 극장에서 지켜보거나"
+            sub="이야기에 직접 참여하거나, 극장에서 캐릭터들의 이야기를 지켜보세요"
             action={
               <button
                 onClick={() => navigate("/story")}
-                className="text-lb-meta text-lobby-tx2 hover:text-violet-400 transition-colors whitespace-nowrap"
+                className="inline-flex min-h-11 flex-none items-center gap-1 text-xs text-lobby-tx1 hover:text-lobby-accent transition-colors whitespace-nowrap sm:text-sm"
               >
-                스토리 전체 보기 ›
+                전체 보기 <ArrowUpRight size={14} aria-hidden="true" />
               </button>
             }
           />
@@ -357,6 +310,7 @@ export default function HomeTab() {
         </section>
       )}
 
+      <footer className="aurora-lobby-footer"><span className="tracking-[.12em]">LUCID CHAT</span><span>당신만의 이야기가 시작되는 곳</span></footer>
       {/* ═══ 프로필 오버레이 → 대화 시작 ═══ */}
       <CharacterProfileView
         characterId={profileCharId}
@@ -377,8 +331,7 @@ function ContinueBanner({ room, onContinue }) {
   const thumb = isTheater ? room.leadHeroineThumbnailUrl : room.characterThumbnailUrl;
   return (
     <div
-      className="mt-8 flex items-center gap-4 sm:gap-5 px-4 sm:px-6 py-3.5 sm:py-5 rounded-[20px] border border-violet-400/[0.22] hover:border-violet-400/45 transition-colors"
-      style={{ background: GRAD_SOFT }}
+      className="aurora-continue"
     >
       {/* 그라데이션을 항상 뒤에 깔아 이미지 404 시 폴백으로 강등 (AWS 정지 상태에서도 성립) */}
       <span
@@ -403,7 +356,7 @@ function ContinueBanner({ room, onContinue }) {
         </span>
         <span className="block text-lb-sec text-white truncate">{name}</span>
       </span>
-      <button onClick={onContinue} className={BTN_GRAD}>이어하기</button>
+      <button onClick={onContinue} className={BTN_GRAD}>이어하기<ArrowUpRight size={16} aria-hidden="true" /></button>
     </div>
   );
 }
@@ -429,7 +382,7 @@ function WorldPreviewCard({ world: w, theaterAvailable, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="block w-full text-left rounded-2xl overflow-hidden border border-white/[0.09] bg-white/[0.035] transition-all duration-200 ease-out hover:-translate-y-[3px] hover:border-violet-400/45"
+      className="aurora-world-card"
     >
       <span className={`relative flex items-end p-3.5 aspect-[16/8.5] overflow-hidden ${fallbackGrad(w.displayName)}`}>
         {heroImage && (

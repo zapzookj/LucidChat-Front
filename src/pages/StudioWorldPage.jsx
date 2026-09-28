@@ -10,6 +10,7 @@ import {
 } from "../api/WorldStudioApi";
 import WorldCreateFlow from "../components/studio/WorldCreateFlow";
 import { sfx } from "../utils/sfx";
+import "../styles/aurora-secondary.css";
 
 /**
  * [World Builder v1] StudioWorldPage — UGC 세계관 빌더 전용 페이지
@@ -82,17 +83,18 @@ export default function StudioWorldPage() {
   const displayEnergy = userInfo?.energy ?? user?.energy ?? 0;
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-stone-950">
+    <div className="relative w-full h-dvh overflow-hidden bg-lobby-bg">
       {/* 배경 — 스튜디오와 동일한 앰버 무드 */}
-      <div className="absolute inset-0 pointer-events-none bg-gradient-to-br from-amber-950 via-stone-950 to-orange-950" />
+      <div className="aurora-auth-background absolute inset-0 pointer-events-none" />
 
       {boot.loading ? (
-        <div className="relative z-10 h-full flex items-center justify-center">
+        <div role="status" className="relative z-10 h-full flex flex-col gap-5 items-center justify-center">
           <motion.div
-            className="w-10 h-10 border-2 border-amber-400/40 border-t-amber-400 rounded-full"
+            className="w-9 h-9 border-2 border-lobby-accent/20 border-t-lobby-accent rounded-full"
             animate={{ rotate: 360 }}
             transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
           />
+          <p className="text-sm text-lobby-tx1">세계관 스튜디오를 준비하고 있어요</p>
         </div>
       ) : boot.error ? (
         <div className="relative z-10 h-full flex flex-col items-center justify-center text-center px-6">

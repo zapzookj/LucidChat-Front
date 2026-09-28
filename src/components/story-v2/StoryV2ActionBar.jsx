@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { Forward, Clock, MapPin } from "lucide-react";
-import { sfx } from "../../utils/sfx";
+import "../../styles/aurora-chat.css";
 
 /**
  * [Story V2] 액션 바 — DialogueBox 텍스트 입력창 *아래*에 위치.
@@ -38,24 +38,24 @@ export default function StoryV2ActionBar({
           <div className="px-4 sm:px-6 pb-3">
             <div className="max-w-3xl mx-auto flex items-center gap-2">
               {/* 가이드 라벨 */}
-              <span className="text-[10px] uppercase tracking-wider text-amber-300/60 font-medium mr-1 hidden sm:inline">
+              <span className="text-xs uppercase tracking-wider text-lobby-accent font-medium mr-1 hidden sm:inline">
                 흐름 진행
               </span>
 
               <ActionButton
-                onClick={() => { sfx.click(); onNextScene?.(); }}
+                onClick={onNextScene}
                 disabled={isStreaming}
                 icon={<Forward size={13} />}
                 label="다음 씬"
               />
               <ActionButton
-                onClick={() => { sfx.click(); onTimeAdvance?.(); }}
+                onClick={onTimeAdvance}
                 disabled={isStreaming}
                 icon={<Clock size={13} />}
                 label="시간 진전"
               />
               <ActionButton
-                onClick={() => { sfx.click(); onMoveClick?.(); }}
+                onClick={onMoveClick}
                 disabled={isStreaming}
                 icon={<MapPin size={13} />}
                 label="장소 이동"
@@ -73,7 +73,7 @@ function ActionButton({ onClick, disabled, icon, label }) {
     <button
       onClick={onClick}
       disabled={disabled}
-      className="flex-1 px-3 py-2 rounded-lg bg-black/40 backdrop-blur-md border border-white/10 text-white/80 hover:bg-white/10 hover:border-white/20 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center justify-center gap-1.5 text-xs font-medium"
+      className="aurora-chat-action flex-1 px-3 py-2 backdrop-blur-md disabled:cursor-not-allowed transition flex items-center justify-center gap-1.5 text-xs font-medium"
     >
       {icon}
       {label}

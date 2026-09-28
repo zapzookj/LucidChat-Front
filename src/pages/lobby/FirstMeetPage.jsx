@@ -6,7 +6,8 @@ import { sfx } from "../../utils/sfx";
 import { withWaGwa } from "../../utils/josa";
 import { setPrefGender } from "../../utils/preference";
 import { CharacterCard, SkeletonCard, EmptyState, ErrorState, RATE_LIMIT_MSG } from "./lobbyUi";
-import { TwinkleStar } from "./lobbyShared";
+import AuroraBackdrop from "../../components/lobby/AuroraBackdrop";
+import "../../styles/aurora-secondary.css";
 
 /**
  * [블록 A R2] '첫 만남' 2단계 온보딩 — 디자인 정본: aichat docs/15_assets/lobby_redesign_mockup.html 화면 5.
@@ -144,32 +145,18 @@ export default function FirstMeetPage() {
     }
   };
 
-  const stars = useMemo(
-    () => Array.from({ length: 36 }, () => ({ left: `${Math.random() * 100}%`, top: `${Math.random() * 45}%` })),
-    []
-  );
-
   if (skipRedirect) return null;
 
   return (
     <div className="relative w-full h-full overflow-hidden select-none bg-lobby-bg">
-      {/* ═══ 배경 — 토큰 배경 + 보라 글로우 + 별 (셸과 동일 문법, 에셋 무의존) ═══ */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div
-          className="absolute inset-0"
-          style={{ background: "radial-gradient(1200px 500px at 50% -8%, rgba(139,110,247,0.14), transparent 60%)" }}
-        />
-        <div className="absolute inset-0 opacity-50">
-          {stars.map((style, i) => <TwinkleStar key={i} style={style} />)}
-        </div>
-      </div>
+      <AuroraBackdrop />
 
       <div ref={scrollRef} className="relative z-10 h-full overflow-y-auto custom-scrollbar">
         {/* ── 상단 로고만 (탭 없음 — 온보딩 몰입 유지) ── */}
         <header className="max-w-[1200px] mx-auto h-16 px-4 sm:px-8 flex items-center">
           <span className="flex items-center gap-2">
             <span className="text-violet-300 text-[15px]">✦</span>
-            <span className="text-base font-extrabold text-white tracking-[0.14em]">LUCID</span>
+            <span className="text-base font-extrabold text-white tracking-[0.14em]">LUCID CHAT</span>
           </span>
         </header>
 
@@ -179,12 +166,12 @@ export default function FirstMeetPage() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25 }}
-          className="max-w-[880px] mx-auto px-4 sm:px-8 pt-16 pb-[120px] text-center"
+          className="max-w-[880px] mx-auto px-4 sm:px-8 pt-10 sm:pt-16 pb-[120px] text-center"
         >
           {step === 1 && (
             <>
               <p className="text-lb-meta font-bold text-lobby-tx2 tracking-[0.14em]">첫 만남 · 1 / 2</p>
-              <h1 className="text-[19px] leading-[1.3] font-extrabold sm:text-lb-hero text-white tracking-tight mt-3">
+              <h1 className="text-[28px] leading-[1.35] font-semibold sm:text-lb-hero text-white tracking-tight mt-3">
                 어떤 캐릭터에게 끌리시나요?
               </h1>
               <p className="text-[13px] sm:text-lb-card text-lobby-tx1 mt-2">
@@ -199,10 +186,10 @@ export default function FirstMeetPage() {
                       key={opt.value}
                       onClick={() => pickPref(opt.value)}
                       aria-pressed={on}
-                      className={`rounded-2xl border px-5 py-7 text-center transition-all duration-200 ease-out hover:-translate-y-0.5 ${
+                      className={`rounded-[24px] border px-5 py-7 sm:py-9 text-center transition-all duration-200 ease-out hover:-translate-y-0.5 ${
                         on
-                          ? "border-violet-400/45 bg-gradient-to-br from-violet-300/15 to-sky-300/10 shadow-[0_0_32px_rgba(167,139,250,0.12)]"
-                          : "border-white/[0.09] bg-white/[0.035] hover:border-white/[0.16]"
+                          ? "border-lobby-accent/50 bg-gradient-to-br from-lobby-accent/20 to-lobby-teal/10 shadow-[0_8px_32px_rgba(167,139,250,0.12)]"
+                          : "border-white/[0.12] bg-lobby-surface/70 hover:border-lobby-accent/30 hover:bg-lobby-surface2/70"
                       }`}
                     >
                       <span className="block text-[26px] mb-2.5">{opt.icon}</span>
@@ -217,7 +204,7 @@ export default function FirstMeetPage() {
               <button
                 onClick={() => setStep(2)}
                 disabled={!pref}
-                className={`mt-8 w-full max-w-[420px] py-[15px] rounded-2xl text-lb-card font-extrabold text-slate-900 bg-gradient-to-r from-violet-300 to-sky-300 transition-all ${
+                className={`mt-8 w-full max-w-[420px] py-[15px] rounded-2xl text-lb-card font-extrabold aurora-secondary-primary transition-all ${
                   pref
                     ? "hover:-translate-y-px hover:shadow-[0_6px_28px_rgba(167,139,250,0.4)]"
                     : "opacity-40 cursor-default"
@@ -238,7 +225,7 @@ export default function FirstMeetPage() {
           {step === 2 && (
             <>
               <p className="text-lb-meta font-bold text-lobby-tx2 tracking-[0.14em]">첫 만남 · 2 / 2</p>
-              <h1 className="text-[19px] leading-[1.3] font-extrabold sm:text-lb-hero text-white tracking-tight mt-3">
+              <h1 className="text-[28px] leading-[1.35] font-semibold sm:text-lb-hero text-white tracking-tight mt-3">
                 누구와 첫 이야기를 시작할까요?
               </h1>
               <p className="text-[13px] sm:text-lb-card text-lobby-tx1 mt-2">
@@ -251,7 +238,7 @@ export default function FirstMeetPage() {
                   <ErrorState message={feedError === "rate" ? RATE_LIMIT_MSG : undefined} onRetry={loadFeed} />
                 </div>
               ) : feed === null ? (
-                <div className="grid grid-cols-3 gap-2.5 sm:gap-4 mt-12">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 mt-8 sm:mt-12">
                   {Array.from({ length: 3 }).map((_, i) => <SkeletonCard key={i} />)}
                 </div>
               ) : picks.length === 0 ? (
@@ -266,11 +253,12 @@ export default function FirstMeetPage() {
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-3 gap-2.5 sm:gap-4 mt-12">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 mt-8 sm:mt-12">
                     {picks.map((c) => (
                       <CharacterCard
                         key={c.characterId}
                         item={c}
+                        selectionMode
                         selected={c.characterId === selectedId}
                         onClick={() => setSelectedId(c.characterId)}
                       />
@@ -283,7 +271,7 @@ export default function FirstMeetPage() {
                     onClick={handleStart}
                     disabled={!selected || starting}
                     aria-busy={starting}
-                    className={`mt-8 w-full max-w-[420px] py-[15px] rounded-2xl text-lb-card font-extrabold text-slate-900 bg-gradient-to-r from-violet-300 to-sky-300 transition-all ${
+                    className={`mt-8 w-full max-w-[420px] py-[15px] rounded-2xl text-lb-card font-extrabold aurora-secondary-primary transition-all ${
                       selected && !starting
                         ? "hover:-translate-y-px hover:shadow-[0_6px_28px_rgba(167,139,250,0.4)]"
                         : "opacity-40 cursor-default"

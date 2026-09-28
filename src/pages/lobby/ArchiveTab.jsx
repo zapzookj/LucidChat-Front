@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
+import { MessagesSquare, UserRound, Award, Image, ArrowUpRight, ChevronRight } from "lucide-react";
 import api from "../../api/axios";
 import { fetchMyTheaterSessions } from "../../api/TheaterLobbyApi";
 import AchievementGallery from "../../components/AchievementGallery";
@@ -7,6 +8,7 @@ import IllustrationGalleryPage from "../IllustrationGalleryPage";
 import PersonaManager from "../../components/persona/PersonaManager";
 import { assetUrl } from "../../utils/assetUrl";
 import { formatRelativeTime } from "./lobbyShared";
+import "../../styles/aurora-secondary.css";
 import {
   LobbyContainer, PageHead, ModeBadge, fallbackGrad,
   SkeletonRow, EmptyState, ErrorState, RATE_LIMIT_MSG,
@@ -28,10 +30,10 @@ import {
  */
 
 const SEGMENTS = [
-  { key: "talk",    label: "대화 기록" },
-  { key: "persona", label: "페르소나" },
-  { key: "ach",     label: "업적" },
-  { key: "illust",  label: "일러스트" },
+  { key: "talk",    label: "대화 기록", icon: MessagesSquare },
+  { key: "persona", label: "페르소나", icon: UserRound },
+  { key: "ach",     label: "업적", icon: Award },
+  { key: "illust",  label: "일러스트", icon: Image },
 ];
 const SEG_KEYS = new Set(SEGMENTS.map((s) => s.key));
 
@@ -54,10 +56,11 @@ export default function ArchiveTab() {
       <div
         role="tablist"
         aria-label="보관함 분류"
-        className="flex gap-1 mt-6 p-1 rounded-full bg-white/[0.035] border border-white/[0.09] w-full sm:w-fit"
+        className="flex gap-1 mt-7 p-1.5 rounded-2xl bg-[#1c253a]/75 border border-white/[0.1] w-full sm:w-fit"
       >
         {SEGMENTS.map((s) => {
           const on = tab === s.key;
+          const Icon = s.icon;
           return (
             <button
               key={s.key}
@@ -65,11 +68,22 @@ export default function ArchiveTab() {
               id={`archive-tab-${s.key}`}
               aria-selected={on}
               aria-controls={`archive-pane-${s.key}`}
+              tabIndex={on ? 0 : -1}
               onClick={() => { if (tab !== s.key) setSearchParams({ tab: s.key }); }}
-              className={`flex-1 sm:flex-none px-0 sm:px-5 py-2 rounded-full text-lb-meta font-semibold transition-colors duration-150 ${
-                on ? "bg-violet-400/[0.16] text-white" : "text-lobby-tx1 hover:text-white"
+              onKeyDown={(event) => {
+                const current = SEGMENTS.findIndex((segment) => segment.key === s.key);
+                const destination = { ArrowRight: (current + 1) % SEGMENTS.length, ArrowLeft: (current + SEGMENTS.length - 1) % SEGMENTS.length, Home: 0, End: SEGMENTS.length - 1 }[event.key];
+                if (destination == null) return;
+                event.preventDefault();
+                const next = SEGMENTS[destination].key;
+                setSearchParams({ tab: next });
+                document.getElementById(`archive-tab-${next}`)?.focus();
+              }}
+              className={`flex-1 sm:flex-none flex items-center justify-center gap-2 min-h-11 px-1.5 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-colors duration-150 ${
+                on ? "bg-lobby-accent/[0.13] text-lobby-accent shadow-sm" : "text-lobby-tx1 hover:text-lobby-tx0 hover:bg-white/[0.035]"
               }`}
             >
+              <Icon size={15} className="hidden sm:block" />
               {s.label}
             </button>
           );
@@ -81,7 +95,7 @@ export default function ArchiveTab() {
         role="tabpanel"
         id={`archive-pane-${tab}`}
         aria-labelledby={`archive-tab-${tab}`}
-        className="mt-6"
+        className="mt-7"
       >
         {tab === "talk" && <TalkPane navigate={navigate} enterRoom={enterRoom} />}
         {tab === "persona" && <PersonaManager embedded />}
@@ -160,9 +174,9 @@ function TalkPane({ navigate, enterRoom }) {
     <div className="mt-1 flex justify-end">
       <button
         onClick={() => navigate("/theater/archive")}
-        className="py-1 text-lb-meta text-lobby-tx2 hover:text-violet-300 transition-colors"
+        className="min-h-11 flex items-center gap-1.5 text-sm text-lobby-tx2 hover:text-lobby-accent transition-colors"
       >
-        극장 아카이브 ›
+        극장 아카이브 <ArrowUpRight size={14} />
       </button>
     </div>
   );
@@ -196,7 +210,7 @@ function TalkPane({ navigate, enterRoom }) {
 }
 
 /** 대화 기록 행 — 44px 원형 썸네일 + 이름·모드 배지 + 보조 줄 + 상대시간 */
-function TalkRow({ entry, onOpen }) {
+export function TalkRow({ entry, onOpen }) {
   const theater = entry.type === "THEATER";
   const story = !theater && entry.chatMode === "STORY";
 
@@ -240,30 +254,32 @@ function TalkRow({ entry, onOpen }) {
   return (
     <button
       onClick={onOpen}
-      className="w-full flex items-center gap-4 px-[18px] py-3.5 mb-3 rounded-2xl text-left bg-white/[0.035] border border-white/[0.09] hover:border-violet-400/45 hover:bg-white/[0.06] transition-colors duration-150"
+      className="aurora-archive-row group w-full flex items-center gap-3.5 sm:gap-5 px-4 sm:px-5 py-4 mb-3 rounded-[20px] text-left border border-white/[0.1] hover:border-lobby-accent/35 hover:bg-white/[0.06] transition-colors duration-150"
     >
       {/* 그라데이션을 항상 뒤에 깔아 이미지 404 시 폴백으로 강등 */}
-      <span className={`relative w-11 h-11 rounded-full overflow-hidden flex-none flex items-center justify-center ${fallbackGrad(name)}`}>
+      <span className={`relative w-14 h-16 sm:w-16 sm:h-[72px] rounded-[14px] border border-white/10 overflow-hidden flex-none flex items-center justify-center ${fallbackGrad(name)}`}>
         <span className="absolute inset-0 flex items-center justify-center text-[15px] font-bold text-white/85">{name?.[0] ?? ""}</span>
         {thumbUrl && (
           <img
-            src={thumbUrl} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false}
+            src={thumbUrl} alt="" className="absolute inset-0 w-full h-full object-cover object-top" draggable={false}
             onError={(e) => { e.currentTarget.style.display = "none"; }}
           />
         )}
       </span>
       <span className="block flex-1 min-w-0">
-        <span className="flex items-center gap-2 min-w-0">
-          <span className="text-lb-card font-bold text-white truncate">{name}</span>
+        <span className="flex items-center flex-wrap gap-x-2.5 gap-y-1 min-w-0">
+          <span className="text-base font-semibold text-lobby-tx0 truncate">{name}</span>
           <span className="flex-none"><ModeBadge mode={mode} suffix={suffix} /></span>
         </span>
         {sub && (
-          <span className="block text-lb-meta text-lobby-tx1 truncate mt-0.5">{sub}</span>
+          <span className="block text-sm text-lobby-tx1 truncate mt-1.5">{sub}</span>
         )}
+        <span className="block sm:hidden text-xs text-lobby-tx2 mt-1.5">{formatRelativeTime(entry.lastActiveAt)}</span>
       </span>
-      <span className="text-lb-meta text-lobby-tx2 flex-none">
+      <span className="hidden sm:block text-xs text-lobby-tx2 flex-none">
         {formatRelativeTime(entry.lastActiveAt)}
       </span>
+      <ChevronRight size={18} className="shrink-0 text-lobby-tx2 group-hover:text-lobby-accent transition-colors" />
     </button>
   );
 }
