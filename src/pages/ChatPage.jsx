@@ -85,6 +85,7 @@ const ChatPage = () => {
   const [sceneQueue, setSceneQueue] = useState([]);
   const [currentScene, setCurrentScene] = useState(null);
   const [displayedEmotion, setDisplayedEmotion] = useState("NEUTRAL");
+  const [displayedExpressionUrl, setDisplayedExpressionUrl] = useState(null);
 
   // [Issue #1+#2 Fix] 씬 활성 상태 추적 (setTimeout 내에서 stale closure 방지)
   const sceneActiveRef = useRef(false);
@@ -623,6 +624,8 @@ const ChatPage = () => {
             speaker: scene.speaker || null,
             narration: scene.narration, dialogue: scene.dialogue,
             emotion: scene.emotion || "NEUTRAL",
+            expressionId: scene.expressionId ?? null,
+            expressionImageUrl: scene.expressionImageUrl ?? null,
             location: scene.location, time: scene.time,
             outfit: scene.outfit, bgmMode: scene.bgmMode,
           };
@@ -779,6 +782,8 @@ const ChatPage = () => {
         innerThought: null,
         // [리플레이 E6] 라이브 구간도 씬 감정·복장 보존 — 새로고침 전 리플레이 재현용
         emotionTag: s.emotion || null,
+        expressionId: s.expressionId ?? null,
+        expressionImageUrl: s.expressionImageUrl ?? null,
         outfit: s.outfit ?? null,
         // [aichat E-1.9] 장소·시간도 — 라이브 구간과 복원 구간의 리플레이 재현이 같아야 한다
         location: s.location ?? null,
@@ -838,6 +843,8 @@ const ChatPage = () => {
             thoughtUnlocked: log.thoughtUnlocked || false,
             innerThought: log.innerThought || null,
             emotionTag: scene.emotion || log.emotionTag,
+            expressionId: scene.expressionId ?? null,
+            expressionImageUrl: scene.expressionImageUrl ?? null,
             // [리플레이] 씬 컨텍스트 복장(2026-08-07 백엔드 영속) — 레거시 로그는 null
             outfit: scene.outfit ?? null,
             // [aichat E-1.9] 장소·시간도 함께 보존 — 복장만 되돌리면 과거 옷 + 현재 배경이 섞인다
@@ -1189,7 +1196,9 @@ const ChatPage = () => {
                  setCurrentScene({
                    dialogue: lastLog.cleanContent?.replace(/^\*.*\*\n?/, '') || '',
                    narration: "",
-                   emotion: lastLog.emotionTag || "NEUTRAL"
+                   emotion: lastLog.emotionTag || "NEUTRAL",
+                   expressionId: lastLog.expressionId ?? null,
+                   expressionImageUrl: lastLog.expressionImageUrl ?? null,
                  });
                  setDisplayedEmotion(lastLog.emotionTag || "NEUTRAL");
                }
@@ -1302,6 +1311,7 @@ const ChatPage = () => {
     // (캐릭터 이미지가 NPC 감정에 맞춰 바뀌는 버그 방지)
     if (currentScene.emotion && !isNpcScene) {
       setDisplayedEmotion(currentScene.emotion);
+      setDisplayedExpressionUrl(currentScene.expressionImageUrl || null);
     }
     // [Scene-Polish B] 씬 일러 자동 복귀 신호 — 캐릭터 감정이 실제로 바뀌면 훅이 autoDismiss 판단.
     //   인트로 나레이션/이벤트 씬은 연출용 NEUTRAL이 섞여 오탐이 잦으므로 신호에서 제외.
@@ -1587,6 +1597,8 @@ const ChatPage = () => {
           narration: scene.narration,
           dialogue: scene.dialogue,
           emotion: scene.emotion || "NEUTRAL",
+          expressionId: scene.expressionId ?? null,
+          expressionImageUrl: scene.expressionImageUrl ?? null,
           location: scene.location,
           time: scene.time,
           outfit: scene.outfit,
@@ -2068,6 +2080,8 @@ const ChatPage = () => {
             narration: scene.narration,
             dialogue: scene.dialogue,
             emotion: scene.emotion || "NEUTRAL",
+            expressionId: scene.expressionId ?? null,
+            expressionImageUrl: scene.expressionImageUrl ?? null,
             location: scene.location,
             time: scene.time,
             outfit: scene.outfit,
@@ -2176,6 +2190,8 @@ const ChatPage = () => {
             narration: scene.narration,
             dialogue: scene.dialogue,
             emotion: scene.emotion || "NEUTRAL",
+            expressionId: scene.expressionId ?? null,
+            expressionImageUrl: scene.expressionImageUrl ?? null,
             location: scene.location,
             time: scene.time,
             outfit: scene.outfit,
@@ -2586,6 +2602,7 @@ const ChatPage = () => {
       {/* ═══ 캐릭터 디스플레이 + 속마음 말풍선 ═══ */}
       <div className="absolute inset-0 z-0">
         <CharacterDisplay
+          expressionImageUrl={replayView ? (replayView.scene.expressionImageUrl || null) : displayedExpressionUrl}
           emotion={replayView ? replayView.emotion : displayedEmotion}
           outfit={replayView ? replayView.outfit : currentOutfit}
           characterSlug={roomInfo?.characterSlug}

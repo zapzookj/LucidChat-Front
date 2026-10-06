@@ -581,6 +581,8 @@ export default function TheaterPlayPage() {
         speakerType: h.speakerType,
         speakerName: h.speakerName,
         emotion: h.emotion,
+        expressionId: h.expressionId ?? null,
+        expressionImageUrl: h.expressionImageUrl ?? null,
         location: h.location,
         time: h.timeOfDay,
         outfit: h.outfit,
@@ -703,6 +705,7 @@ export default function TheaterPlayPage() {
       <div className="absolute inset-0 z-0">
         {activeHeroine && (
           <CharacterDisplay
+            expressionImageUrl={isHeroineSpeaking ? displayedScene?.expressionImageUrl : null}
             key={activeHeroine.characterSlug}
             emotion={isHeroineSpeaking ? (displayedScene?.emotion || "NEUTRAL") : "NEUTRAL"}
             outfit={displayedScene?.outfit || activeHeroine.defaultOutfit || "MAID"}

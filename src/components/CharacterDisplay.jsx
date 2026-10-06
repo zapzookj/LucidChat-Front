@@ -212,13 +212,14 @@ const CharacterDisplay = ({
   emotion = "NEUTRAL", outfit = "MAID", characterSlug = "airi", defaultOutfit,
   // [Fix-UGC-CDN] 백엔드가 준 절대 URL (GET /chat/rooms/{id}의 defaultImageUrl).
   // UGC 캐릭터의 CDN 디렉터리 유도용 — 없거나 절대 URL이 아니면 기존 동작 유지.
-  defaultImageUrl = null,
+  defaultImageUrl = null, expressionImageUrl = null,
   npcSpeaker = null, isNpcActive = false,
   // [Phase B · 단계1] 모바일 세로 bust-up 크롭 (default false → 데스크톱 geometry 불변)
   portrait = false,
 }) => {
   const assetDir = useMemo(() => deriveAssetDir(defaultImageUrl), [defaultImageUrl]);
-  const imagePath = resolveCharacterImage(characterSlug, outfit, emotion, assetDir);
+  const ownedExpressionUrl = typeof expressionImageUrl === "string" && assetDir && expressionImageUrl.startsWith(`${assetDir}/default_`) ? expressionImageUrl : null;
+  const imagePath = ownedExpressionUrl || resolveCharacterImage(characterSlug, outfit, emotion, assetDir);
   const config = EMOTION_ANIM[emotion] || EMOTION_ANIM.NEUTRAL;
   const idleControls = useAnimation();
   const prevEmotionRef = useRef(emotion);
@@ -289,13 +290,18 @@ const CharacterDisplay = ({
               <motion.div animate={idleControls} className="relative h-full w-full flex items-end justify-center">
                 <AnimatePresence mode="popLayout">
                   <motion.img
-                    key={`${characterSlug}_${outfit}_${emotion}`}
+                    key={`${characterSlug}_${outfit}_${emotion}_${ownedExpressionUrl || ""}`}
                     src={imagePath} alt={`${characterSlug} ${emotion}`}
                     initial={{ opacity: 0, scale: 1.02 }} animate={{ opacity: 1, scale: 1.05 }}
                     exit={{ opacity: 0, scale: 1.02 }} transition={{ duration: 0.5 }}
                     className="h-[85%] md:h-[90%] object-contain select-none pointer-events-none"
                     style={{ filter: `drop-shadow(0 0 25px ${config.glow}) drop-shadow(0 5px 15px rgba(0,0,0,0.4)) brightness(${isMainActive ? config.imgBrightness : 0.65})` }}
                     onError={(e) => {
+                      if (ownedExpressionUrl && defaultImageUrl) {
+                        if (e.target.src !== defaultImageUrl) e.target.src = defaultImageUrl;
+                        else e.target.style.display = "none";
+                        return;
+                      }
                       const fb1 = resolveCharacterImage(characterSlug, outfit, "NEUTRAL", assetDir);
                       const fb2 = resolveCharacterImage(characterSlug, defaultOutfit || "MAID", emotion, assetDir);
                       // resolveCharacterImage가 절대 URL을 반환하므로 직접 비교
@@ -349,13 +355,18 @@ const CharacterDisplay = ({
             >
             <AnimatePresence mode="popLayout">
               <motion.img
-                key={`${characterSlug}_${outfit}_${emotion}`}
+                key={`${characterSlug}_${outfit}_${emotion}_${ownedExpressionUrl || ""}`}
                 src={imagePath} alt={`${characterSlug} ${outfit} ${emotion}`}
                 initial={{ opacity: 0, scale: 1.02 }} animate={{ opacity: 1, scale: 1.05 }}
                 exit={{ opacity: 0, scale: 1.02 }} transition={{ duration: 0.5 }}
                 className="h-[85%] md:h-[90%] object-contain select-none pointer-events-none"
                 style={{ filter: `drop-shadow(0 0 25px ${config.glow}) drop-shadow(0 5px 15px rgba(0,0,0,0.4)) brightness(${config.imgBrightness})` }}
                 onError={(e) => {
+                      if (ownedExpressionUrl && defaultImageUrl) {
+                        if (e.target.src !== defaultImageUrl) e.target.src = defaultImageUrl;
+                        else e.target.style.display = "none";
+                        return;
+                      }
                   const fb1 = resolveCharacterImage(characterSlug, outfit, "NEUTRAL", assetDir);
                   const fb2 = resolveCharacterImage(characterSlug, defaultOutfit || "MAID", emotion, assetDir);
                   if (e.target.src !== fb1 && e.target.src !== fb2) e.target.src = fb2;

@@ -1103,7 +1103,7 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
         스탠딩 선택
       </h3>
       <p className="text-xs text-lobby-tx1 mb-5">
-        캐릭터의 기본 자세예요. 이 스탠딩에서 15가지 표정이 태어나요.
+        캐릭터의 기본 자세예요. 이 스탠딩에서 캐릭터다운 표정과 제스처가 태어나요.
       </p>
 
       <div
@@ -1252,7 +1252,7 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
                 </button>
               </div>
               <p className="mt-3 text-center text-xs text-lobby-accent/60">
-                이 스탠딩에서 15가지 표정이 태어나요
+                이 스탠딩에서 캐릭터다운 표정과 제스처가 태어나요
               </p>
             </motion.div>
           </motion.div>
@@ -1268,10 +1268,13 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
 
 const ForgeProgressStep = ({ job, onOpenWorldBuilder }) => {
   const assets = job?.emotionAssets || {};
-  const readyCount = EMOTION_ORDER.filter(
+  const catalog = job?.expressionCatalog || [];
+  const emotionOrder = catalog.length ? catalog.map((e) => e.id) : (job?.expressionPipelineVersion === 2 ? ["NEUTRAL"] : EMOTION_ORDER);
+  const emotionLabels = catalog.length ? Object.fromEntries(catalog.map((e) => [e.id, e.label])) : EMOTION_LABELS;
+  const readyCount = emotionOrder.filter(
     (t) => t !== "NEUTRAL" && EMOTION_DONE_STATUSES.has(assets[t]?.status)
   ).length;
-  const copy = `표정을 하나씩 새기는 중… (${readyCount}/14)`;
+  const copy = emotionOrder.length > 1 ? `표정을 하나씩 새기는 중… (${readyCount}/${emotionOrder.length - 1})` : "캐릭터다운 연출을 구성하는 중…";
 
   return (
     <div className="max-w-2xl mx-auto w-full">
@@ -1300,13 +1303,14 @@ const ForgeProgressStep = ({ job, onOpenWorldBuilder }) => {
 
       {/* 15칸 감정 그리드 */}
       <div className="grid grid-cols-5 gap-2 sm:gap-3">
-        {EMOTION_ORDER.map((tag) => {
+        {emotionOrder.map((tag) => {
           const asset = assets[tag];
           const done = EMOTION_DONE_STATUSES.has(asset?.status) && asset?.thumbUrl;
           const failed = asset?.status === "FAILED";
           return (
             <div
               key={tag}
+              title={catalog.find((e) => e.id === tag)?.selectionCondition}
               className={`relative aspect-square rounded-xl overflow-hidden border ${
                 done
                   ? "border-lobby-accent/30"
@@ -1319,7 +1323,7 @@ const ForgeProgressStep = ({ job, onOpenWorldBuilder }) => {
                 // "깨어나는" 연출 — 스켈레톤 → 페이드인
                 <motion.img
                   src={asset.thumbUrl}
-                  alt={EMOTION_LABELS[tag]}
+                  alt={emotionLabels[tag]}
                   className="w-full h-full object-cover"
                   initial={{ opacity: 0, scale: 1.08, filter: "brightness(1.8)" }}
                   animate={{ opacity: 1, scale: 1, filter: "brightness(1)" }}
@@ -1340,7 +1344,7 @@ const ForgeProgressStep = ({ job, onOpenWorldBuilder }) => {
                 </motion.div>
               )}
               <span className="absolute bottom-0.5 left-0 right-0 text-center text-xs text-white/55 drop-shadow">
-                {EMOTION_LABELS[tag]}
+                {emotionLabels[tag]}
               </span>
             </div>
           );
@@ -1390,11 +1394,14 @@ const PostProcessingView = ({ status }) => (
 // finalizeCost: [Pay-as-you-go] 검수 확정(마무리) 단가 — 레거시 잡은 null(배지 숨김)
 const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRequest, onVersionSelect, onCompleteRequest }) => {
   const assets = job?.emotionAssets || {};
+  const catalog = job?.expressionCatalog || [];
+  const emotionOrder = catalog.length ? catalog.map((e) => e.id) : (job?.expressionPipelineVersion === 2 ? ["NEUTRAL"] : EMOTION_ORDER);
+  const emotionLabels = catalog.length ? Object.fromEntries(catalog.map((e) => [e.id, e.label])) : EMOTION_LABELS;
   const [mode, setMode] = useState("grid"); // grid | preview
   const [zoomTag, setZoomTag] = useState(null);
   const [previewTag, setPreviewTag] = useState("NEUTRAL");
 
-  const allReady = EMOTION_ORDER.every((t) => assets[t]?.status === "READY");
+  const allReady = emotionOrder.length > 1 && Object.keys(assets).length === emotionOrder.length && emotionOrder.every((t) => assets[t]?.status === "READY");
   const previewUrl = assets[previewTag]?.thumbUrl || job?.baseStandingUrl;
 
   // [리롤 누적] 확대 중인 컷 정보 — versions(완성본 누적 리스트)/selectedIndex 기반 버전 스트립용
@@ -1409,7 +1416,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
       <div className="flex items-start justify-between gap-3 mb-1">
         <h3 className="text-base font-bold text-white flex items-center gap-2">
           <Eye size={16} className="text-lobby-accent" />
-          15가지 표정 검수
+          {emotionOrder.length}가지 연출 검수
         </h3>
         <button
           type="button"
@@ -1426,7 +1433,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
 
       {mode === "grid" ? (
         <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5 mb-5">
-          {EMOTION_ORDER.map((tag) => {
+          {emotionOrder.map((tag) => {
             const asset = assets[tag] || {};
             const status = asset.status;
             const isNeutral = tag === "NEUTRAL";
@@ -1440,6 +1447,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
             return (
               <div
                 key={tag}
+              title={catalog.find((e) => e.id === tag)?.selectionCondition}
                 className={`relative rounded-xl overflow-hidden border ${
                   isFailed
                     ? "border-rose-400/50"
@@ -1454,7 +1462,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
                   className="block w-full aspect-square"
                 >
                   {asset.thumbUrl ? (
-                    <img src={asset.thumbUrl} alt={EMOTION_LABELS[tag]} className="w-full h-full object-cover" draggable={false} />
+                    <img src={asset.thumbUrl} alt={emotionLabels[tag]} className="w-full h-full object-cover" draggable={false} />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-white/20 text-xs">?</div>
                   )}
@@ -1466,7 +1474,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
                 </button>
                 {/* 하단 컨트롤 바 */}
                 <div className="flex flex-wrap items-center justify-between gap-1 px-2 py-1.5 bg-lobby-bg/70 min-h-11">
-                  <span className="text-xs text-lobby-tx1">{EMOTION_LABELS[tag]}</span>
+                  <span className="text-xs text-lobby-tx1">{emotionLabels[tag]}</span>
                   {isNeutral ? (
                     <span className="text-xs text-lobby-accent/70 font-bold">기준 컷</span>
                   ) : isFailed ? (
@@ -1494,7 +1502,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
                       disabled={busy}
                       onClick={() => { sfx.click(); onRerollRequest(tag, false); }}
                       className="inline-flex items-center justify-center gap-1 min-h-9 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/15 border border-white/15 text-lobby-tx1 hover:text-lobby-accent text-[11px] font-bold transition-colors disabled:opacity-50"
-                      aria-label={`${EMOTION_LABELS[tag]} 다시 뽑기, 에너지 ${rerollCost}`}
+                      aria-label={`${emotionLabels[tag]} 다시 뽑기, 에너지 ${rerollCost}`}
                       title={`에너지 ${rerollCost}로 다시 뽑기`}
                     >
                       <RefreshCw size={7} /> <Zap size={7} className="text-lobby-accent" />{rerollCost}
@@ -1516,7 +1524,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
                 <motion.img
                   key={previewTag}
                   src={previewUrl}
-                  alt={EMOTION_LABELS[previewTag]}
+                  alt={emotionLabels[previewTag]}
                   className="h-[94%] object-contain select-none"
                   initial={{ opacity: 0, scale: 1.02 }}
                   animate={{ opacity: 1, scale: 1 }}
@@ -1529,14 +1537,15 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
               )}
             </AnimatePresence>
             <span className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-black/50 border border-white/10 text-xs text-lobby-accent font-bold">
-              {EMOTION_LABELS[previewTag]}
+              {emotionLabels[previewTag]}
             </span>
           </div>
           {/* 하단 감정 버튼 바 */}
           <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-1.5">
-            {EMOTION_ORDER.map((tag) => (
+            {emotionOrder.map((tag) => (
               <button
                 key={tag}
+              title={catalog.find((e) => e.id === tag)?.selectionCondition}
                 type="button"
                 onClick={() => { sfx.click(0.15); setPreviewTag(tag); }}
                 className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
@@ -1545,7 +1554,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
                     : "bg-white/[0.03] border-white/10 text-white/55 hover:bg-white/[0.08]"
                 }`}
               >
-                {EMOTION_LABELS[tag]}
+                {emotionLabels[tag]}
               </button>
             ))}
           </div>
@@ -1603,7 +1612,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
               <div className="relative rounded-2xl overflow-hidden border border-lobby-accent/30 mx-auto">
                 <img
                   src={assets[zoomTag]?.thumbUrl}
-                  alt={EMOTION_LABELS[zoomTag]}
+                  alt={emotionLabels[zoomTag]}
                   className="max-w-[92vw] max-h-[72vh] w-auto h-auto object-contain bg-black/90"
                 />
                 {/* [리롤 누적] 리롤/재시도 중 — 직전 선택본 위 스피너 오버레이 (thumbUrl 유지) */}
@@ -1654,7 +1663,7 @@ const ReviewGridStep = ({ job, busy, error, rerollCost, finalizeCost, onRerollRe
               )}
 
               <div className="flex items-center justify-between mt-3">
-                <span className="text-sm text-lobby-accent font-bold">{EMOTION_LABELS[zoomTag]}</span>
+                <span className="text-sm text-lobby-accent font-bold">{emotionLabels[zoomTag]}</span>
                 <button
                   type="button"
                   onClick={() => { sfx.click(); setZoomTag(null); }}
@@ -2134,7 +2143,7 @@ export default function StudioCreateFlow({
       return;
     }
     setConfirmState({
-      title: `${EMOTION_LABELS[tag]} 컷 다시 뽑기`,
+      title: `${job?.expressionCatalog?.find((e) => e.id === tag)?.label || EMOTION_LABELS[tag] || tag} 컷 다시 뽑기`,
       desc: `에너지 ${rerollCosts.emotion}을 사용해 이 표정을 다시 생성합니다.\n이전 완성본은 버전 목록에 남아 언제든 무료로 되돌릴 수 있어요.`,
       confirmLabel: "다시 뽑기",
       action: () => runAction(() => rerollEmotionCut(jobId, tag), sfx.chime),
