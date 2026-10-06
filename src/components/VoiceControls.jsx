@@ -14,11 +14,11 @@ export function VoiceModeToggle({ voice }) {
 export function VoiceListenButton({ voice }) {
   if (!voice.mode.available && voice.status?.status !== 'GREETING') return null;
   const status = voice.status?.status;
-  const loading = ['QUEUED', 'GENERATING'].includes(status) || voice.playback === 'loading';
+  const loading = voice.checking || voice.presentationPending || ['QUEUED', 'GENERATING'].includes(status) || voice.playback === 'loading';
   const supported = voice.status?.sceneIndices?.includes(voice.sceneIndex ?? 0);
   // The page passes the current scene index; an unlocked multi-speaker response can contain unsupported scenes.
   const disabled = voice.busy || loading || (status !== 'UNAVAILABLE' && (!supported || !['AVAILABLE', 'FAILED', 'READY', 'GREETING'].includes(status)));
-  const label = status === 'UNAVAILABLE' ? '상태 다시 확인' : !supported ? '보이스 없음' : loading ? '음성 준비 중' : voice.playback === 'playing' ? '멈춤' : voice.playback === 'blocked' ? '눌러서 재생'
+  const label = status === 'UNAVAILABLE' ? '상태 다시 확인' : loading ? '음성 준비 중' : !supported ? '보이스 없음' : voice.playback === 'playing' ? '멈춤' : voice.playback === 'blocked' ? '눌러서 재생'
     : voice.playback === 'error' ? '재생 다시 시도' : status === 'GREETING' ? '첫인사 듣기 · 무료'
     : status === 'FAILED' ? '생성 재시도' : status === 'READY' ? '다시 듣기' : supported ? '듣기' : '보이스 없음';
   return <span className="flex items-center gap-2 ml-auto">

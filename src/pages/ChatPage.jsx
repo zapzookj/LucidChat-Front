@@ -637,7 +637,7 @@ const ChatPage = () => {
           setAwaitingFinalResult(false);
           const sceneData = {
             speaker: scene.speaker || null,
-            narration: scene.narration, dialogue: scene.dialogue, parentLogId: scene.parentLogId, sceneIndex: scene.sceneIndex, voiceAutoEligible: scene.voiceAutoEligible,
+            narration: scene.narration, dialogue: scene.dialogue, presentationId: scene.presentationId, parentLogId: scene.parentLogId, sceneIndex: scene.sceneIndex, voiceAutoEligible: scene.voiceAutoEligible,
             emotion: scene.emotion || "NEUTRAL",
             expressionId: scene.expressionId ?? null,
             expressionImageUrl: scene.expressionImageUrl ?? null,
@@ -1617,7 +1617,7 @@ const ChatPage = () => {
         setCurrentScene({
           speaker: scene.speaker || null,     // ★ Fix-UI-2: speaker 포함
           narration: scene.narration,
-          dialogue: scene.dialogue, parentLogId: scene.parentLogId, sceneIndex: scene.sceneIndex, voiceAutoEligible: scene.voiceAutoEligible,
+          dialogue: scene.dialogue, presentationId: scene.presentationId, parentLogId: scene.parentLogId, sceneIndex: scene.sceneIndex, voiceAutoEligible: scene.voiceAutoEligible,
           emotion: scene.emotion || "NEUTRAL",
           expressionId: scene.expressionId ?? null,
           expressionImageUrl: scene.expressionImageUrl ?? null,
@@ -2101,7 +2101,7 @@ const ChatPage = () => {
           setCurrentScene({
             speaker: scene.speaker || null,     // ★ Fix-UI-2: speaker 포함
             narration: scene.narration,
-            dialogue: scene.dialogue, parentLogId: scene.parentLogId, sceneIndex: scene.sceneIndex, voiceAutoEligible: scene.voiceAutoEligible,
+            dialogue: scene.dialogue, presentationId: scene.presentationId, parentLogId: scene.parentLogId, sceneIndex: scene.sceneIndex, voiceAutoEligible: scene.voiceAutoEligible,
             emotion: scene.emotion || "NEUTRAL",
             expressionId: scene.expressionId ?? null,
             expressionImageUrl: scene.expressionImageUrl ?? null,
@@ -2212,7 +2212,7 @@ const ChatPage = () => {
           setIsTyping(false);
           setCurrentScene({
             narration: scene.narration,
-            dialogue: scene.dialogue, parentLogId: scene.parentLogId, sceneIndex: scene.sceneIndex, voiceAutoEligible: scene.voiceAutoEligible,
+            dialogue: scene.dialogue, presentationId: scene.presentationId, parentLogId: scene.parentLogId, sceneIndex: scene.sceneIndex, voiceAutoEligible: scene.voiceAutoEligible,
             emotion: scene.emotion || "NEUTRAL",
             expressionId: scene.expressionId ?? null,
             expressionImageUrl: scene.expressionImageUrl ?? null,
@@ -2610,7 +2610,7 @@ const ChatPage = () => {
            SFX·앰비언스로 들어간 비대칭이라, 라이브 값으로 되돌린다. */
         location={showEndingCredits ? null : currentLocation}
         time={currentTime}
-        masterVolume={bgmVolume * (voice.playback === 'playing' ? 0.25 : 1)}
+        masterVolume={bgmVolume} ducked={voice.playback === 'playing'}
         isMuted={!isBgmPlaying}
         characterSlug={roomInfo?.characterSlug}
       />

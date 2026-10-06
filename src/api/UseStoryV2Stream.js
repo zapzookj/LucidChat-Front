@@ -1,4 +1,4 @@
-import { withVoiceIdentity } from "../utils/ttsScene";
+import { withVoiceIdentity, withLiveSceneIdentity } from "../utils/ttsScene";
 import { getStoryV2StreamUrl, getStoryV2OpeningStreamUrl } from "./StoryV2Api";
 import { API_BASE_URL, refreshAccessToken } from "./refreshLock";
 
@@ -136,7 +136,7 @@ async function _ssePostV2(path, body, callbacks, abortController, _retried = fal
           switch (parsed.event) {
             case "first_scene":
               try {
-                callbacks.onFirstScene?.(JSON.parse(parsed.data));
+                callbacks.onFirstScene?.(withLiveSceneIdentity(JSON.parse(parsed.data)));
               } catch (e) {
                 console.warn("[V2-SSE] first_scene parse error:", e);
               }

@@ -1,8 +1,18 @@
 /** Preserve the persisted response identity across live queues and replay. */
+export function withLiveSceneIdentity(scene) {
+  return { ...scene, presentationId: scene.presentationId || crypto.randomUUID(), voiceAutoEligible: true };
+}
+
+export function scenePresentationKey(scene) {
+  return scene?.presentationId || (scene?.parentLogId != null && Number.isInteger(scene.sceneIndex)
+    ? `${scene.parentLogId}/${scene.sceneIndex}/${Boolean(scene.__replay)}` : null);
+}
+
 export function withVoiceIdentity(data) {
   if (!data?.assistantLogId || !Array.isArray(data.scenes)) return data;
   return { ...data, scenes: data.scenes.map((scene, sceneIndex) => ({
-    ...scene, parentLogId: data.assistantLogId, sceneIndex, voiceAutoEligible: true,
+    ...scene, presentationId: scene.presentationId || `${data.assistantLogId}/${sceneIndex}`,
+    parentLogId: data.assistantLogId, sceneIndex, voiceAutoEligible: true,
   })) };
 }
 

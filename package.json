@@ -10,6 +10,7 @@
     "check:tdz": "node scripts/check-hook-tdz.mjs",
     "check:entry": "node scripts/check-entry-experience.mjs",
     "check:tts": "node scripts/check-tts-contract.mjs",
+    "check:voice-media": "node scripts/check-voice-media.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -6,6 +6,7 @@ import { sfx } from "../utils/sfx";
 import { derivePulse, deltaSumOfChanges } from "../utils/relationNarrative";
 import "../styles/aurora-chat.css";
 import { VoiceListenButton } from './VoiceControls';
+import { scenePresentationKey } from '../utils/ttsScene';
 
 /**
  * [Phase 5.5-Fix] DialogueBox
@@ -385,6 +386,10 @@ const DialogueBox = ({
   const [activeTab, setActiveTab] = useState("dialogue");
 
   const isEventScene = scene?.isEvent;
+  // Streaming metadata may change without replacing the scene being presented.
+  const presentationKey = scenePresentationKey(scene) || rawScene;
+  const fullText = isEventScene ? (scene?.narration || "") : (scene?.dialogue || "");
+  const voicePending = Boolean(voice?.presentationPending && !isEventScene);
 
   // [Phase 5.5-EV] 디렉터 모드 진행 중 여부
   const isDirectorOngoing = eventStatus === "ONGOING";
@@ -411,7 +416,7 @@ const DialogueBox = ({
   // 새 씬이 오면 대사 탭으로 리셋
   useEffect(() => {
     setActiveTab("dialogue");
-  }, [scene]);
+  }, [presentationKey]);
 
   // 부스트 모드 에너지 비용 계산
   const getEnergyCost = () => {
@@ -423,7 +428,10 @@ const DialogueBox = ({
 
   // 빠른 읽기 시 타이머까지 정지해 다음 tick에서 대사가 다시 줄어들지 않도록 한다.
   useEffect(() => {
-    const fullText = isEventScene ? (scene?.narration || "") : (scene?.dialogue || "");
+    if (voicePending) {
+      setDisplayedText(""); setIsTextFullyDisplayed(false);
+      return;
+    }
 
     if (reduceMotion || (!fullText && !scene?.narration && !isEventScene)) {
       setDisplayedText(fullText);
@@ -447,7 +455,7 @@ const DialogueBox = ({
     }, speed);
 
     return () => clearInterval(typingTimerRef.current);
-  }, [scene, isEventScene, reduceMotion]);
+  }, [presentationKey, fullText, isEventScene, reduceMotion, voicePending]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -470,7 +478,7 @@ const DialogueBox = ({
   }, [affection]);
 
   const handleBoxClick = (event) => {
-    if (activeTab === "thought" || isTyping) return;
+    if (activeTab === "thought" || isTyping || voicePending) return;
     if (event?.target?.closest("button, input, select, textarea, a")) return;
 
     if (!isTextFullyDisplayed) {
@@ -780,7 +788,9 @@ const DialogueBox = ({
                   </motion.div>
                 )}
 
-                {isTyping ? (
+                {voicePending ? (
+                  <div role="status" className="text-sm text-lobby-tx1 animate-pulse">목소리를 준비하고 있어요…</div>
+                ) : isTyping ? (
                   storyV2Mode && !isEventScene && !isDirectorOngoing ? (
                     /* [UX] V2 디렉터 시점 — 캐릭터 비종속 시네마틱 로더 (장면을 그리는 중) */
                     <div role="status" className="flex flex-col gap-2.5 items-center justify-center h-full mt-2">
@@ -807,7 +817,7 @@ const DialogueBox = ({
                   )
                 ) : (
                   <>
-                    <span className={isEventScene ? "text-xl text-indigo-100 font-serif italic" : ""}>
+                    <span data-dialogue-text className={isEventScene ? "text-xl text-indigo-100 font-serif italic" : ""}>
                       {displayedText}
                     </span>
                     {!scene?.dialogue && !scene?.narration && !isTyping && (
@@ -826,7 +836,7 @@ const DialogueBox = ({
           </AnimatePresence>
 
           {/* 빠른 읽기와 다음 대사를 키보드로도 조작할 수 있는 명시적 버튼. */}
-          {activeTab === "dialogue" && !isTyping && (!isTextFullyDisplayed || hasNextScene) && (
+          {activeTab === "dialogue" && !isTyping && !voicePending && (!isTextFullyDisplayed || hasNextScene) && (
             <motion.button
               type="button"
               onClick={(event) => { event.stopPropagation(); handleBoxClick(); }}

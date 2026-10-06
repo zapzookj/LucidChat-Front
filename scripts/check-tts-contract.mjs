@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { withVoiceIdentity, attachFirstVoiceIdentity, voiceSceneKey } from '../src/utils/ttsScene.js';
+import { withVoiceIdentity, withLiveSceneIdentity, scenePresentationKey, attachFirstVoiceIdentity, voiceSceneKey } from '../src/utils/ttsScene.js';
 import { messageToScene } from '../src/utils/sceneReplay.js';
 
 const response = withVoiceIdentity({ assistantLogId: 'response-a', scenes: [
@@ -21,3 +21,9 @@ assert.equal(replay.dialogue, '안녕');
 assert.equal(messageToScene({ role: 'SYSTEM', parentLogId: 'old-system', sceneIndex: 2, cleanContent: '*바람이 분다*' }).dialogue, '');
 assert.equal(withVoiceIdentity({ scenes: [{}] }).scenes[0].parentLogId, undefined);
 console.log('✓ TTS 응답 식별자·현재 첫 씬·과거 리플레이 계약 12개 통과');
+const live = withLiveSceneIdentity({ speaker: '아이리', dialogue: '안녕', narration: '미소 짓는다' });
+assert.equal(voiceSceneKey(10, live), null); // Presentation cannot authorize an audio read.
+assert.equal(scenePresentationKey(attachFirstVoiceIdentity(live, response)), scenePresentationKey(live));
+assert.notEqual(scenePresentationKey(withLiveSceneIdentity(live)), scenePresentationKey(withLiveSceneIdentity({ ...live, presentationId: undefined })));
+assert.notEqual(scenePresentationKey(response.scenes[0]), scenePresentationKey(response.scenes[1]));
+console.log('✓ 표시 ID 보강·동일 본문 다른 씬·권한 ID 분리 4개 통과');

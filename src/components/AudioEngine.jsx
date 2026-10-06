@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { assetUrl } from "../utils/assetUrl";
+import { createBgmEnvelope } from "../utils/bgmEnvelope";
 
 // ═══════════════════════════════════════════════════════════════
 //  [Phase 4] AudioEngine — 동적 청각 엔진
@@ -155,11 +156,14 @@ function fadeIn(audio, targetVolume, duration = FADE_DURATION) {
  */
 const AudioEngine = ({
   bgmMode, location, time,
-  masterVolume = 0.5, isMuted = false,
+  masterVolume = 0.5, isMuted = false, ducked = false,
   characterSlug, worldId,
 }) => {
   // ── Refs ──
   const bgmRef = useRef(null);
+  const bgmEnvelopeRef = useRef(null);
+  const bgmSwitchEpoch = useRef(0);
+  const duckedRef = useRef(ducked);
   const bgmModeRef = useRef(null);
   const ambienceRefs = useRef([]);
   const ambienceKeyRef = useRef("");
@@ -183,10 +187,9 @@ const AudioEngine = ({
   // masterVolume / isMuted 동기화
   useEffect(() => {
     masterRef.current = masterVolume;
+    mutedRef.current = isMuted;
 
     if (bgmRef.current) {
-      const vol = isMuted ? 0 : masterVolume * BGM_VOLUME_RATIO;
-      bgmRef.current.volume = vol;
       if (!isMuted && bgmRef.current.paused) {
         bgmRef.current.play().catch(() => {});
       }
@@ -200,16 +203,9 @@ const AudioEngine = ({
   }, [masterVolume, isMuted]);
 
   useEffect(() => {
-    mutedRef.current = isMuted;
-    if (bgmRef.current) {
-      bgmRef.current.volume = isMuted ? 0 : masterRef.current * BGM_VOLUME_RATIO;
-    }
-    ambienceRefs.current.forEach(a => {
-      if (a) {
-        a.volume = isMuted ? 0 : masterRef.current * AMBIENCE_VOLUME_RATIO;
-      }
-    });
-  }, [isMuted]);
+    duckedRef.current = ducked;
+    bgmEnvelopeRef.current?.update({ master: masterVolume, muted: isMuted, ducked });
+  }, [masterVolume, isMuted, ducked]);
 
   // Autoplay Policy 복구
   useEffect(() => {
@@ -264,17 +260,21 @@ const AudioEngine = ({
     bgmLastChangedRef.current = now;
 
     const switchBgm = async () => {
-      if (bgmRef.current) {
-        await fadeOut(bgmRef.current);
-      }
+      const ticket = ++bgmSwitchEpoch.current;
+      const oldEnvelope = bgmEnvelopeRef.current;
+      if (oldEnvelope) await oldEnvelope.fadeTo(0, FADE_DURATION);
+      if (ticket !== bgmSwitchEpoch.current) return;
+      oldEnvelope?.dispose();
 
       const newAudio = new Audio(newSrc);
       newAudio.loop = true;
       newAudio.preload = "auto";
       bgmRef.current = newAudio;
 
-      const targetVol = mutedRef.current ? 0 : masterRef.current * BGM_VOLUME_RATIO;
-      fadeIn(newAudio, targetVol);
+      const envelope = createBgmEnvelope(newAudio, { master: masterRef.current, muted: mutedRef.current, ducked: duckedRef.current });
+      bgmEnvelopeRef.current = envelope;
+      newAudio.play().catch(() => {});
+      void envelope.fadeTo(1, FADE_DURATION);
     };
 
     switchBgm();
@@ -352,6 +352,9 @@ const AudioEngine = ({
   // ── Cleanup ──
   useEffect(() => {
     return () => {
+      bgmSwitchEpoch.current++;
+      bgmEnvelopeRef.current?.dispose();
+      bgmEnvelopeRef.current = null;
       if (bgmRef.current) {
         bgmRef.current.pause();
         bgmRef.current = null;
