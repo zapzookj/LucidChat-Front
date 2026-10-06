@@ -46,6 +46,8 @@ export function messageToScene(msg) {
       time: msg.time ?? null,
       isEvent: true, // DialogueBox 보라 나레이션 UI
       __replay: true,
+      parentLogId: msg.parentLogId || msg.logId || null,
+      sceneIndex: msg.sceneIndex ?? 0,
     };
   }
   const narrationLines = [];
@@ -68,5 +70,7 @@ export function messageToScene(msg) {
     time: msg.time ?? null,           // [aichat E-1.9]
     isEvent: false,
     __replay: true,
+    parentLogId: msg.parentLogId || msg.logId || null,
+    sceneIndex: msg.sceneIndex ?? 0,
   };
 }

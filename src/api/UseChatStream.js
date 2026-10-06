@@ -1,3 +1,4 @@
+import { withVoiceIdentity } from "../utils/ttsScene";
 /**
  * [Phase 5.5-Perf] SSE 스트리밍 채팅 클라이언트
  * [Phase 5.5-EV]  이벤트 시스템 강화:
@@ -249,7 +250,7 @@ async function _ssePost(url, body, callbacks, abortController, _retried = false)
               catch (e) { console.warn('[SSE] first_scene parse error:', e); }
               break;
             case 'final_result':
-              try { callbacks.onFinalResult?.(JSON.parse(parsed.data)); }
+              try { callbacks.onFinalResult?.(withVoiceIdentity(JSON.parse(parsed.data))); }
               catch (e) { console.warn('[SSE] final_result parse error:', e); }
               break;
             case 'error':
@@ -269,7 +270,7 @@ async function _ssePost(url, body, callbacks, abortController, _retried = false)
     if (buffer.trim()) {
       const parsed = parseSseEvent(buffer);
       if (parsed?.event === 'final_result') {
-        try { callbacks.onFinalResult?.(JSON.parse(parsed.data)); }
+        try { callbacks.onFinalResult?.(withVoiceIdentity(JSON.parse(parsed.data))); }
         catch (e) { /* ignore */ }
       }
     }

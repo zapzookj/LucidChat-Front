@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { parse } from '@babel/parser';
 import { getIntroVideo, canRevealEntry } from '../src/utils/introPresentation.js';
 import { extractLastSentence, subjectJosa } from '../src/utils/dialogueSanitizer.js';
+import { attachFirstVoiceIdentity } from '../src/utils/ttsScene.js';
 
 const sourceOf = name => readFileSync(new URL(`../src/pages/${name}`, import.meta.url), 'utf8');
 const parsePage = source => parse(source, { sourceType: 'module', plugins: ['jsx'] });
@@ -119,7 +120,7 @@ async function v2Fixture(emit, { busy = false, alreadyFired = false } = {}) {
     roomId: 'room', v2Room: { heroines: [] }, openingFiredRef: { current: alreadyFired },
     introMountedRef: { current: true }, introRoomRef: { current: 'room' }, introRequestRef: { current: null },
     sseAbortRef: { current: null }, isSseBusy: () => busy,
-    isSystemSpeakerName: name => !name, console: quietConsole,
+    isSystemSpeakerName: name => !name, console: quietConsole, attachFirstVoiceIdentity,
     buildHistoryEntries: scenes => scenes, sceneStage: { notifyLocationChange() {} },
     fetchStoryV2RoomDetail: async () => ({}), syncCharacterStatsFromRoom() {}, showToast() {},
     markSseTurnStart: () => { scope.sseAbortRef.current = new AbortController(); return 17; },

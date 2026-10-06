@@ -32,3 +32,6 @@ public/backgrounds/
 public/sounds/
 public/videos/
 public/worlds/
+
+# Development-only TTS audio fixture
+public/__tts-sample.mp3

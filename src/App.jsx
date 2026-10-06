@@ -28,6 +28,7 @@ import { savePendingAction } from "./utils/postLogin";
 
 const DesignReviewPage = import.meta.env.DEV ? lazy(() => import("./dev/DesignReviewPage")) : null;
 const ChatDesignPreview = import.meta.env.DEV ? lazy(() => import("./dev/ChatDesignPreview")) : null;
+const TtsPreview = import.meta.env.DEV ? lazy(() => import("./dev/TtsPreview")) : null;
 const SecondaryDesignPreview = import.meta.env.DEV ? lazy(() => import("./dev/SecondaryDesignPreview")) : null;
 
 /**
@@ -68,6 +69,7 @@ function App() {
         <Routes>
           {import.meta.env.DEV && <Route path="/__design" element={<Suspense fallback={null}><DesignReviewPage /></Suspense>} />}
           {import.meta.env.DEV && <Route path="/__design/chat" element={<Suspense fallback={null}><ChatDesignPreview /></Suspense>} />}
+          {import.meta.env.DEV && <Route path="/__design/tts" element={<Suspense fallback={null}><TtsPreview /></Suspense>} />}
           {import.meta.env.DEV && <Route path="/__design/secondary" element={<Suspense fallback={null}><SecondaryDesignPreview /></Suspense>} />}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/oauth2/success" element={<OAuthSuccessPage />} />

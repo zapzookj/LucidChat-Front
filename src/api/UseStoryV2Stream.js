@@ -1,3 +1,4 @@
+import { withVoiceIdentity } from "../utils/ttsScene";
 import { getStoryV2StreamUrl, getStoryV2OpeningStreamUrl } from "./StoryV2Api";
 import { API_BASE_URL, refreshAccessToken } from "./refreshLock";
 
@@ -142,7 +143,7 @@ async function _ssePostV2(path, body, callbacks, abortController, _retried = fal
               break;
             case "final_result":
               try {
-                callbacks.onFinalResult?.(JSON.parse(parsed.data));
+                callbacks.onFinalResult?.(withVoiceIdentity(JSON.parse(parsed.data)));
               } catch (e) {
                 console.warn("[V2-SSE] final_result parse error:", e);
               }
@@ -173,7 +174,7 @@ async function _ssePostV2(path, body, callbacks, abortController, _retried = fal
       const parsed = parseSseEvent(buffer);
       if (parsed?.event === "final_result") {
         try {
-          callbacks.onFinalResult?.(JSON.parse(parsed.data));
+          callbacks.onFinalResult?.(withVoiceIdentity(JSON.parse(parsed.data)));
         } catch (e) {
           /* ignore */
         }

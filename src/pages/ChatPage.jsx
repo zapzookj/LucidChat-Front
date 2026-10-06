@@ -1,3 +1,6 @@
+import useTtsPlayback from "../hooks/useTtsPlayback";
+import { VoiceModeToggle, VoiceConfirmDialog, VoiceVolumeControl } from "../components/VoiceControls";
+import { attachFirstVoiceIdentity } from "../utils/ttsScene";
 import EntryExperience from "../components/experience/EntryExperience";
 import EntryPreparation from "../components/experience/EntryPreparation";
 import { getIntroVideo } from "../utils/introPresentation";
@@ -351,6 +354,18 @@ const ChatPage = () => {
   const pendingDirectorActionRef = useRef(null);
 
   // [UX Fix Bug 1] 나레이션 표시 중인지 추적 — 캐릭터 첫 씬 자동 덮어쓰기 방지
+  const voiceScene = replayView ? replayView.scene : currentScene;
+  const voice = useTtsPlayback(roomId, voiceScene, {
+    active: introStep === 'none' && !isTyping,
+    notify: (message, type) => showToast(message, type),
+    onEnergyChanged: () => {
+      api.get('/users/me').then(({ data }) => {
+        setEnergy(data.energy);
+        if (data.freeEnergy !== undefined) setFreeEnergy(data.freeEnergy);
+        if (data.paidEnergy !== undefined) setPaidEnergy(data.paidEnergy);
+      }).catch(() => {});
+    },
+  });
   const currentSceneRef = useRef(null);
 
   // [Bug Fix #3] scheduleDirectorAutoCheck의 stale closure 방지용 ref 미러
@@ -622,7 +637,7 @@ const ChatPage = () => {
           setAwaitingFinalResult(false);
           const sceneData = {
             speaker: scene.speaker || null,
-            narration: scene.narration, dialogue: scene.dialogue,
+            narration: scene.narration, dialogue: scene.dialogue, parentLogId: scene.parentLogId, sceneIndex: scene.sceneIndex, voiceAutoEligible: scene.voiceAutoEligible,
             emotion: scene.emotion || "NEUTRAL",
             expressionId: scene.expressionId ?? null,
             expressionImageUrl: scene.expressionImageUrl ?? null,
@@ -647,6 +662,7 @@ const ChatPage = () => {
         },
 
         onFinalResult: (data) => {
+        setCurrentScene(previous => attachFirstVoiceIdentity(previous, data));
           if (!firstSceneReceived) setIsTyping(false);
           setAwaitingFinalResult(false);
           setDirectorAutoProcessing(false);
@@ -776,7 +792,8 @@ const ChatPage = () => {
         cleanContent: content.join('\n'),
         speaker: speakerName,
         logId: (i === scenes.length - 1) ? (resLogId || null) : null,
-        parentLogId: resLogId || null,  // [Bug Fix #1] 모든 씬에 원본 logId 공유 — 일괄 삭제용
+        parentLogId: resLogId || s.parentLogId || null,  // [Bug Fix #1] 모든 씬에 원본 logId 공유 — 일괄 삭제용
+        sceneIndex: i,
         hasInnerThought: (i === scenes.length - 1) ? !!resHasThought : false,
         thoughtUnlocked: false,
         innerThought: null,
@@ -839,6 +856,7 @@ const ChatPage = () => {
             speaker: scene.speaker || ctxCharacterName || "캐릭터",
             logId: (i === scenes.length - 1) ? log.logId : null,
             parentLogId: log.logId,  // [Bug #1 Fix] 모든 씬에 원본 logId 공유 — 일괄 삭제용
+            sceneIndex: i,
             hasInnerThought: (i === scenes.length - 1) ? log.hasInnerThought : false,
             thoughtUnlocked: log.thoughtUnlocked || false,
             innerThought: log.innerThought || null,
@@ -1197,7 +1215,9 @@ const ChatPage = () => {
                    dialogue: lastLog.cleanContent?.replace(/^\*.*\*\n?/, '') || '',
                    narration: "",
                    emotion: lastLog.emotionTag || "NEUTRAL",
-                   expressionId: lastLog.expressionId ?? null,
+                   parentLogId: lastLog.parentLogId || lastLog.logId || null,
+                sceneIndex: lastLog.sceneIndex ?? 0,
+                expressionId: lastLog.expressionId ?? null,
                    expressionImageUrl: lastLog.expressionImageUrl ?? null,
                  });
                  setDisplayedEmotion(lastLog.emotionTag || "NEUTRAL");
@@ -1266,6 +1286,8 @@ const ChatPage = () => {
               const charName = roomData?.characterName || "캐릭터";
               const introTail = narrationLog ? extractLastSentence(narrationLog.cleanContent) : "";
               queue.push({
+                  parentLogId: greetingLog.logId,
+                  sceneIndex: 0,
                   dialogue: greetingLog.cleanContent,
                   narration: introTail || `${charName}${subjectJosa(charName)} 고개를 숙여 인사하며 부드럽게 미소짓는다.`,
                   emotion: greetingLog.emotionTag,
@@ -1595,7 +1617,7 @@ const ChatPage = () => {
         setCurrentScene({
           speaker: scene.speaker || null,     // ★ Fix-UI-2: speaker 포함
           narration: scene.narration,
-          dialogue: scene.dialogue,
+          dialogue: scene.dialogue, parentLogId: scene.parentLogId, sceneIndex: scene.sceneIndex, voiceAutoEligible: scene.voiceAutoEligible,
           emotion: scene.emotion || "NEUTRAL",
           expressionId: scene.expressionId ?? null,
           expressionImageUrl: scene.expressionImageUrl ?? null,
@@ -1621,6 +1643,7 @@ const ChatPage = () => {
       //  스탯/승급/엔딩/이스터에그 + 나머지 씬 처리
       // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       onFinalResult: (data) => {
+        setCurrentScene(previous => attachFirstVoiceIdentity(previous, data));
         // first_scene이 안 왔을 경우 (드물지만 안전장치)
         if (!firstSceneReceived) {
           setIsTyping(false);
@@ -2078,7 +2101,7 @@ const ChatPage = () => {
           setCurrentScene({
             speaker: scene.speaker || null,     // ★ Fix-UI-2: speaker 포함
             narration: scene.narration,
-            dialogue: scene.dialogue,
+            dialogue: scene.dialogue, parentLogId: scene.parentLogId, sceneIndex: scene.sceneIndex, voiceAutoEligible: scene.voiceAutoEligible,
             emotion: scene.emotion || "NEUTRAL",
             expressionId: scene.expressionId ?? null,
             expressionImageUrl: scene.expressionImageUrl ?? null,
@@ -2097,6 +2120,7 @@ const ChatPage = () => {
         },
   
         onFinalResult: (data) => {
+        setCurrentScene(previous => attachFirstVoiceIdentity(previous, data));
           if (!firstSceneReceived) setIsTyping(false);
   
           const { scenes, currentAffection, stats: newStats,
@@ -2188,7 +2212,7 @@ const ChatPage = () => {
           setIsTyping(false);
           setCurrentScene({
             narration: scene.narration,
-            dialogue: scene.dialogue,
+            dialogue: scene.dialogue, parentLogId: scene.parentLogId, sceneIndex: scene.sceneIndex, voiceAutoEligible: scene.voiceAutoEligible,
             emotion: scene.emotion || "NEUTRAL",
             expressionId: scene.expressionId ?? null,
             expressionImageUrl: scene.expressionImageUrl ?? null,
@@ -2201,6 +2225,7 @@ const ChatPage = () => {
         },
   
         onFinalResult: (data) => {
+        setCurrentScene(previous => attachFirstVoiceIdentity(previous, data));
           if (!firstSceneReceived) setIsTyping(false);
   
           const { scenes, currentAffection, stats: newStats,
@@ -2334,6 +2359,9 @@ const ChatPage = () => {
       async () => {
         try {
           await api.delete(`/chat/rooms/${roomId}/logs/${logId}`);
+          voice.invalidate(logId);
+          setCurrentScene(previous => previous?.parentLogId === logId ? null : previous);
+          setSceneQueue(previous => previous.filter(scene => scene.parentLogId !== logId));
           setMessages(prev => prev.filter(msg =>
             msg.logId !== logId && msg.parentLogId !== logId
           ));
@@ -2582,7 +2610,7 @@ const ChatPage = () => {
            SFX·앰비언스로 들어간 비대칭이라, 라이브 값으로 되돌린다. */
         location={showEndingCredits ? null : currentLocation}
         time={currentTime}
-        masterVolume={bgmVolume}
+        masterVolume={bgmVolume * (voice.playback === 'playing' ? 0.25 : 1)}
         isMuted={!isBgmPlaying}
         characterSlug={roomInfo?.characterSlug}
       />
@@ -2652,6 +2680,8 @@ const ChatPage = () => {
       />
 
 
+      <VoiceConfirmDialog voice={voice} />
+      {isMobile && <div className="absolute top-6 right-[4.5rem] z-50"><VoiceModeToggle voice={voice} /></div>}
       {/* Top Buttons */}
       {/* [Phase B · 단계3] 데스크톱은 기존 클러스터 그대로, 모바일은 ⋯ 오버플로 → 메뉴 시트 */}
       {isMobile ? (
@@ -2680,6 +2710,7 @@ const ChatPage = () => {
           <Gem size={20} />
         </button>
 
+        <VoiceModeToggle voice={voice} />
         {/* 🚀 Boost Toggle */}
         <BoostToggle
           boostMode={boostMode}
@@ -2730,6 +2761,7 @@ const ChatPage = () => {
       <SceneReplayOverlay replay={replay} portrait={isMobile} />
 
       {introStep === 'none' && <DialogueBox
+        voice={{ ...voice, sceneIndex: voiceScene?.sceneIndex }}
         mobile={isMobile}
         characterName={roomInfo?.characterName}
         scene={replayView ? replayView.scene : currentScene}
@@ -3294,6 +3326,7 @@ const ChatPage = () => {
 
                     <div className="h-px bg-white/10" />
 
+                    <VoiceVolumeControl voice={voice} />
                     {/* 3. Achievements */}
                     <section>
                       <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">

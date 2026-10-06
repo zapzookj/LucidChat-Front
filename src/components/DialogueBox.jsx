@@ -5,6 +5,7 @@ import { sanitizeScene } from "../utils/dialogueSanitizer";
 import { sfx } from "../utils/sfx";
 import { derivePulse, deltaSumOfChanges } from "../utils/relationNarrative";
 import "../styles/aurora-chat.css";
+import { VoiceListenButton } from './VoiceControls';
 
 /**
  * [Phase 5.5-Fix] DialogueBox
@@ -327,6 +328,7 @@ const DialogueBox = ({
   onWatch,
   // [Phase 5.5-NPC]
   speaker = null,
+  voice = null,
   onTimeSkip,
   // [Phase 5.5-Fix] SSE 응답 대기 플래그
   awaitingFinalResult = false,
@@ -738,6 +740,7 @@ const DialogueBox = ({
               </AnimatePresence>
 
               {/* [Fix #5] 속마음 토글 — 네임 플레이트 바로 옆 */}
+              {voice && <VoiceListenButton voice={voice} />}
               {showThoughtTabs && (
                 <ThoughtToggleTabs activeTab={activeTab} onTabChange={setActiveTab} />
               )}
