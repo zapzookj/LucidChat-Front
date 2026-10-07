@@ -357,6 +357,7 @@ const ChatPage = () => {
   const voiceScene = replayView ? replayView.scene : currentScene;
   const voice = useTtsPlayback(roomId, voiceScene, {
     active: introStep === 'none' && !isTyping,
+    awaitingFinalResult,
     notify: (message, type) => showToast(message, type),
     onEnergyChanged: () => {
       api.get('/users/me').then(({ data }) => {

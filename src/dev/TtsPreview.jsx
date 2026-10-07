@@ -9,7 +9,7 @@ const GREETING = '어서 오세요, 주인님. 저는 이 저택의 메이드, �
 // Development-only adapter: no paid provider calls or real wallet writes.
 export default function TtsPreview() {
   const fixture = useMemo(() => ({ mode: window.location.search.includes('lateMode'), modeDelay: window.location.search.includes('lateMode') ? 2500 : 0,
-    status: window.location.search.includes('lateMode') ? 'READY' : 'AVAILABLE', energy: 30, polls: 0, failNext: false, delayAudio: false }), []);
+    status: window.location.search.includes('lateMode') ? 'READY' : 'AVAILABLE', energy: 30, polls: 0, failNext: false, delayAudio: false, readyAt: 0 }), []);
   const [serial, setSerial] = useState(1);
   const [scenario, setScenario] = useState(window.location.search.includes('lateMode') ? 'auto' : 'manual');
   const [energy, setEnergy] = useState(30);
@@ -56,7 +56,7 @@ export default function TtsPreview() {
         record(`clip ${config.url.split('/').at(-1)} 수신`);
       } else {
         if (config.method === 'post') { fixture.status = 'GENERATING'; fixture.polls = 0; fixture.energy--; }
-        if (config.method === 'get' && fixture.status === 'GENERATING' && fixture.polls++ > 0) fixture.status = 'READY';
+        if (config.method === 'get' && fixture.status === 'GENERATING' && fixture.polls++ > 0 && performance.now() >= fixture.readyAt) fixture.status = 'READY';
         data = { status: fixture.status, attemptId: 'local-attempt', energyCost: fixture.status === 'GREETING' ? 0 : 1,
           refunded: fixture.status === 'FAILED', sceneIndices: [0, 1, 2], greetingSlug: 'airi', remainingEnergy: fixture.energy };
       }
@@ -65,12 +65,12 @@ export default function TtsPreview() {
     setReady(true);
     return () => { api.defaults.adapter = original; clearTimeout(fixtureTimer.current); restoreVisibility.current?.(); };
   }, [fixture]);
-  const voice = useTtsPlayback(ready ? 9000 : null, scene, { onEnergyChanged: () => setEnergy(fixture.energy), notify: setNotice });
+  const voice = useTtsPlayback(ready ? 9000 : null, scene, { awaitingFinalResult: Boolean(liveScene && !liveScene.parentLogId), onEnergyChanged: () => setEnergy(fixture.energy), notify: setNotice });
   useEffect(() => { if (voice.playback === 'playing') record('재생 시작'); }, [voice.playback]);
   const pick = value => {
     voice.stop(); clearTimeout(fixtureTimer.current); setDeleted(false); setLiveScene(null); setSceneIndex(0); fixture.delayAudio = false; fixture.failNext = false;
     fixture.status = value === 'greeting' ? 'GREETING' : value === 'failed' ? 'FAILED' : value === 'auto' ? 'GENERATING' : value === 'ready' ? 'READY' : 'AVAILABLE';
-    fixture.polls = 0; setScenario(value); setSerial(number => number + 1); setNotice(''); startedAt.current = performance.now(); setMeasurements([]);
+    fixture.polls = 0; fixture.readyAt = 0; setScenario(value); setSerial(number => number + 1); setNotice(''); startedAt.current = performance.now(); setMeasurements([]);
     if (value === 'auto' && fixture.mode) { fixture.energy--; setEnergy(fixture.energy); }
   };
   const backgroundResponse = () => {
@@ -85,14 +85,15 @@ export default function TtsPreview() {
     pick('auto'); fixture.status = 'READY';
     fixtureTimer.current = setTimeout(() => restoreVisibility.current?.(), 1200);
   };
-  const streamed = (auto, delay = 0) => {
+  const streamed = (auto, delay = 0, finalDelay = 700, generationDelay = 0) => {
     pick(auto ? 'auto' : 'manual'); fixture.delayAudio = delay;
+    fixture.readyAt = performance.now() + finalDelay + generationDelay;
     const next = withLiveSceneIdentity({ speaker: '아이리', dialogue: GREETING, narration: '아이리가 당신을 바라보며 부드럽게 인사한다.' });
     setLiveScene(next);
     fixtureTimer.current = setTimeout(() => {
       const data = withVoiceIdentity({ assistantLogId: `local-${serial + 1}`, scenes: [next] });
       setLiveScene(previous => attachFirstVoiceIdentity(previous, data)); record('저장 ID 보강');
-    }, 700);
+    }, finalDelay);
   };
   return <div className="min-h-dvh bg-[#0c111c] text-white relative overflow-hidden">
     <div className="absolute inset-0 bg-cover bg-center opacity-45" style={{ backgroundImage: 'url(https://assets.lucid-chat.com/backgrounds/airi/bg_default.png)' }} />
@@ -106,7 +107,8 @@ export default function TtsPreview() {
         <button className="min-h-11 px-3 bg-white/10 rounded-lg text-xs" onClick={() => { voice.invalidate(scene?.parentLogId); setDeleted(true); }}>현재 응답 삭제</button>
         <button className="min-h-11 px-3 bg-white/10 rounded-lg text-xs" onClick={() => streamed(false)}>스트리밍 ID 보강</button>
         <button className="min-h-11 px-3 bg-white/10 rounded-lg text-xs" onClick={() => streamed(true, 2000)}>자동 스트리밍 2초 지연</button>
-        <button className="min-h-11 px-3 bg-white/10 rounded-lg text-xs" onClick={() => streamed(true, 8500)}>자동 6초 제한</button>
+        <button className="min-h-11 px-3 bg-white/10 rounded-lg text-xs" onClick={() => streamed(true, 0, 7000, 14000)}>응답 7초 + 음성 14초</button>
+        <button className="min-h-11 px-3 bg-white/10 rounded-lg text-xs" onClick={() => streamed(true, 0, 700, 32000)}>자동 30초 제한</button>
         <button className="min-h-11 px-3 bg-white/10 rounded-lg text-xs" onClick={backgroundResponse}>백그라운드 새 응답</button>
         <button className="min-h-11 px-3 bg-white/10 rounded-lg text-xs" onClick={() => {
           setLiveScene(null); setSceneIndex(index => (index + 1) % 3); startedAt.current = performance.now(); setMeasurements([]);
@@ -118,7 +120,7 @@ export default function TtsPreview() {
     </div>
     <div className="absolute right-4 top-52 z-40 flex gap-2"><button className="min-h-11 px-3 rounded-full bg-black/40 border border-white/10 text-xs">Boost</button><VoiceModeToggle voice={voice} /></div>
     <DialogueBox mobile={window.innerWidth < 768} characterName="아이리" scene={scene} voice={{ ...voice, sceneIndex }}
-      onSend={() => {}} isTyping={false} energy={energy} freeEnergy={energy} paidEnergy={0} affection={0} nickname="주인님" chatMode="SANDBOX" onNextScene={() => {}} hasNextScene={false} />
+      onSend={() => {}} isTyping={false} energy={energy} freeEnergy={energy} paidEnergy={0} affection={0} nickname="주인님" chatMode="STORY" topicConcluded onRequestDirector={() => {}} onNextScene={() => {}} hasNextScene={false} />
     <VoiceConfirmDialog voice={voice} />
   </div>;
 }

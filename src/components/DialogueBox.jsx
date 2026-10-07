@@ -7,6 +7,7 @@ import { derivePulse, deltaSumOfChanges } from "../utils/relationNarrative";
 import "../styles/aurora-chat.css";
 import { VoiceListenButton } from './VoiceControls';
 import { scenePresentationKey } from '../utils/ttsScene';
+import HoverTooltip from './HoverTooltip';
 
 /**
  * [Phase 5.5-Fix] DialogueBox
@@ -991,6 +992,16 @@ const DialogueBox = ({
                         exit={{ scale: 0, opacity: 0 }}
                         transition={{ type: "spring", stiffness: 400, damping: 25 }}
                       >
+                        <HoverTooltip content={<>
+                          <p className="font-bold text-amber-300 mb-2 text-sm flex items-center gap-2">
+                            <Sparkles size={16} /> 다음 씬
+                          </p>
+                          <p className="leading-relaxed text-gray-400">
+                            감독에게 다음 씬을 요청합니다.<br/>
+                            이벤트, 장소 전환, 선택지 등<br/>
+                            다양한 연출이 펼쳐질 수 있어요.
+                          </p>
+                        </>}>
                         <button
                           type="button"
                           aria-label={directorLoading ? "다음 씬 준비 중" : "다음 씬 요청"}
@@ -1012,18 +1023,7 @@ const DialogueBox = ({
                             <Sparkles size={20} />
                           )}
                         </button>
- 
-                        {/* 툴팁 */}
-                        <div className="absolute right-full bottom-0 mr-3 w-56 bg-black/95 border border-amber-500/30 p-4 rounded-xl text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 shadow-2xl backdrop-blur-xl">
-                          <p className="font-bold text-amber-300 mb-2 text-sm flex items-center gap-2">
-                            <Sparkles size={16} /> 다음 씬
-                          </p>
-                          <p className="leading-relaxed text-gray-400">
-                            감독에게 다음 씬을 요청합니다.<br/>
-                            이벤트, 장소 전환, 선택지 등<br/>
-                            다양한 연출이 펼쳐질 수 있어요.
-                          </p>
-                        </div>
+                        </HoverTooltip>
                       </motion.div>
                     )}
                   </AnimatePresence>

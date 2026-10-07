@@ -3,7 +3,7 @@ import api from '../api/axios';
 import { voiceSceneKey, scenePresentationKey } from '../utils/ttsScene';
 import { VoiceClipCache } from '../utils/voiceClipCache';
 
-export default function useTtsPlayback(roomId, scene, { onEnergyChanged, notify, active = true } = {}) {
+export default function useTtsPlayback(roomId, scene, { onEnergyChanged, notify, active = true, awaitingFinalResult = false } = {}) {
   const [mode, setMode] = useState({ available: false, enabled: false, energyCost: 1 });
   const [status, setStatus] = useState(null);
   const [playback, setPlayback] = useState('idle');
@@ -25,6 +25,7 @@ export default function useTtsPlayback(roomId, scene, { onEnergyChanged, notify,
   const modeEpoch = useRef(0);
   const previousActive = useRef(active);
   const played = useRef(new Set());
+  const heard = useRef(new Set());
   const revoked = useRef(new Set());
   const current = useRef(null);
   const callbacks = useRef({ onEnergyChanged, notify });
@@ -53,7 +54,7 @@ export default function useTtsPlayback(roomId, scene, { onEnergyChanged, notify,
   useEffect(() => {
     const displayed = current.current.presentationId;
     const priorRelease = released.current.get(displayed);
-    setConfirmation(null); setStatus(null); played.current.clear(); revoked.current.clear(); released.current.clear();
+    setConfirmation(null); setStatus(null); played.current.clear(); heard.current.clear(); revoked.current.clear(); released.current.clear();
     if (priorRelease) released.current.set(displayed, priorRelease);
     void refreshMode();
     return () => { stop(); cache.current.reset(); };
@@ -68,10 +69,15 @@ export default function useTtsPlayback(roomId, scene, { onEnergyChanged, notify,
   }, [roomId, scene?.parentLogId, active, stop, releasePresentation]);
   useEffect(() => {
     if (!presentationPending) return;
-    // This deadline belongs to the displayed scene, never to an individual status poll.
-    const timer = setTimeout(() => { stop(); cache.current.reset(); releasePresentation('timeout'); }, 6000);
+    // Generation starts only after final_result gives us the persisted response ID.
+    // The stream already has its own deadline; do not spend the audio budget on LLM text generation.
+    if (!key) {
+      if (!awaitingFinalResult) releasePresentation('unavailable');
+      return;
+    }
+    const timer = setTimeout(() => { stop(); cache.current.reset(); releasePresentation('timeout'); }, 30000);
     return () => clearTimeout(timer);
-  }, [presentationId, presentationPending, stop, releasePresentation]);
+  }, [presentationId, key, presentationPending, awaitingFinalResult, stop, releasePresentation]);
   useEffect(() => {
     // Once text is allowed to start, later mode/status metadata must never hide it again.
     if (!active || document.hidden || !mode.available || !mode.enabled) {
@@ -121,7 +127,7 @@ export default function useTtsPlayback(roomId, scene, { onEnergyChanged, notify,
       player.onerror = () => { if (epoch.current === ticket) { stop(); cache.current.reset(); setPlayback('error'); releasePresentation('unavailable'); } };
       await player.play();
       if (epoch.current !== ticket) { player.pause(); return; }
-      setPlayback('playing'); played.current.add(target.key);
+      setPlayback('playing'); played.current.add(target.key); heard.current.add(target.key);
       releasePresentation('playing');
     } catch (error) {
       if (epoch.current !== ticket) return;
@@ -222,5 +228,5 @@ export default function useTtsPlayback(roomId, scene, { onEnergyChanged, notify,
     if (current.current.scene?.parentLogId === logId) { stop(); cache.current.reset(); releasePresentation('deleted'); setStatus(null); setConfirmation(null); }
   };
   const checking = Boolean(!status && active && scene?.dialogue && !scene.isEvent && (key || scene.voiceAutoEligible));
-  return { mode, status, playback, presentationPending, checking, busy, confirmation, cancelConfirmation, confirm, toggle, listen, stop, invalidate, volume, setVolume, refreshMode };
+  return { mode, status, playback, hasPlayed: heard.current.has(key), presentationPending, checking, busy, confirmation, cancelConfirmation, confirm, toggle, listen, stop, invalidate, volume, setVolume, refreshMode };
 }
