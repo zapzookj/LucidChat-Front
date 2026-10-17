@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useNavigate, useOutletContext } from "react-router-dom";
+import { useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
-import { ArrowUpRight, BookOpen, Theater, Users, ArrowRight } from "lucide-react";
+import { ArrowUpRight, BookOpen, Theater, Users, ArrowRight, RotateCcw } from "lucide-react";
 import api from "../../api/axios";
 import { fetchWorld as fetchTheaterWorld, fetchWorlds as fetchTheaterWorlds } from "../../api/TheaterLobbyApi";
 import StoryCreateFlow from "../../components/story-v2/StoryCreateFlow";
@@ -26,14 +26,29 @@ import {
  */
 export default function StoryTab() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { guest, requireLogin, enterRoom, openStore } = useOutletContext();
 
   const [worlds, setWorlds] = useState(null);          // null=로딩, []=빈
   const [worldsError, setWorldsError] = useState(false); // false | true | "rate"(429)
   const [ugcWorlds, setUgcWorlds] = useState([]);
   const [theaterWorldIds, setTheaterWorldIds] = useState(new Set());
-  const [storyCreate, setStoryCreate] = useState(null);     // { worldId } | null
+  // { worldId, cancelTo } | null — cancelTo는 방에서 넘어온 재선택일 때만 채워진다
+  const [storyCreate, setStoryCreate] = useState(() => {
+    // 방 안(설정 → '이야기 다시 시작' → '캐릭터부터 다시 고르기')에서 넘어온 진입.
+    // 그 화면엔 월드 카드가 없어 라우터 state로 월드를 받는다. 마운트 시점에 한 번만 읽는다
+    // (이펙트 setState는 cascading render) — state 비우기는 아래 이펙트가 맡는다.
+    const worldId = location.state?.restartWorldId;
+    if (!worldId || guest) return null;
+    const fromRoomId = location.state?.restartFromRoomId ?? null;
+    return { worldId, cancelTo: fromRoomId ? `/v2/chat/${fromRoomId}` : null };
+  });
   const [theaterCreate, setTheaterCreate] = useState(null); // { world } | null
+
+  // 넘겨받은 state를 즉시 비운다 — 안 비우면 뒤로가기·새로고침에 플로우가 재발사된다.
+  useEffect(() => {
+    if (location.state?.restartWorldId) navigate("/story", { replace: true, state: null });
+  }, [location.state, navigate]);
 
   // 초기 상태(null/false)가 곧 로딩 상태 — 이펙트 본문에선 fetch만, 동기 setState 없음
   const fetchAll = useCallback(() => {
@@ -136,6 +151,7 @@ export default function StoryTab() {
               theaterAvailable={theaterWorldIds.has(w.worldId)}
               onStartStory={() => handleStartStory(w)}
               onContinueStory={() => handleContinueStory(w.existingRoomId)}
+              onRestartStory={() => handleStartStory(w)}
               onStartTheater={() => handleStartTheater(w)}
             />
           ))}
@@ -148,7 +164,11 @@ export default function StoryTab() {
           <StoryCreateFlow
             worldId={storyCreate.worldId}
             presetHeroineIds={null}
-            onCancel={() => setStoryCreate(null)}
+            onCancel={() => {
+              const back = storyCreate.cancelTo;
+              setStoryCreate(null);
+              if (back) enterRoom(back);
+            }}
             onComplete={(roomId) => {
               setStoryCreate(null);
               localStorage.setItem("roomId", roomId);
@@ -173,7 +193,7 @@ export default function StoryTab() {
 }
 
 // ── 대형 월드 카드 — 히어로 16:7 + 두 행동 버튼(각 1줄 설명) ──
-export function WorldCard({ world: w, guest, theaterAvailable, onStartStory, onContinueStory, onStartTheater }) {
+export function WorldCard({ world: w, guest, theaterAvailable, onStartStory, onContinueStory, onRestartStory, onStartTheater }) {
   // 게스트 스코프 응답엔 필드 자체가 없음(false) + 게스트 렌더 금지 이중 가드
   const continueMode = !guest && Boolean(w.hasExistingRoom);
   const heroImage = w.heroImageUrl || w.thumbnailUrl;
@@ -250,6 +270,20 @@ export function WorldCard({ world: w, guest, theaterAvailable, onStartStory, onC
             </div>
           )}
         </div>
+
+        {/* 3차 행동 — 진행 중일 때만. '이어하기'가 유일한 입구라 캐릭터를 바꿀 길이 없었다. */}
+        {continueMode && (
+          <button
+            type="button"
+            onClick={onRestartStory}
+            className="mt-2.5 w-full min-h-[40px] rounded-xl border border-white/[0.08] px-3 py-2 inline-flex flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 text-xs text-lobby-tx1 hover:text-lobby-tx0 hover:border-lobby-accent/25 hover:bg-white/[0.05] transition-colors duration-150"
+          >
+            <span className="inline-flex items-center gap-1.5 font-medium">
+              <RotateCcw size={13} className="shrink-0" />처음부터 새로 시작
+            </span>
+            <span className="text-lobby-tx2">· 캐릭터부터 다시 고를 수 있어요</span>
+          </button>
+        )}
       </div>
     </article>
   );

@@ -478,7 +478,7 @@ function ConflictModal({ onConfirm, onCancel }) {
           이 월드에 이미 진행 중인 스토리가 있습니다. 새로 시작하면 <strong className="font-semibold text-rose-200">현재 진행이 모두 사라집니다.</strong>
         </p>
         <p className="text-lobby-tx2 text-sm mb-5">
-          캐릭터 관계, 시간 진행, 호감도, 모든 누적 기억이 초기화됩니다.
+          캐릭터 관계, 시간 진행, 호감도, 모든 누적 기억이 초기화되고 <strong className="font-semibold text-lobby-tx1">방금 고른 캐릭터로</strong> 1일차부터 다시 시작합니다.
         </p>
         <div className="flex gap-2 justify-end">
           <button

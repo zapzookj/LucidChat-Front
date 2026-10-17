@@ -2484,6 +2484,16 @@ const ChatPage = () => {
     }
   }, [roomId, syncCharacterStatsFromRoom]);
 
+  // V2 '캐릭터부터 다시 고르기' — 초기화로는 캐스트를 못 바꾸므로 생성 플로우로 돌려보낸다.
+  //   방을 실제로 다시 여는 건 StoryCreateFlow(기존 방 있으면 409 → confirm → overwrite) 몫이라
+  //   여기서는 아무것도 지우지 않는다. 플로우를 취소하면 지금 방이 그대로 남는다.
+  const handleRestartV2 = useCallback(() => {
+    const worldId = v2Room?.worldId;
+    if (!worldId) return;
+    setShowV2ResetModal(false);
+    navigate("/story", { state: { restartWorldId: worldId, restartFromRoomId: roomId } });
+  }, [v2Room?.worldId, roomId, navigate]);
+
   // V2 엔딩 크레딧 종료 → 로비로
   const handleV2EndingComplete = useCallback(() => {
     setShowV2EndingCredits(false);
@@ -4148,7 +4158,7 @@ const ChatPage = () => {
                                 {/* [2026-09-11] 스토리는 '시작 시점 고정'이 정책 — 자유 모드와 달리
                                     재적용 액션을 주지 않는다. 바꾸려면 스토리 초기화로. */}
                                 <p className="mt-1.5 text-[10px] text-white/25">
-                                  스토리는 시작할 때의 페르소나로 고정돼요. 바꾸려면 스토리 초기화에서 ‘현재 프로필로 새로 시작’을 선택하세요.
+                                  스토리는 시작할 때의 페르소나로 고정돼요. 바꾸려면 ‘이야기 다시 시작’에서 ‘현재 프로필로 새로 시작’을 선택하세요.
                                 </p>
                             </div>
 
@@ -4314,7 +4324,7 @@ const ChatPage = () => {
                           className="w-full py-3 rounded-lg border border-amber-500/30 hover:bg-amber-500/10 text-amber-300 transition flex items-center justify-center gap-2"
                       >
                           <RotateCcw size={18} />
-                          스토리 초기화
+                          이야기 다시 시작
                       </button>
                     ) : (
                       <button 
@@ -4950,6 +4960,7 @@ const ChatPage = () => {
           <StoryV2ResetModal
             onCancel={() => setShowV2ResetModal(false)}
             onConfirm={handleResetV2}
+            onRestart={v2Room?.worldId ? handleRestartV2 : undefined}
           />
         )}
       </AnimatePresence>
