@@ -21,7 +21,9 @@ const CHARACTERS = [
 const WORLD = { worldId: "example-world", name: "달빛이 머무는 저택", displayName: "달빛이 머무는 저택", intro: "당신의 발걸음을 기다리던 곳", description: "오래된 저택의 문이 열립니다. 당신의 선택에 따라 일상의 작은 순간이 특별한 이야기로 바뀌는 세계. 찻잔을 사이에 두고 나누는 대화부터 조용한 정원의 산책까지, 어떤 시간을 함께할지는 당신에게 달려 있어요.", thumbnailUrl: `${CDN}/backgrounds/airi/bg_default.png`, heroImageUrl: `${CDN}/backgrounds/airi/bg_default.png`, tagline: "잊고 있던 온기를 다시 만나는 곳", moodKeywords: "일상, 다정함, 비밀", heroineCount: 3, heroineNames: ["아이리", "연화", "루나"], reviewStatus: "APPROVED" };
 const WORLD_OPTIONS = [{ ...WORLD, worldId: "example-world", status: "READY" }];
 const HEROINES = [
-  { characterId: "airi", name: "아이리", profileImageUrl: `${CDN}/characters/airi/thumbnail.png`, role: "저택의 메이드", tagline: "오늘도 곁에서 함께할게요", difficulty: "EASY" },
+  // [docs/55 Carry-Over] 자유 모드 관계 픽스처 — 카드 아래 뱃지·토글, 3단계 '이어갈 관계' 요약 확인용
+  { characterId: "airi", name: "아이리", profileImageUrl: `${CDN}/characters/airi/thumbnail.png`, role: "저택의 메이드", tagline: "오늘도 곁에서 함께할게요", difficulty: "EASY",
+    sandboxRelation: { roomId: 42, statusLevel: "FRIEND", dynamicRelationTag: "썸", affectionScore: 54, logCount: 37, lastActiveAt: new Date(Date.now() - 2 * 86400000).toISOString(), secretModeActive: false } },
   { characterId: "yeonhwa", name: "연화", profileImageUrl: `${CDN}/characters/yeonhwa/hanbok_neutral.png`, role: "황궁의 후궁", tagline: "말하지 못한 이야기", difficulty: "HARD" },
   { characterId: "luna", name: "루나", profileImageUrl: `${CDN}/characters/luna/thumbnail.png`, role: "달빛 아래의 동행", tagline: "조금 특별한 밤의 시작", difficulty: "NORMAL" },
 ];
@@ -38,6 +40,10 @@ export default function SecondaryDesignPreview() {
   const [lowEnergy, setLowEnergy] = useState(false);
   const [storyStep, setStoryStep] = useState(1);
   const [selected, setSelected] = useState(["airi"]);
+  // [docs/55 Carry-Over] 프리뷰용 토글 상태 — 실제 플로우(StoryCreateFlow)와 같은 규칙(관계 있으면 기본 ON, false=유저가 끔)
+  const [carryOn, setCarryOn] = useState({ airi: true });
+  const relationById = Object.fromEntries(HEROINES.filter((h) => h.sandboxRelation).map((h) => [h.characterId, h.sandboxRelation]));
+  const carried = selected.filter((id) => relationById[id] && carryOn[id] !== false).map((id) => ({ characterId: id, name: HEROINES.find((h) => h.characterId === id)?.name, relation: relationById[id] }));
   const setViewAndReset = (next) => { setNotice(""); setView(next); };
   const localNotice = (message) => setNotice(`${message} · 개발용 예시이며 실제 요청은 전송하지 않았어요.`);
   const isForm = view === "character" || view === "world";
@@ -83,8 +89,8 @@ export default function SecondaryDesignPreview() {
           <section className="aurora-gate rounded-[28px] border border-white/15 p-5 sm:p-7">
             <div className="flex items-center gap-2 text-xs text-lobby-teal mb-6"><BookOpen size={16} />이야기 시작 준비 · {storyStep} / 3</div>
             {storyStep === 1 && <Step1WorldConfirm world={WORLD} />}
-            {storyStep === 2 && <Step2HeroineSelect heroines={HEROINES} selected={selected} onToggle={(id) => setSelected((current) => current.includes(id) ? current.filter((value) => value !== id) : current.length < 3 ? [...current, id] : current)} />}
-            {storyStep === 3 && <Step3Profile profile={PROFILE} onEdit={() => localNotice("프로필 편집 선택")} />}
+            {storyStep === 2 && <Step2HeroineSelect heroines={HEROINES} selected={selected} onToggle={(id) => setSelected((current) => current.includes(id) ? current.filter((value) => value !== id) : current.length < 5 ? [...current, id] : current)} relationById={relationById} carryOn={carryOn} onToggleCarry={(id) => setCarryOn((prev) => ({ ...prev, [id]: prev[id] === false }))} />}
+            {storyStep === 3 && <Step3Profile profile={PROFILE} onEdit={() => localNotice("프로필 편집 선택")} carried={carried} />}
             <div className="flex justify-between gap-3 border-t border-white/10 mt-6 pt-4">
               <button disabled={storyStep === 1} onClick={() => setStoryStep((n) => n - 1)} className="min-h-11 px-3 text-sm text-lobby-tx1 disabled:opacity-30">이전</button>
               <button disabled={storyStep === 2 && !selected.length} onClick={() => storyStep < 3 ? setStoryStep((n) => n + 1) : localNotice("이야기 시작 선택")} className="aurora-secondary-primary min-h-11 px-4 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-40">{storyStep === 3 ? "이야기 시작하기" : "다음"}<ArrowRight size={16} /></button>

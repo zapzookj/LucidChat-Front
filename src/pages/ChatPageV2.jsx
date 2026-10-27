@@ -1096,6 +1096,8 @@ const ChatPage = () => {
             outfit: scene.outfit ?? null,
             // [Scene-Polish C] 방 내 절대 서수 — 히스토리 씬 마커 매핑 키 (씬별 분리돼도 원본 로그 서수 공유)
             ordinal: log.ordinal ?? null,
+            // [docs/55 Carry-Over] 자유 모드에서 이식된 로그 — 구분선·오프닝 판정이 씬 단위로도 보이게 전파
+            imported: !!log.imported,
           };
           if (ctxIsV2) {
             // [E-1 A-2] V2: 시스템 씬 판정 — 백엔드 권위값(scene.isSystem) 우선, 없으면(레거시 로그) speaker 유무로 폴백.
@@ -1429,7 +1431,9 @@ const ChatPage = () => {
           const logs = [...logsRes.data.content].reverse();
           // Only a successful history read can establish that this is a new room.
           // A network failure must not create a second opening in an existing room.
-          const needsOpening = logs.length === 0 && !v2Detail.endingReached;
+          // [docs/55 Carry-Over] 자유 모드에서 이식된 로그(imported)만 있는 방도 '새 방' — 오프닝(재회)을 한 번 받아야 한다.
+          //   백엔드 멱등 가드(countByRoomIdAndImportedFromRoomIdIsNull)와 같은 축. 빈 배열은 every=true로 종전과 동일.
+          const needsOpening = logs.every((l) => l.imported) && !v2Detail.endingReached;
           setOpeningCandidateRoomId(needsOpening ? roomId : null);
           setIntroStep(needsOpening ? 'door' : 'none');
           // [Scene-Polish D] 씬 복원 K-윈도우 판정 입력 — 방 로그 총수(Spring Page.totalElements) 전달
@@ -2363,10 +2367,13 @@ const ChatPage = () => {
     if (!isV2 || isLoading || entryLoadError || openingCandidateRoomId !== roomId) return;
     if (openingFiredRef.current) return;
     if (!v2Room) return;                 // heroines 로드 완료 후
-    if (messages.length > 0) return;     // 이미 대화/오프닝 존재
+    // [docs/55] 이 방의 대화/오프닝이 하나라도 있으면 중단 — 이식(imported) 로그만 있으면 오프닝(재회)이 필요하다.
+    //   deps는 종전처럼 messages.length만 둔다: imported 플래그는 메시지마다 불변이라 길이 변화가 곧 판정 변화다.
+    if (messages.some((m) => !m.imported)) return;
     if (v2Room.endingReached) return;    // 엔딩 도달 방은 오프닝 생략
     setIntroStep('door'); // Presentation is independent from this single opening request.
     fireOpeningV2(v2Room.heroines);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- messages.length로 충분(위 주석), 전체 messages를 걸면 매 렌더 재실행
   }, [isV2, isLoading, entryLoadError, openingCandidateRoomId, roomId, messages.length, v2Room, fireOpeningV2]);
 
   // V2 알림 클릭 처리
@@ -4629,9 +4636,19 @@ const ChatPage = () => {
                 );
                 }
 
+                // [docs/55 Carry-Over] 이식 기록 → 이 세계 기록 경계에 구분선 1회 (브리지 나레이션 바로 아래)
+                const carryDivider = (!msg.imported && idx > 0 && messages[idx - 1]?.imported) ? (
+                  <div className="flex items-center gap-3 my-5 select-none" role="separator" aria-label="자유 모드에서 이어진 기록 끝">
+                    <span className="flex-1 h-px bg-cyan-400/20" />
+                    <span className="text-[11px] tracking-wide text-cyan-200/70">자유 모드에서 이어진 기록 · 여기부터 이 세계</span>
+                    <span className="flex-1 h-px bg-cyan-400/20" />
+                  </div>
+                ) : null;
+
                 // [Scene-Polish C] 메시지 행 + 직후 씬 썸네일 마커
                 return (
                   <Fragment key={`h-${msg.logId || idx}`}>
+                    {carryDivider}
                     {row}
                     {markerNodes}
                   </Fragment>

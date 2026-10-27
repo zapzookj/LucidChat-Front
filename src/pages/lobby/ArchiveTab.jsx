@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useOutletContext, useSearchParams } from "react-router-dom";
-import { MessagesSquare, UserRound, Award, Image, ArrowUpRight, ChevronRight } from "lucide-react";
+import { MessagesSquare, UserRound, Award, Image, ArrowUpRight, ChevronRight, History } from "lucide-react";
 import api from "../../api/axios";
 import { fetchMyTheaterSessions } from "../../api/TheaterLobbyApi";
 import AchievementGallery from "../../components/AchievementGallery";
@@ -114,14 +114,17 @@ function TalkPane({ navigate, enterRoom }) {
   const [status, setStatus] = useState("loading"); // loading | ready | error | rate(429)
   const [rooms, setRooms] = useState([]);
   const [theaterSessions, setTheaterSessions] = useState([]);
+  // [docs/55 Carry-Over] 자유 방 → 스토리 이어가기 자격(캐릭터의 소속 세계관·스토리 가능) 판정용. 실패는 무해 강등.
+  const [characters, setCharacters] = useState([]);
   const [reloadKey, setReloadKey] = useState(0); // 재시도 트리거 (이펙트 내 동기 setState 회피)
 
   useEffect(() => {
     let alive = true;
     (async () => {
-      const [r, t] = await Promise.allSettled([
+      const [r, t, c] = await Promise.allSettled([
         api.get("/lobby/rooms").then((res) => res.data),
         fetchMyTheaterSessions(),
+        api.get("/lobby/characters").then((res) => res.data),
       ]);
       if (!alive) return;
       // 부분 실패 허용 — 양쪽 다 실패했을 때만 세그 영역 오류(정본 상태 매트릭스)
@@ -132,10 +135,21 @@ function TalkPane({ navigate, enterRoom }) {
       }
       setRooms(r.status === "fulfilled" ? r.value || [] : []);
       setTheaterSessions(t.status === "fulfilled" ? t.value || [] : []);
+      setCharacters(c.status === "fulfilled" && Array.isArray(c.value) ? c.value : []);
       setStatus("ready");
     })();
     return () => { alive = false; };
   }, [reloadKey]);
+
+  // 자유 방의 캐릭터가 공식 세계관 소속 + 스토리 가능일 때만 '스토리로 이어가기' 입구를 낸다
+  // (UGC 캐릭터는 worldId가 없어 제외 — UGC 월드 스토리 이어가기는 후속)
+  const storyTargetById = useMemo(() => {
+    const map = {};
+    for (const ch of characters) {
+      if (ch?.id != null && ch.storyAvailable && ch.worldId) map[ch.id] = { worldId: ch.worldId };
+    }
+    return map;
+  }, [characters]);
 
   const retry = () => {
     setStatus("loading");
@@ -197,13 +211,32 @@ function TalkPane({ navigate, enterRoom }) {
 
   return (
     <div>
-      {entries.map((entry) => (
-        <TalkRow
-          key={`${entry.type}-${entry.roomId}`}
-          entry={entry}
-          onOpen={() => handleOpen(entry)}
-        />
-      ))}
+      {entries.map((entry) => {
+        // [docs/55 Carry-Over] 자유(SANDBOX) 방 + 스토리 가능 캐릭터 → 행 아래 조용한 2차 행동
+        const carryTarget = (entry.type === "DIALOGUE" && entry.chatMode !== "STORY" && entry.characterId != null)
+          ? storyTargetById[entry.characterId] || null
+          : null;
+        return (
+          <div key={`${entry.type}-${entry.roomId}`}>
+            <TalkRow entry={entry} onOpen={() => handleOpen(entry)} />
+            {carryTarget && (
+              <div className="-mt-1.5 mb-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => navigate("/story", {
+                    state: { carryOver: { worldId: carryTarget.worldId, characterId: entry.characterId, sandboxRoomId: entry.roomId } },
+                  })}
+                  className="min-h-9 inline-flex items-center gap-1.5 px-3 rounded-full text-xs font-medium text-cyan-200 bg-cyan-400/10 hover:bg-cyan-400/20 transition-colors"
+                >
+                  <History size={13} aria-hidden="true" />
+                  이 관계를 스토리로 이어가기
+                  <ArrowUpRight size={12} aria-hidden="true" />
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
       {theaterArchiveLink}
     </div>
   );

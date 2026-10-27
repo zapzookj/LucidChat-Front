@@ -38,6 +38,16 @@ export default function StoryTab() {
     // 방 안(설정 → '이야기 다시 시작' → '캐릭터부터 다시 고르기')에서 넘어온 진입.
     // 그 화면엔 월드 카드가 없어 라우터 state로 월드를 받는다. 마운트 시점에 한 번만 읽는다
     // (이펙트 setState는 cascading render) — state 비우기는 아래 이펙트가 맡는다.
+    // [docs/55 Carry-Over] 보관함 '이 관계를 스토리로 이어가기' 진입 — 같은 라우터 state 관례.
+    //   그 캐릭터를 미리 고른 채 캐릭터 단계부터 열고, 취소하면 보관함으로 돌아간다.
+    const carry = location.state?.carryOver;
+    if (carry?.worldId && carry?.characterId && carry?.sandboxRoomId && !guest) {
+      return {
+        worldId: carry.worldId,
+        cancelTo: "/archive?tab=talk",
+        carryOverSeed: { characterId: carry.characterId, sandboxRoomId: carry.sandboxRoomId },
+      };
+    }
     const worldId = location.state?.restartWorldId;
     if (!worldId || guest) return null;
     const fromRoomId = location.state?.restartFromRoomId ?? null;
@@ -47,7 +57,7 @@ export default function StoryTab() {
 
   // 넘겨받은 state를 즉시 비운다 — 안 비우면 뒤로가기·새로고침에 플로우가 재발사된다.
   useEffect(() => {
-    if (location.state?.restartWorldId) navigate("/story", { replace: true, state: null });
+    if (location.state?.restartWorldId || location.state?.carryOver) navigate("/story", { replace: true, state: null });
   }, [location.state, navigate]);
 
   // 초기 상태(null/false)가 곧 로딩 상태 — 이펙트 본문에선 fetch만, 동기 setState 없음
@@ -164,10 +174,12 @@ export default function StoryTab() {
           <StoryCreateFlow
             worldId={storyCreate.worldId}
             presetHeroineIds={null}
+            carryOverSeed={storyCreate.carryOverSeed || null}
             onCancel={() => {
               const back = storyCreate.cancelTo;
               setStoryCreate(null);
-              if (back) enterRoom(back);
+              // 방에서 온 재선택은 방으로(enterRoom 페이드 게이트), 보관함에서 온 이어가기는 보관함으로
+              if (back) { if (back.startsWith("/v2/")) enterRoom(back); else navigate(back); }
             }}
             onComplete={(roomId) => {
               setStoryCreate(null);

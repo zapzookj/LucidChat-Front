@@ -59,7 +59,8 @@ export async function fetchCreateContext(worldId) {
  *
  * payload: {
  *   worldId: string,            // 예: "MEDIEVAL_FANTASY"
- *   heroineIds: number[],       // 1~3명
+ *   heroineIds: number[],       // 1~5명 ([docs/55 결정 ⑥] 상한 3→5)
+ *   carryOvers: [{ characterId, sandboxRoomId, includeLogs }],  // optional — [docs/55] 자유 모드 관계 이식(히로인별)
  *   startLocationKey: string,   // optional, 미제공 시 World 기본값
  *   personaText: string,        // optional, 자유 페르소나 (BM 필요)
  *   selectedPersonaPresetKey: string,  // optional, 사전 정의 선택 시
