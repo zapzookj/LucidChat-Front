@@ -1341,7 +1341,7 @@ export default function WorldCreateFlow({
                           isPast
                             ? "bg-lobby-accent border-lobby-accent text-[#25253b]"
                             : isCurrent
-                            ? "bg-lobby-accent/22 border-lobby-accent text-lobby-accent"
+                            ? "bg-lobby-accent/[0.22] border-lobby-accent text-lobby-accent"
                             : "bg-white/[0.04] border-white/15 text-lobby-tx2"
                         }`}
                       >

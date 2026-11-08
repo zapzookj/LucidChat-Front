@@ -12,8 +12,13 @@ import {
   createUgcCharacter, selectGoldenShot, rerollGoldenShots, rerollEmotionCut,
   selectBaseStanding, rerollBaseStandings, selectEmotionVersion, updateUgcProfile,
   confirmCreation, abandonCreationJob, fetchMyUgcCharacters, requestPublish,
-  requestSecret, updateUgcTexts,
+  requestSecret, updateUgcTexts, uploadReference, fixGoldenShot,
 } from "../../api/StudioApi";
+// [그림 방식 · aichat docs/56 §10] 레퍼런스 빌더 조각 (확정 목업 v2)
+import {
+  AppearanceModeSelect, ReferenceNotice, ReferenceUploadCard, AdjustPanel, ReferenceAdjustModal, ReferenceCompareModal,
+} from "./ReferenceBuilderParts";
+import { EMPTY_ADJUSTMENTS, adjustmentsPayload, summarizeAdjustments, checkReferenceFile } from "../../utils/referenceAdjustments";
 // [World Builder] 세계관 연결 셀렉터 — 공식 4종 상수 + 내 월드 조회
 import { fetchMyUgcWorlds, OFFICIAL_WORLDS } from "../../api/WorldStudioApi";
 import useUgcCreationJob from "../../hooks/useUgcCreationJob";
@@ -253,6 +258,12 @@ const CONCEPT_PLACEHOLDER = `예시처럼 자유롭게 적어주세요.
 · 마왕성에서 도망쳐 카페 알바를 하는 전직 마왕. 손님에게는 상냥하지만 커피 맛에는 목숨을 건다.
 · 낡은 서점을 지키는 조용한 사서. 책 속 주인공의 말투를 그날 기분에 따라 빌려 쓴다.`;
 
+// [그림 방식] 외형은 그림이 정하므로 성격·이야기만 받는다
+const REFERENCE_CONCEPT_PLACEHOLDER = `외형은 그림을 따라가요. 어떤 사람인지 들려주세요.
+
+· 말수가 적고 늘 졸린 눈이지만, 위기 앞에선 누구보다 먼저 움직이는 구조대 막내.
+· 칭찬에 약해서 금방 얼굴이 붉어진다.`;
+
 // 외형 디테일 (선택) — 구조화 힌트 6필드. 값이 하나라도 있으면 요청의 appearance로 전송
 const APPEARANCE_FIELDS = [
   { key: "hair", label: "머리", placeholder: "예) 은발 롱헤어, 히메컷" },
@@ -265,7 +276,8 @@ const APPEARANCE_FIELDS = [
 
 const EMPTY_APPEARANCE = APPEARANCE_FIELDS.reduce((acc, f) => ({ ...acc, [f.key]: "" }), {});
 
-export const ConceptStep = ({ busy, error, energy, onSubmit, worldOptions = null }) => {
+// uploadReferenceImpl: [그림 방식] 업로드 함수 주입점 — 개발 프리뷰(/__design/secondary)가 네트워크 없이 상태를 재현한다
+export const ConceptStep = ({ busy, error, energy, onSubmit, worldOptions = null, uploadReferenceImpl = uploadReference }) => {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   // [2026-08-04 남캐] 성별 명시 선택 — 파이프라인 분기(앵커 태그·Male LoRA·연출 가이드)의 단일 기준
@@ -275,6 +287,82 @@ export const ConceptStep = ({ busy, error, energy, onSubmit, worldOptions = null
   const [concept, setConcept] = useState("");
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [appearance, setAppearance] = useState(EMPTY_APPEARANCE);
+  // [그림 방식] 외형 결정 방식 + 업로드 상태 + 조정값
+  const [mode, setMode] = useState("text");
+  const [reference, setReference] = useState({ status: "empty" });
+  const [adjustments, setAdjustments] = useState(EMPTY_ADJUSTMENTS);
+  const genderTouchedRef = useRef(false);
+  const uploadSeqRef = useRef(0);
+  const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.matchMedia?.("(max-width: 639px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia?.("(max-width: 639px)");
+    if (!mq) return undefined;
+    const on = (e) => setNarrow(e.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  // 로컬 미리보기 URL 정리
+  const localUrlRef = useRef(null);
+  useEffect(() => () => { if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current); }, []);
+
+  const lastFileRef = useRef(null); // 네트워크 오류 "다시 올리기" — 앨범을 다시 열지 않고 같은 파일로 재시도
+  const [genderAuto, setGenderAuto] = useState(false); // 그림 판독으로 성별을 미리 골랐는가(안내 문구)
+  const handlePickReference = async (file) => {
+    const clientError = checkReferenceFile(file);
+    // 이미 확인된 그림이 있으면 잘못 고른 파일 때문에 버리지 않는다 — 카드 안 인라인 안내만
+    if (clientError && reference.status === "ready") {
+      setReference((prev) => ({ ...prev, pickError: clientError }));
+      return;
+    }
+    if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
+    localUrlRef.current = null;
+    if (clientError) {
+      setReference({ status: "error", title: "이 파일은 올릴 수 없어요", error: clientError });
+      return;
+    }
+    lastFileRef.current = file;
+    const localUrl = URL.createObjectURL(file);
+    localUrlRef.current = localUrl;
+    const seq = ++uploadSeqRef.current; // 연속 업로드 시 늦게 온 응답 무시
+    setReference({ status: "checking", previewUrl: localUrl });
+    try {
+      const view = await uploadReferenceImpl(file);
+      if (seq !== uploadSeqRef.current) return;
+      if (view.verdict === "OK") {
+        setReference({ status: "ready", previewUrl: localUrl, view });
+        if ((view.genderGuess === "FEMALE" || view.genderGuess === "MALE") && !genderTouchedRef.current) {
+          setGender(view.genderGuess);
+          setGenderAuto(true);
+        }
+      } else {
+        const titles = { UNCLEAR: "캐릭터를 또렷하게 찾지 못했어요", MULTIPLE: "그림에 여러 명이 있어요", POLICY: "이 그림은 운영 정책상 쓸 수 없어요" };
+        const fallbacks = {
+          UNCLEAR: "얼굴과 옷차림이 잘 보이는 그림으로 바꿔주세요.",
+          MULTIPLE: "소환할 캐릭터 한 명만 나온 그림으로 바꿔주세요.",
+          POLICY: "다른 그림으로 바꿔주세요.",
+        };
+        setReference({ status: "error", previewUrl: localUrl, title: titles[view.verdict] || "이 그림은 쓸 수 없어요", error: view.message || fallbacks[view.verdict] || "다른 그림으로 다시 시도해주세요." });
+      }
+    } catch (e) {
+      if (seq !== uploadSeqRef.current) return;
+      const status = e?.response?.status;
+      if (status === 400) {
+        setReference({ status: "error", title: "이 파일은 올릴 수 없어요", error: e.response.data?.message || "다른 파일로 다시 시도해주세요." });
+      } else {
+        setReference({ status: "error", previewUrl: localUrl, retryable: true, title: "그림을 올리지 못했어요", error: e?.response?.data?.message || "연결이 잠시 불안정했어요. 다시 시도해주세요." });
+      }
+    }
+  };
+  const clearReference = () => {
+    uploadSeqRef.current++;
+    if (localUrlRef.current) URL.revokeObjectURL(localUrlRef.current);
+    localUrlRef.current = null;
+    lastFileRef.current = null;
+    setGenderAuto(false);
+    setReference({ status: "empty" });
+  };
+  const imageMode = mode === "image";
+  const referenceReady = reference.status === "ready";
   // [World Builder] 세계관 연결 (선택) — {type:"NONE"} | {type:"OFFICIAL",id,name} | {type:"UGC",id,name}
   const [worldOpen, setWorldOpen] = useState(false);
   const [worldSel, setWorldSel] = useState({ type: "NONE" });
@@ -301,6 +389,39 @@ export const ConceptStep = ({ busy, error, energy, onSubmit, worldOptions = null
     return () => { alive = false; };
   }, [worldOptions]);
 
+  // [그림 방식] 컨셉 입력 — 모드별 라벨·플레이스홀더, 두 위치 중 한 곳에서 렌더
+  const conceptField = (
+    <div className={imageMode ? "mb-6" : "mb-2"}>
+      <label htmlFor="studio-character-concept" className="text-xs text-lobby-tx1 mb-1.5 block">{imageMode ? "성격과 이야기 *" : "컨셉 *"}</label>
+      <textarea
+        id="studio-character-concept" aria-describedby="studio-character-concept-length"
+        value={concept}
+        onChange={(e) => setConcept(e.target.value)}
+        placeholder={imageMode ? REFERENCE_CONCEPT_PLACEHOLDER : CONCEPT_PLACEHOLDER}
+        rows={imageMode ? 5 : 8}
+        maxLength={CONCEPT_MAX}
+        className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white text-sm leading-relaxed placeholder:text-lobby-tx2 focus:border-lobby-accent/60 outline-none resize-none"
+      />
+      <div id="studio-character-concept-length" className={`mt-1 text-right text-xs tabular-nums ${valid ? "text-lobby-tx2" : "text-lobby-accent/70"}`}>
+        {len} / {CONCEPT_MIN}~{CONCEPT_MAX}자
+      </div>
+    </div>
+  );
+
+  // [그림 방식] 시작 버튼 위 통합 사유 — 못 채운 조건을 한곳에서, 누르면 해당 칸으로 이동
+  const unmet = [];
+  if (imageMode && !referenceReady) {
+    unmet.push(["studio-reference-anchor", reference.status === "checking" ? "그림 확인이 끝나야 해요" : "캐릭터 그림을 올려주세요"]);
+  }
+  if (!valid) unmet.push(["studio-character-concept", imageMode ? `성격과 이야기를 ${CONCEPT_MIN}자 이상 적어주세요` : `컨셉을 ${CONCEPT_MIN}자 이상 적어주세요`]);
+  if (lackEnergy) unmet.push([null, `에너지가 ${DEFAULT_STAGE_COSTS.start}E 필요해요 (지금 ${energy}E)`]);
+  const canSubmit = unmet.length === 0 && !busy;
+  const goTo = (id) => {
+    const el = document.getElementById(id);
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+    el?.focus({ preventScroll: true });
+  };
+
   // 값이 있는 필드만 추려 appearance 페이로드 구성 — 전부 비었으면 null
   const buildAppearance = () => {
     const entries = APPEARANCE_FIELDS
@@ -316,8 +437,25 @@ export const ConceptStep = ({ busy, error, energy, onSubmit, worldOptions = null
         어떤 존재를 소환할까요?
       </h3>
       <p className="text-xs text-lobby-tx1 mb-5">
-        떠오르는 인물의 이미지를 자유롭게 적어주세요. 나머지는 스튜디오가 빚어냅니다.
+        {imageMode
+          ? "그림으로 외형을 보여주고, 성격과 이야기는 글로 들려주세요."
+          : "떠오르는 인물의 이미지를 자유롭게 적어주세요. 나머지는 스튜디오가 빚어내요."}
       </p>
+
+      {/* [그림 방식] 외형 결정 방식 — 글/그림 */}
+      <AppearanceModeSelect mode={mode} onChange={setMode} />
+
+      {imageMode && (
+        <>
+          <ReferenceNotice defaultOpen={!narrow} />
+          <div className="mb-3" id="studio-reference-anchor" tabIndex={-1}>
+            <ReferenceUploadCard state={reference} onPick={handlePickReference} onClear={clearReference} narrow={narrow}
+              onRetry={() => { if (lastFileRef.current) handlePickReference(lastFileRef.current); }} />
+          </div>
+          <AdjustPanel enabled={reference.status === "ready" || reference.status === "checking"} value={adjustments} onChange={setAdjustments} />
+          {conceptField}
+        </>
+      )}
 
       {/* 이름 (선택) */}
       <div className="mb-5">
@@ -342,7 +480,7 @@ export const ConceptStep = ({ busy, error, energy, onSubmit, worldOptions = null
               key={value}
               type="button"
               aria-pressed={gender === value}
-              onClick={() => { sfx.click(0.2); setGender(value); }}
+              onClick={() => { sfx.click(0.2); genderTouchedRef.current = true; setGenderAuto(false); setGender(value); }}
               className={`py-2.5 rounded-xl text-sm font-medium border transition ${
                 gender === value
                   ? "bg-lobby-accent/15 border-lobby-accent/50 text-lobby-accent"
@@ -353,6 +491,9 @@ export const ConceptStep = ({ busy, error, energy, onSubmit, worldOptions = null
             </button>
           ))}
         </div>
+        {imageMode && genderAuto && (
+          <p className="mt-1.5 text-xs text-lobby-tx2">그림을 보고 미리 골라뒀어요. 다르면 바꿔주세요.</p>
+        )}
       </div>
 
       {/* [2026-08-05 난이도] 공략 난이도 — StudioPage 편집 시트와 동일 문구·4단 그리드 */}
@@ -380,24 +521,11 @@ export const ConceptStep = ({ busy, error, energy, onSubmit, worldOptions = null
         </p>
       </div>
 
-      {/* 컨셉 */}
-      <div className="mb-2">
-        <label htmlFor="studio-character-concept" className="text-xs text-lobby-tx1 mb-1.5 block">컨셉 *</label>
-        <textarea
-          id="studio-character-concept" aria-describedby="studio-character-concept-length"
-          value={concept}
-          onChange={(e) => setConcept(e.target.value)}
-          placeholder={CONCEPT_PLACEHOLDER}
-          rows={8}
-          maxLength={CONCEPT_MAX}
-          className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white text-sm leading-relaxed placeholder:text-lobby-tx2 focus:border-lobby-accent/60 outline-none resize-none"
-        />
-        <div id="studio-character-concept-length" className={`mt-1 text-right text-xs tabular-nums ${valid ? "text-lobby-tx2" : "text-lobby-accent/70"}`}>
-          {len} / {CONCEPT_MIN}~{CONCEPT_MAX}자
-        </div>
-      </div>
+      {/* 컨셉 — 글 방식 위치 (그림 방식은 업로드 카드 아래로 올린다) */}
+      {!imageMode && conceptField}
 
-      {/* 외형 디테일 (선택) — 접이식 */}
+      {/* 외형 디테일 (선택) — 접이식 · 글 방식 전용 */}
+      {!imageMode && (
       <div className="mb-5 rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
         <button
           type="button"
@@ -453,6 +581,7 @@ export const ConceptStep = ({ busy, error, energy, onSubmit, worldOptions = null
           )}
         </AnimatePresence>
       </div>
+      )}
 
       {/* [World Builder] 세계관 연결 (선택) — 접이식 */}
       <div className="mb-5 rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden">
@@ -616,26 +745,47 @@ export const ConceptStep = ({ busy, error, energy, onSubmit, worldOptions = null
         </div>
       )}
 
+      {/* [그림 방식] 못 채운 조건 — 버튼 바로 위 한곳 (aria-describedby) */}
+      {unmet.length > 0 && !busy && (
+        <ul id="studio-start-why" className="mb-1 text-xs text-lobby-accent/85">
+          {unmet.map(([id, text]) => (
+            <li key={text}>
+              {id ? (
+                <button type="button" onClick={() => goTo(id)} className="min-h-11 py-2 underline underline-offset-2 hover:text-lobby-accent text-left">
+                  · {text}
+                </button>
+              ) : (
+                <span className="block py-2">· {text}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
       <motion.button
         type="button"
-        disabled={!valid || busy || lackEnergy}
+        disabled={!canSubmit}
+        aria-describedby={unmet.length ? "studio-start-why" : undefined}
         onClick={() => {
-          if (!valid || busy || lackEnergy) { sfx.locked(); return; }
+          if (!canSubmit) { sfx.locked(); return; }
           sfx.click();
           onSubmit({
             name,
             gender,   // [남캐] FEMALE/MALE
             difficulty, // [난이도] EASY/NORMAL/HARD/EXTREME
             concept: concept.trim(),
-            appearance: buildAppearance(),
+            appearance: imageMode ? null : buildAppearance(),
+            // [그림 방식] 검사 통과 그림 + 조정(바꾼 게 없으면 null)
+            referenceId: imageMode ? reference.view?.referenceId : null,
+            adjustments: imageMode ? adjustmentsPayload(adjustments) : null,
             // [World Builder] 세계관 연결 — 동시 지정은 UI에서 원천 차단 (단일 선택)
             officialWorldId: worldSel.type === "OFFICIAL" ? worldSel.id : null,
             ugcWorldId: worldSel.type === "UGC" ? worldSel.id : null,
           });
         }}
-        whileTap={{ scale: valid && !busy ? 0.98 : 1 }}
-        className={`w-full py-3.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
-          valid && !busy && !lackEnergy
+        whileTap={{ scale: canSubmit ? 0.98 : 1 }}
+        className={`w-full min-h-11 py-3.5 rounded-xl text-sm font-bold transition flex items-center justify-center gap-2 ${
+          canSubmit
             ? "aurora-secondary-primary"
             : "bg-white/5 text-lobby-tx2 cursor-not-allowed"
         }`}
@@ -649,6 +799,9 @@ export const ConceptStep = ({ busy, error, energy, onSubmit, worldOptions = null
           </span>
         )}
       </motion.button>
+      {imageMode && (
+        <p className="mt-2 text-xs text-lobby-tx2 text-center leading-relaxed">다시 뽑기·이 그림 고치기는 회당 +2E</p>
+      )}
     </div>
   );
 };
@@ -659,14 +812,35 @@ export const ConceptStep = ({ busy, error, energy, onSubmit, worldOptions = null
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // selectCost: [Pay-as-you-go] 확정 시 청구되는 다음 단계(스탠딩 파생) 단가 — 레거시 잡은 null(배지 숨김)
-const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollPending, onSelect, onRerollRequest }) => {
+/** 확대 프리뷰(이미 닫힘)에서 연 모달을 닫은 뒤 키보드 위치를 그 원화 카드로 되돌린다 */
+const focusGoldenCard = (index) => {
+  document.querySelector(`[data-golden-card="${index}"]`)?.focus();
+};
+
+export const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollPending, onSelect, onRerollRequest,
+                     pendingCount = 2, onFixRequest }) => {
+  // [그림 방식] 올린 그림이 있는 잡 — 비교·고치기·"올린 그림에서 다시 뽑기"
+  //   폴링마다 서버가 새 presigned URL(서명이 매초 바뀜)을 주므로, 같은 잡에선 첫 URL을 20분간 유지해
+  //   <img>가 2.5초마다 다시 받지 않게 한다(독립 검토 #3). 만료(30분) 전에 새 URL로 갈아탄다.
+  const refMode = Boolean(job?.referenceMode);
+  const stableRef = useRef({ jobId: null, url: null, at: 0 });
+  const incomingRef = job?.referenceImageUrl || null;
+  if (incomingRef && (stableRef.current.jobId !== job?.jobId || Date.now() - stableRef.current.at > 20 * 60 * 1000)) {
+    stableRef.current = { jobId: job?.jobId, url: incomingRef, at: Date.now() };
+  }
+  const referenceUrl = stableRef.current.jobId === job?.jobId ? stableRef.current.url : null;
+  const [compareShot, setCompareShot] = useState(null); // {index,url} | null — 열림 여부 겸용
+  const compareFromCardRef = useRef(null); // 확대 프리뷰에서 연 비교 — 닫으면 그 카드로 포커스 복귀(프리뷰는 이미 사라짐)
+  const [brokenRefUrl, setBrokenRefUrl] = useState(null); // 원본이 정리돼 이미지가 깨지면 블록을 숨긴다
+  const showReference = refMode && referenceUrl && brokenRefUrl !== referenceUrl;
+  const adjustSummary = summarizeAdjustments(job?.adjustments);
   // [리롤 누적] goldenShots는 리롤마다 +2장씩 누적 — 리롤 중(CONCEPT_PROCESSING·GOLDEN_GENERATING)
   // 이어도 기존 후보는 응답에 유지되므로, 상태와 무관하게 존재하는 카드는 계속 보여준다.
   const shots = job?.goldenShots || [];
   const canSelect = job?.status === "GACHA_WAIT";
   const isRerolling = !canSelect && shots.length > 0; // 기존 카드 유지한 채 새 후보 소환 중
   const isWaiting = shots.length === 0;
-  const gridScrolls = shots.length + (isRerolling ? 2 : 0) > 4; // 4장 초과 시 스크롤 그리드
+  const gridScrolls = shots.length + (isRerolling ? pendingCount : 0) > 4; // 4장 초과 시 스크롤 그리드
   const [preview, setPreview] = useState(null); // {index,url} | null
 
   // 카드 reveal 시 chime — 같은 shots 세트에 1번만
@@ -712,6 +886,11 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
             </p>
             <p className="text-xs text-lobby-tx2">보통 30~90초 정도 걸려요. 잠시만 기다려 주세요.</p>
           </>
+        ) : refMode ? (
+          <>
+            <p className="text-sm text-lobby-accent/85 font-medium text-center mb-2">올린 그림을 원화로 다시 그리는 중이에요.</p>
+            <p className="text-xs text-lobby-tx2">보통 1~3분 정도 걸려요. 나가 있어도 계속 그려요.</p>
+          </>
         ) : (
           <>
             <CyclingCopy lines={GACHA_LOADING_COPY} className="w-full mb-2" />
@@ -726,11 +905,30 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
     <div className="max-w-3xl mx-auto w-full">
       <h3 className="text-base font-bold text-white mb-1 flex items-center gap-2">
         <Sparkles size={16} className="text-lobby-accent" />
-        원화 선택
+        {refMode ? "마음에 드는 원화를 골라주세요" : "원화 선택"}
       </h3>
       <p className="text-xs text-lobby-tx1 mb-5">
-        캐릭터의 대표 일러스트가 돼요. 두 갈래의 가능성 중 하나를 고르세요.
+        {refMode
+          ? "올린 그림을 스튜디오 그림체로 다시 그렸어요. 고른 원화가 대표 일러스트와 썸네일이 돼요."
+          : "캐릭터의 대표 일러스트가 돼요. 두 갈래의 가능성 중 하나를 고르세요."}
       </p>
+
+      {/* [그림 방식] 올린 그림 — 눌러서 원화와 나란히 비교 (원본이 정리됐으면 생략) */}
+      {showReference && (
+        <div className="mb-3 max-w-lg mx-auto">
+        <button
+          type="button"
+          onClick={() => { compareFromCardRef.current = null; setCompareShot(shots[shots.length - 1] || {}); }}
+          className="group -mx-2 w-[calc(100%+1rem)] flex items-center gap-3 text-left rounded-xl p-2 hover:bg-white/[0.03]"
+        >
+          <img src={referenceUrl} alt="" onError={() => setBrokenRefUrl(referenceUrl)} className="w-14 aspect-[3/4] object-cover object-top rounded-lg border border-white/10 group-hover:border-lobby-accent/50" draggable={false} />
+          <span className="min-w-0">
+            <span className="block text-xs text-lobby-tx1 font-medium">올린 그림 <span className="text-lobby-tx2">· 눌러서 원화와 비교</span></span>
+            {adjustSummary.length > 0 && <span className="block mt-0.5 text-xs text-lobby-accent/85 truncate">{adjustSummary.join(" · ")}</span>}
+          </span>
+        </button>
+        </div>
+      )}
 
       {/* 후보 카드 — 리롤 누적으로 2·4·6…장. 4장 초과 시 내부 스크롤 그리드 */}
       <div
@@ -750,11 +948,18 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
               {/* 앞면 — 결과 이미지 */}
               <button
                 type="button"
+                data-golden-card={shot.index}
                 onClick={() => { sfx.click(); setPreview(shot); }}
                 className="absolute inset-0 rounded-2xl overflow-hidden border border-lobby-accent/25 hover:border-lobby-accent/70 transition-colors group"
                 style={{ backfaceVisibility: "hidden" }}
               >
                 <img src={shot.url} alt={`원화 ${shot.index + 1}`} className="w-full h-full object-cover" draggable={false} />
+                {/* [그림 방식] 고친 그림 표식 */}
+                {shot.origin === "FIX" && (
+                  <span className="absolute top-2 left-2 text-xs font-bold px-2 py-0.5 rounded-full bg-lobby-teal/90 text-lobby-bg">
+                    {Number.isInteger(shot.fixedFrom) ? `원화 ${shot.fixedFrom + 1} 수정본` : "수정본"}
+                  </span>
+                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
                 <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-xs text-white/80 opacity-0 group-hover:opacity-100 transition-opacity">
                   탭해서 확대
@@ -772,7 +977,7 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
         ))}
         {/* [리롤 누적] 리롤 중 — 새 카드 자리 로딩 플레이스홀더 2칸 (도착하면 flip reveal) */}
         {isRerolling &&
-          [0, 1].map((k) => (
+          Array.from({ length: pendingCount }, (_, k) => k).map((k) => (
             <motion.div
               key={`pending-${k}`}
               className="relative w-full aspect-[3/4] rounded-2xl border border-lobby-accent/20 bg-gradient-to-br from-lobby-surface2 via-lobby-surface to-lobby-bg flex flex-col items-center justify-center gap-3"
@@ -781,7 +986,7 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
               transition={{ delay: k * 0.15, duration: 0.4 }}
             >
               <SpinnerRing size={30} />
-              <span className="text-xs text-lobby-accent/80">새 후보 소환 중…</span>
+              <span className="text-xs text-lobby-accent/80">{refMode ? "다시 그리는 중…" : "새 후보 소환 중…"}</span>
             </motion.div>
           ))}
       </div>
@@ -795,16 +1000,16 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-lobby-tx2">
           마음에 드는 모습을 탭해서 크게 확인해 보세요.
-          <span className="block text-lobby-accent/80 mt-0.5">다시 소환해도 기존 후보는 유지돼요.</span>
+          <span className="block text-lobby-accent/80 mt-0.5">{refMode ? "다시 뽑아도 기존 후보는 유지돼요." : "다시 소환해도 기존 후보는 유지돼요."}</span>
         </p>
         <button
           type="button"
           disabled={busy || isRerolling}
           onClick={() => { sfx.click(); onRerollRequest(); }}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-lobby-accent/40 text-white/70 hover:text-lobby-accent text-xs font-bold transition-colors disabled:opacity-50"
+          className="shrink-0 inline-flex items-center gap-1.5 min-h-11 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-lobby-accent/40 text-white/70 hover:text-lobby-accent text-xs font-bold transition-colors disabled:opacity-50"
         >
           <RefreshCw size={12} className={isRerolling ? "animate-spin" : ""} />
-          {isRerolling ? "소환 중…" : "다시 소환"}
+          {isRerolling ? "소환 중…" : refMode ? "올린 그림에서 다시 뽑기" : "다시 소환"}
           <span className="inline-flex items-center gap-0.5 text-lobby-accent/90">
             <Zap size={10} />{rerollCost}
           </span>
@@ -832,7 +1037,30 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
               <div className="rounded-2xl overflow-hidden border border-lobby-accent/30 shadow-[0_0_60px_rgba(210,195,250,0.15)] mx-auto">
                 <img src={preview.url} alt={`원화 ${preview.index + 1}`} className="max-w-[92vw] max-h-[72vh] w-auto h-auto object-contain bg-black/90" />
               </div>
-              <div className="flex gap-3 mt-4">
+              {/* [그림 방식] 이 그림 고치기 — 구도 유지 편집으로 새 후보 1장 (+2E) */}
+              {refMode && canSelect && (
+                <div className="flex gap-2 mt-4">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => { const shot = preview; setPreview(null); onFixRequest?.(shot); }}
+                    className="flex-1 min-h-11 py-2.5 rounded-xl bg-white/[0.06] border border-white/15 text-sm font-semibold text-lobby-tx0 hover:bg-white/10 transition disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+                  >
+                    <Pencil size={13} />이 그림 고치기
+                    <span className="inline-flex items-center gap-0.5 text-xs text-lobby-tx1"><Zap size={10} />+{rerollCost}E</span>
+                  </button>
+                  {showReference && (
+                    <button
+                      type="button"
+                      onClick={() => { const shot = preview; compareFromCardRef.current = shot.index; setPreview(null); setCompareShot(shot); }}
+                      className="min-h-11 px-4 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-lobby-tx1 hover:bg-white/10 transition"
+                    >
+                      올린 그림과 비교
+                    </button>
+                  )}
+                </div>
+              )}
+              <div className={`flex gap-3 ${refMode && canSelect ? "mt-2" : "mt-4"}`}>
                 <button
                   type="button"
                   disabled={busy}
@@ -861,6 +1089,20 @@ const GachaStep = ({ job, busy, error, rerollCost, selectCost, appearanceRerollP
           </motion.div>
         )}
       </AnimatePresence>
+
+      {showReference && (
+        <ReferenceCompareModal
+          open={Boolean(compareShot)}
+          referenceUrl={referenceUrl}
+          shot={compareShot?.url ? compareShot : null}
+          onClose={() => {
+            setCompareShot(null);
+            const idx = compareFromCardRef.current;
+            compareFromCardRef.current = null;
+            if (idx != null) setTimeout(() => focusGoldenCard(idx), 0);
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -1087,7 +1329,7 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
         <button
           type="button"
           onClick={() => { sfx.click(); onOpenProfile(); }}
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-lobby-accent/12 hover:bg-lobby-accent/22 border border-lobby-accent/35 hover:border-lobby-accent/60 text-lobby-accent text-xs font-bold transition-colors"
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-lobby-accent/[0.12] hover:bg-lobby-accent/[0.22] border border-lobby-accent/35 hover:border-lobby-accent/60 text-lobby-accent text-xs font-bold transition-colors"
         >
           <Feather size={13} />
           기다리는 동안 설정을 다듬어보세요
@@ -1195,7 +1437,7 @@ const BaseSelectStep = ({ job, busy, error, rerollCost, selectCost, onSelect, on
           type="button"
           disabled={busy || isRerolling}
           onClick={() => { sfx.click(); onRerollRequest(); }}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-lobby-accent/40 text-white/70 hover:text-lobby-accent text-xs font-bold transition-colors disabled:opacity-50"
+          className="shrink-0 inline-flex items-center gap-1.5 min-h-11 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-lobby-accent/40 text-white/70 hover:text-lobby-accent text-xs font-bold transition-colors disabled:opacity-50"
         >
           <RefreshCw size={12} className={isRerolling ? "animate-spin" : ""} />
           {isRerolling ? "파생 중…" : "다시 파생"}
@@ -1358,7 +1600,7 @@ const ForgeProgressStep = ({ job, onOpenWorldBuilder }) => {
             type="button"
             onClick={() => { sfx.click(); onOpenWorldBuilder(); }}
             onMouseEnter={() => sfx.hover()}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-lobby-accent/12 hover:bg-lobby-accent/22 border border-lobby-accent/35 hover:border-lobby-accent/60 text-lobby-accent text-xs font-bold transition-colors"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-lobby-accent/[0.12] hover:bg-lobby-accent/[0.22] border border-lobby-accent/35 hover:border-lobby-accent/60 text-lobby-accent text-xs font-bold transition-colors"
           >
             <Globe size={13} />
             기다리는 동안 이 캐릭터의 세계관 만들기
@@ -2052,13 +2294,13 @@ export default function StudioCreateFlow({
   );
 
   // ─── STEP 1: 소환 시작 ───
-  const handleConceptSubmit = async ({ name, gender, difficulty, concept, appearance, officialWorldId, ugcWorldId }) => {
+  const handleConceptSubmit = async ({ name, gender, difficulty, concept, appearance, officialWorldId, ugcWorldId, referenceId, adjustments }) => {
     if (busyRef.current) return; // [폴리싱 #8] 연타 재진입 방어
     busyRef.current = true;
     setActionBusy(true);
     setActionError(null);
     try {
-      const res = await createUgcCharacter({ name, gender, difficulty, concept, appearance, officialWorldId, ugcWorldId });
+      const res = await createUgcCharacter({ name, gender, difficulty, concept, appearance, officialWorldId, ugcWorldId, referenceId, adjustments });
       sfx.sparkle();
       setJobId(res.jobId);
       onEnergyRefresh?.();
@@ -2079,7 +2321,34 @@ export default function StudioCreateFlow({
 
   // 리롤은 전용 모달(GoldenRerollModal)로 — 비용 고지 + 외형 수정(선택)까지 담당
   const [goldenRerollOpen, setGoldenRerollOpen] = useState(false);
-  const handleGoldenRerollRequest = () => setGoldenRerollOpen(true);
+  // [그림 방식] 올린 그림에서 다시 뽑기 / 이 그림 고치기 — 조정 모달 {mode:"reroll"|"fix", base?}
+  const [refModal, setRefModal] = useState(null);
+  const [goldenPending, setGoldenPending] = useState(2); // 생성 중 자리 표시 개수(고치기=1)
+  const handleGoldenRerollRequest = () => {
+    if (job?.referenceMode) { setActionError(null); setRefModal({ mode: "reroll", key: Date.now() }); }
+    else setGoldenRerollOpen(true);
+  };
+  const refConfirmFiredRef = useRef(false);
+  const handleRefModalConfirm = async (payload) => {
+    if (refConfirmFiredRef.current || !refModal) return;
+    refConfirmFiredRef.current = true;
+    const { mode, base } = refModal;
+    try {
+      // 요청이 성공한 뒤에 닫는다 — 실패(에너지 부족·검증 400)하면 입력한 초안을 그대로 두고 모달 안에 사유를 보인다
+      const ok = await runAction(
+        () => (mode === "fix" ? fixGoldenShot(jobId, base.index, payload) : rerollGoldenShots(jobId, null, payload)),
+        sfx.cardFanout,
+        { energyRetryHint: true }
+      );
+      if (ok) {
+        setGoldenPending(mode === "fix" ? 1 : 2);
+        setRefModal(null);
+        if (mode === "fix") setTimeout(() => focusGoldenCard(base.index), 0);
+      }
+    } finally {
+      refConfirmFiredRef.current = false;
+    }
+  };
 
   // [폴리싱 #1] 외형 수정 리롤 중 — 백엔드가 구외형 원화를 비우므로 대기 뷰에 전용 카피를 띄운다
   const [appearanceRerollPending, setAppearanceRerollPending] = useState(false);
@@ -2358,7 +2627,7 @@ export default function StudioCreateFlow({
                           isPast
                             ? "bg-lobby-accent border-lobby-accent text-[#25253b]"
                             : isCurrent
-                            ? "bg-lobby-accent/22 border-lobby-accent text-lobby-accent"
+                            ? "bg-lobby-accent/[0.22] border-lobby-accent text-lobby-accent"
                             : "bg-white/[0.04] border-white/15 text-lobby-tx2"
                         }`}
                       >
@@ -2495,6 +2764,8 @@ export default function StudioCreateFlow({
                 appearanceRerollPending={appearanceRerollPending}
                 onSelect={handleGoldenSelect}
                 onRerollRequest={handleGoldenRerollRequest}
+                pendingCount={goldenPending}
+                onFixRequest={(shot) => { setActionError(null); setRefModal({ mode: "fix", base: shot, key: Date.now() }); }}
               />
             )}
 
@@ -2620,6 +2891,25 @@ export default function StudioCreateFlow({
         rerollCost={rerollCosts.goldenShot}
         onConfirm={handleGoldenRerollConfirm}
         onCancel={() => setGoldenRerollOpen(false)}
+      />
+
+      {/* [그림 방식] 올린 그림에서 다시 뽑기 / 이 그림 고치기 */}
+      <ReferenceAdjustModal
+        open={Boolean(refModal)}
+        openKey={refModal?.key}
+        mode={refModal?.mode}
+        base={refModal?.base}
+        initial={job?.adjustments}
+        cost={rerollCosts.goldenShot}
+        energy={energy}
+        error={actionError}
+        busy={actionBusy}
+        onConfirm={handleRefModalConfirm}
+        onCancel={() => {
+          const fixBase = refModal?.mode === "fix" ? refModal.base : null;
+          setRefModal(null);
+          if (fixBase) setTimeout(() => focusGoldenCard(fixBase.index), 0);
+        }}
       />
 
       {/* ═══ confirm 모달 ═══ */}

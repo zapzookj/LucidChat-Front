@@ -66,7 +66,7 @@ import api from "./axios";
  */
 export async function createUgcCharacter({
   name, concept, appearance = null, officialWorldId = null, ugcWorldId = null, gender = null,
-  difficulty = null,
+  difficulty = null, referenceId = null, adjustments = null,
 }) {
   const res = await api.post("/ugc/characters", {
     name: name?.trim() ? name.trim() : null,
@@ -78,7 +78,37 @@ export async function createUgcCharacter({
     ...(gender ? { gender } : {}),
     // [2026-08-05 난이도] EASY/NORMAL/HARD/EXTREME — 미전송 시 서버 기본(NORMAL)
     ...(difficulty ? { difficulty } : {}),
+    // [그림 방식 · aichat docs/56 §10] 업로드·검사를 통과한 그림 + 복장·체형 조정(선택).
+    //   referenceId가 있으면 서버는 appearance를 무시하고 원화를 그림에서 다시 그린다.
+    ...(referenceId ? { referenceId } : {}),
+    ...(referenceId && adjustments ? { adjustments } : {}),
   });
+  return res.data;
+}
+
+/**
+ * [그림 방식] 캐릭터 그림 업로드·검사 — 에너지 무과금.
+ * @param {File} file PNG·JPG·WebP, 10MB 이하
+ * @returns {Promise<{referenceId:number, verdict:"OK"|"UNCLEAR"|"MULTIPLE"|"POLICY", message:string|null,
+ *                    features:string[], genderGuess:"FEMALE"|"MALE"|null, previewUrl:string}>}
+ *   verdict≠OK도 200 — message를 그대로 노출. 형식·용량 위반은 400(message).
+ */
+export async function uploadReference(file) {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await api.post("/ugc/references", form, { headers: { "Content-Type": "multipart/form-data" } });
+  return res.data;
+}
+
+/**
+ * [그림 방식] 이 그림 고치기 — 고른 원화의 구도를 유지한 채 조정만 다시 그린 후보 1장 추가(+2E).
+ * @param {{outfit?:string, outfitText?:string, body?:string, bust?:string, extra?:string}} adjustments 하나 이상 변경 필수
+ */
+export async function fixGoldenShot(jobId, index, adjustments) {
+  const res = await api.post(
+    `/ugc/characters/${encodeURIComponent(jobId)}/golden-shot/${encodeURIComponent(index)}/fix`,
+    { adjustments }
+  );
   return res.data;
 }
 
@@ -108,10 +138,15 @@ export async function selectGoldenShot(jobId, selectedIndex) {
  *   빈 필드를 걸러 값 있는 필드만 담거나 null을 넘긴다.
  *   황금샷(GACHA_WAIT) 리롤 전용 — 스탠딩(BASE_WAIT) 리롤은 원화 고정이라 외형 수정 불가.
  */
-export async function rerollGoldenShots(jobId, appearance = null) {
+export async function rerollGoldenShots(jobId, appearance = null, adjustments = undefined) {
   const res = await api.post(
     `/ugc/characters/${encodeURIComponent(jobId)}/golden-shot`,
-    { reroll: true, ...(appearance ? { appearance } : {}) }
+    {
+      reroll: true,
+      ...(appearance ? { appearance } : {}),
+      // [그림 방식] 올린 그림에서 다시 뽑기 — 조정 갱신(null=전부 그대로). undefined=기존 조정 유지(필드 생략).
+      ...(adjustments !== undefined ? { adjustments } : {}),
+    }
   );
   return res.data;
 }

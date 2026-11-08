@@ -3,7 +3,8 @@ import { ArrowLeft, ArrowRight, BookOpen, Plus, Wand2 } from "lucide-react";
 import { ActiveJobCard, MyCharacterCard, MyWorldCard } from "../pages/StudioPage";
 import { TalkRow } from "../pages/lobby/ArchiveTab";
 import { WorldCard } from "../pages/lobby/StoryTab";
-import { ConceptStep } from "../components/studio/StudioCreateFlow";
+import { ConceptStep, GachaStep } from "../components/studio/StudioCreateFlow";
+import { ReferenceAdjustModal } from "../components/studio/ReferenceBuilderParts";
 import { WorldConceptStep } from "../components/studio/WorldCreateFlow";
 import { Step1WorldConfirm, Step2HeroineSelect, Step3Profile } from "../components/story-v2/StoryCreateFlow";
 import { EmptyState, PageHead, SectionHead } from "../pages/lobby/lobbyUi";
@@ -34,10 +35,28 @@ const ROOMS = [
   { roomId: "sample-3", type: "THEATER", worldDisplayName: "달빛이 머무는 저택", currentAct: 2, currentChapter: 4, leadHeroineName: "루나", endingReached: true, endingTitle: "오래도록 기억될 마지막 인사", lastActiveAt: new Date(Date.now() - 3 * 86400000).toISOString() },
 ];
 
+// [그림 방식 · docs/56 §10] 업로드·원화 단계 픽스처 — 실제 요청 없음
+const REFERENCE_FIXTURE = `${CDN}/characters/ugc-6/thumbnail.png`;
+const fakeUpload = (verdict) => () => new Promise((resolve) => setTimeout(() => resolve(verdict === "OK"
+  ? { referenceId: 1, verdict: "OK", message: null, features: ["검은 단발", "갈색 눈", "회색 니트", "체크 스커트", "은색 귀걸이"], genderGuess: "FEMALE", previewUrl: REFERENCE_FIXTURE }
+  : { referenceId: 2, verdict, message: "캐릭터를 또렷하게 찾지 못했어요. 얼굴과 옷차림이 잘 보이는 그림으로 바꿔주세요.", features: [], genderGuess: null, previewUrl: REFERENCE_FIXTURE }), 1200));
+const goldenJob = (status) => ({
+  status, currentStepHint: status === "GACHA_WAIT" ? "GACHA_WAIT" : "GOLDEN_GENERATING",
+  jobId: 1, referenceMode: true, referenceImageUrl: REFERENCE_FIXTURE, adjustments: { outfit: "maid", body: "keep", bust: "keep" },
+  goldenShots: [
+    { index: 0, url: `${CDN}/characters/ugc-6/thumbnail.png`, origin: "REFERENCE", fixedFrom: null },
+    { index: 1, url: `${CDN}/characters/airi/thumbnail.png`, origin: "REFERENCE", fixedFrom: null },
+    { index: 2, url: `${CDN}/characters/luna/thumbnail.png`, origin: "FIX", fixedFrom: 0 },
+  ],
+});
+
 export default function SecondaryDesignPreview() {
   const [view, setView] = useState("studio");
   const [notice, setNotice] = useState("");
   const [lowEnergy, setLowEnergy] = useState(false);
+  const [uploadVerdict, setUploadVerdict] = useState("OK");
+  const [goldenStatus, setGoldenStatus] = useState("GACHA_WAIT");
+  const [refModal, setRefModal] = useState(null); // {mode, base, key} — 실제 부모(StudioCreateFlow)와 같은 계약
   const [storyStep, setStoryStep] = useState(1);
   const [selected, setSelected] = useState(["airi"]);
   // [docs/55 Carry-Over] 프리뷰용 토글 상태 — 실제 플로우(StoryCreateFlow)와 같은 규칙(관계 있으면 기본 ON, false=유저가 끔)
@@ -47,6 +66,7 @@ export default function SecondaryDesignPreview() {
   const setViewAndReset = (next) => { setNotice(""); setView(next); };
   const localNotice = (message) => setNotice(`${message} · 개발용 예시이며 실제 요청은 전송하지 않았어요.`);
   const isForm = view === "character" || view === "world";
+  const isGolden = view === "golden";
   return (
     <main className="relative h-dvh overflow-y-auto bg-lobby-bg text-lobby-tx0 custom-scrollbar">
       <AuroraBackdrop />
@@ -56,7 +76,7 @@ export default function SecondaryDesignPreview() {
           <p className="hidden md:block text-sm font-semibold">AURORA · 스튜디오와 보관함</p>
           <label className="flex items-center gap-2 text-xs text-lobby-tx2">화면
             <select value={view} onChange={(event) => setViewAndReset(event.target.value)} className="min-h-11 rounded-xl bg-lobby-surface border border-white/15 px-3 text-sm text-lobby-tx0">
-              <option value="studio">스튜디오</option><option value="archive">보관함</option><option value="story">이야기 시작 준비</option><option value="character">캐릭터 만들기</option><option value="world">세계관 만들기</option>
+              <option value="studio">스튜디오</option><option value="archive">보관함</option><option value="story">이야기 시작 준비</option><option value="character">캐릭터 만들기</option><option value="golden">원화 고르기(그림 방식)</option><option value="world">세계관 만들기</option>
             </select>
           </label>
         </div>
@@ -97,10 +117,20 @@ export default function SecondaryDesignPreview() {
             </div>
           </section>
         </div>}
-        {isForm && <div className="max-w-2xl mx-auto">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-6"><p className="flex items-center gap-2 text-sm text-lobby-accent"><Wand2 size={16} />{view === "character" ? "캐릭터 만들기" : "세계관 만들기"} · 첫 단계</p><label className="flex min-h-11 items-center gap-2 text-xs text-lobby-tx1"><input type="checkbox" checked={lowEnergy} onChange={(event) => setLowEnergy(event.target.checked)} />에너지 부족 상태</label></div>
+        {isGolden && <div className="max-w-3xl mx-auto">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6"><p className="flex items-center gap-2 text-sm text-lobby-accent"><Wand2 size={16} />캐릭터 만들기 · 원화 (그림 방식)</p>
+            <label className="flex min-h-11 items-center gap-2 text-xs text-lobby-tx1">상태<select value={goldenStatus} onChange={(event) => setGoldenStatus(event.target.value)} className="min-h-11 rounded-xl bg-lobby-surface border border-white/15 px-2 text-sm text-lobby-tx0"><option value="GACHA_WAIT">선택 대기</option><option value="CONCEPT_PROCESSING">고치는 중</option></select></label></div>
           <section className="rounded-[28px] border border-white/15 bg-lobby-surface/65 p-5 sm:p-8">
-            {view === "character" ? <ConceptStep busy={false} energy={lowEnergy ? 0 : 50} worldOptions={WORLD_OPTIONS} onSubmit={(data) => localNotice(`${data.name || "새 캐릭터"} 입력 확인 완료`)} /> : <WorldConceptStep busy={false} energy={lowEnergy ? 0 : 50} onSubmitRequest={(data) => localNotice(`${data.name || "새 세계관"} 입력 확인 완료`)} />}
+            <GachaStep job={goldenJob(goldenStatus)} busy={false} error={null} rerollCost={2} selectCost={4} pendingCount={1}
+              onSelect={(i) => localNotice(`원화 ${i + 1} 확정`)} onRerollRequest={() => setRefModal({ mode: "reroll", key: Date.now() })} onFixRequest={(shot) => setRefModal({ mode: "fix", base: shot, key: Date.now() })} />
+            <ReferenceAdjustModal open={Boolean(refModal)} openKey={refModal?.key} mode={refModal?.mode} base={refModal?.base} initial={goldenJob(goldenStatus).adjustments} cost={2} energy={lowEnergy ? 0 : 50} busy={false}
+              onConfirm={(payload) => { const m = refModal?.mode; setRefModal(null); localNotice(`${m === "fix" ? "고치기" : "다시 뽑기"} 요청 · 조정 ${JSON.stringify(payload)}`); }} onCancel={() => setRefModal(null)} />
+          </section>
+        </div>}
+        {isForm && <div className="max-w-2xl mx-auto">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6"><p className="flex items-center gap-2 text-sm text-lobby-accent"><Wand2 size={16} />{view === "character" ? "캐릭터 만들기" : "세계관 만들기"} · 첫 단계</p><label className="flex min-h-11 items-center gap-2 text-xs text-lobby-tx1"><input type="checkbox" checked={lowEnergy} onChange={(event) => setLowEnergy(event.target.checked)} />에너지 부족 상태</label>{view === "character" && <label className="flex min-h-11 items-center gap-2 text-xs text-lobby-tx1">업로드 결과<select value={uploadVerdict} onChange={(event) => setUploadVerdict(event.target.value)} className="min-h-11 rounded-xl bg-lobby-surface border border-white/15 px-2 text-sm text-lobby-tx0"><option value="OK">통과</option><option value="UNCLEAR">인식 실패</option></select></label>}</div>
+          <section className="rounded-[28px] border border-white/15 bg-lobby-surface/65 p-5 sm:p-8">
+            {view === "character" ? <ConceptStep busy={false} energy={lowEnergy ? 0 : 50} worldOptions={WORLD_OPTIONS} uploadReferenceImpl={fakeUpload(uploadVerdict)} onSubmit={(data) => localNotice(`${data.name || "새 캐릭터"} 입력 확인 완료 · 그림 ${data.referenceId ?? "없음"} · 조정 ${data.adjustments ? JSON.stringify(data.adjustments) : "없음"}`)} /> : <WorldConceptStep busy={false} energy={lowEnergy ? 0 : 50} onSubmitRequest={(data) => localNotice(`${data.name || "새 세계관"} 입력 확인 완료`)} />}
           </section>
         </div>}
       </div>
