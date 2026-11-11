@@ -84,7 +84,7 @@ const EMOTION_LABELS = {
 };
 
 const CONCEPT_MIN = 30;
-const CONCEPT_MAX = 1000;
+const CONCEPT_MAX = 5000;
 
 // [Pay-as-you-go] 단계별 에너지 단가 폴백 — 서버 stageCosts 우선 (rerollCosts 패턴).
 //   start: 소환 시작(컨셉 제출) / standing: 황금샷 선택 시(스탠딩 파생 착수)

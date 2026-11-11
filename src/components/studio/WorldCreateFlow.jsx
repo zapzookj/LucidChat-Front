@@ -51,8 +51,8 @@ const STEP_LABELS = [
 ];
 
 const CONCEPT_MIN = 30;
-const CONCEPT_MAX = 1000;
-const LORE_MAX = 2000;
+const CONCEPT_MAX = 5000;
+const LORE_MAX = 5000;
 const CREATE_COST = 10;
 
 // 컨셉 분석(CONCEPT_PROCESSING) 중 순환 서사 카피
@@ -212,7 +212,7 @@ export const WorldConceptStep = ({ busy, error, energy, onSubmitRequest }) => {
         어떤 세계를 빚을까요?
       </h3>
       <p className="text-xs text-lobby-tx1 mb-5">
-        떠오르는 세계의 인상을 자유롭게 적어주세요. 설정과 장소는 스튜디오가 채워드려요.
+        여기에 적은 글이 그대로 세계관 설정 본문이 돼요. 소개와 장소는 스튜디오가 채워드려요.
       </p>
 
       {/* 이름 (선택) */}

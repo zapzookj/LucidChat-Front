@@ -225,7 +225,7 @@ const IllustrationModal = ({
               </div>
 
               {/* 히로인 카드 그리드 */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5 max-h-[55vh] overflow-y-auto overscroll-contain pr-1">
                 {v2Heroines.map((h, i) => {
                   const isSelected = h.characterId === selectedCharacterId;
                   return (

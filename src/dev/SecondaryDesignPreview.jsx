@@ -109,7 +109,7 @@ export default function SecondaryDesignPreview() {
           <section className="aurora-gate rounded-[28px] border border-white/15 p-5 sm:p-7">
             <div className="flex items-center gap-2 text-xs text-lobby-teal mb-6"><BookOpen size={16} />이야기 시작 준비 · {storyStep} / 3</div>
             {storyStep === 1 && <Step1WorldConfirm world={WORLD} />}
-            {storyStep === 2 && <Step2HeroineSelect heroines={HEROINES} selected={selected} onToggle={(id) => setSelected((current) => current.includes(id) ? current.filter((value) => value !== id) : current.length < 5 ? [...current, id] : current)} relationById={relationById} carryOn={carryOn} onToggleCarry={(id) => setCarryOn((prev) => ({ ...prev, [id]: prev[id] === false }))} />}
+            {storyStep === 2 && <Step2HeroineSelect heroines={HEROINES} selected={selected} onToggle={(id) => setSelected((current) => current.includes(id) ? current.filter((value) => value !== id) : current.length < 10 ? [...current, id] : current)} relationById={relationById} carryOn={carryOn} onToggleCarry={(id) => setCarryOn((prev) => ({ ...prev, [id]: prev[id] === false }))} />}
             {storyStep === 3 && <Step3Profile profile={PROFILE} onEdit={() => localNotice("프로필 편집 선택")} carried={carried} />}
             <div className="flex justify-between gap-3 border-t border-white/10 mt-6 pt-4">
               <button disabled={storyStep === 1} onClick={() => setStoryStep((n) => n - 1)} className="min-h-11 px-3 text-sm text-lobby-tx1 disabled:opacity-30">이전</button>

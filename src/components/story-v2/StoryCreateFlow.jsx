@@ -4,8 +4,8 @@ import { X, ArrowLeft, ArrowRight, Check, Sparkles, Users, User as UserIcon, His
 import { sfx } from "../../utils/sfx";
 import "../../styles/aurora-secondary.css";
 
-// [docs/55 결정 ⑥] 스토리 히로인 상한 3→5 — 백엔드 CreateStoryV2Request @Size(max=5)와 동기. 극장(TheaterCreateFlow)은 3 유지.
-const MAX_HEROINES = 5;
+// [docs/55 결정 ⑥] 스토리 히로인 상한 3→5, [2026-11-12] 5→10 — 백엔드 CreateStoryV2Request @Size(max=10)와 동기. 극장(TheaterCreateFlow)은 3 유지.
+const MAX_HEROINES = 10;
 // [docs/55 Carry-Over] 자유 모드 관계 표기 — 동적 관계 태그가 있으면 그것, 없으면 단계 라벨
 const RELATION_LABEL = { STRANGER: "타인", ACQUAINTANCE: "지인", FRIEND: "친구", LOVER: "연인", ENEMY: "적" };
 const relationLabel = (r) => r?.dynamicRelationTag || RELATION_LABEL[r?.statusLevel] || "관계";
@@ -26,7 +26,7 @@ import { fetchProfile, LENS_FIELDS } from "../../api/PersonaApi";
  * [Story V2] CreateFlow — 3 step (시작 장소는 LLM이 오프닝에서 자율 확정)
  *
  * step 1: World 확인 (선택한 World의 전체 시놉시스)
- * step 2: 히로인 선택 (1~3명)
+ * step 2: 히로인 선택 (1~MAX_HEROINES명)
  * step 3: 내 프로필 확인 — [블록 B] 피커 없이 현재 프로필 자동 적용(+시작 전 편집 진입점 1개)
   * → submit: createStoryV2Room (서버가 현재 프로필을 스냅샷)
  *
@@ -150,7 +150,7 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
     }
   };
 
-  // 히로인 토글 (1~5명 — [docs/55 결정 ⑥])
+  // 히로인 토글 (1~MAX_HEROINES명 — [docs/55 결정 ⑥])
   const toggleHeroine = (id) => {
     setSelectedHeroineIds((prev) => {
       if (prev.includes(id)) {
@@ -158,7 +158,7 @@ export default function StoryCreateFlow({ worldId, onCancel, onComplete, presetH
       } else {
         if (prev.length >= MAX_HEROINES) {
           sfx.thud();
-          return prev; // 최대 5명
+          return prev; // 상한 도달
         }
         sfx.click();
         return [...prev, id];

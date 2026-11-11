@@ -19,7 +19,7 @@ import { sfx } from "../../utils/sfx";
  *
  * 구성:
  *   - 헤더: 16:9 썸네일 + 이름 + reviewStatus 뱃지 + 닫기
- *   - 설정 섹션: 이름/소개/lore(2000자 카운터)/무드 태그(콤마 입력)
+ *   - 설정 섹션: 이름/소개/lore(5000자 카운터)/무드 태그(콤마 입력)
  *       ProfileEditPanel 패턴 — 1회 스냅샷 시딩 + dirty diff, 변경분만 PATCH.
  *       reviewStatus !== NONE이면 저장 confirm에 검수 초기화 경고.
  *       미저장 닫기 confirm.
@@ -36,7 +36,7 @@ import { sfx } from "../../utils/sfx";
  */
 
 const LOCATION_MAX = 20;
-const LORE_MAX = 2000;
+const LORE_MAX = 5000;
 const LOCATION_DESC_MAX = 300;
 const LOCATION_COST = 1;
 // [적대 리뷰 #1] GENERATING이 이 시간 이상 이어지면 멈춤 복구 버튼 노출
